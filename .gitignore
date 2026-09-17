@@ -7,3 +7,6 @@ dist/
 *.db
 *.sqlite
 coverage/
+*.db-shm
+*.db-wal
+*.db-journal
