@@ -10,3 +10,7 @@ coverage/
 *.db-shm
 *.db-wal
 *.db-journal
+robot_gateway/.venv/
+__pycache__/
+.pytest_cache/
+robot_gateway/config.toml
