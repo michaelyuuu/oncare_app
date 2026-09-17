@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import {
-  REASON_CODE, makeTransitionEvent, transitionTask, transitionVisit,
+  REASON_CODE, TASK_STATES, VISIT_STATES, makeTransitionEvent, transitionTask, transitionVisit,
   type ActorType, type AuditEvent, type TaskState, type VisitState,
 } from "@oncare/core";
 import type { Db } from "../db/client";
@@ -14,7 +14,7 @@ export class TransitionError extends Error {
 export interface TransitionInput {
   entityType: "visit" | "task";
   entityId: string;
-  to: string;
+  to: VisitState | TaskState;
   actorType: ActorType;
   actorId: string;
   reason?: string;
@@ -39,10 +39,18 @@ export function createTransitionService(db: Db, opts: CreateTransitionServiceOpt
     if (input.entityType === "visit") {
       const row = db.select().from(t.visitSession).where(eq(t.visitSession.id, input.entityId)).get();
       if (!row) throw new TransitionError(`visit "${input.entityId}" not found`);
+      // A stored state outside the machine is corrupt data, not a programming
+      // error: report it as a 409 rather than letting the table lookup crash.
+      if (!(VISIT_STATES as readonly string[]).includes(row.state)) {
+        throw new TransitionError(`visit "${input.entityId}" has an unknown state "${row.state}"`);
+      }
       return { from: row.state, correlationId: row.id };
     }
     const row = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, input.entityId)).get();
     if (!row) throw new TransitionError(`task "${input.entityId}" not found`);
+    if (!(TASK_STATES as readonly string[]).includes(row.state)) {
+      throw new TransitionError(`task "${input.entityId}" has an unknown state "${row.state}"`);
+    }
     return { from: row.state, correlationId: row.correlationId };
   }
 

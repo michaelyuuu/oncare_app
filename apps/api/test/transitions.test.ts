@@ -46,6 +46,22 @@ describe("applyTransition", () => {
     expect(() => svc.apply({ entityType: "visit", entityId: "nope", to: "cancelled", actorType: "system", actorId: "api" })).toThrow(TransitionError);
   });
 
+  test("a stored state that is not a known state is a 409, not a TypeError", async () => {
+    const { db, svc } = await setup();
+    db.update(t.visitSession).set({ state: "garbage" }).where(eq(t.visitSession.id, "visit_1")).run();
+    db.update(t.taskRequest).set({ state: "garbage" }).where(eq(t.taskRequest.id, "task_1")).run();
+
+    expect(() => svc.apply({ entityType: "visit", entityId: "visit_1", to: "cancelled", actorType: "system", actorId: "api" }))
+      .toThrow(TransitionError);
+    expect(() => svc.apply({ entityType: "visit", entityId: "visit_1", to: "cancelled", actorType: "system", actorId: "api" }))
+      .toThrow(/visit "visit_1" has an unknown state "garbage"/);
+    expect(() => svc.apply({ entityType: "task", entityId: "task_1", to: "cancelled", actorType: "system", actorId: "api" }))
+      .toThrow(/task "task_1" has an unknown state "garbage"/);
+
+    expect(db.select().from(t.auditEvent).all()).toHaveLength(0);
+    expect(db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get()?.state).toBe("garbage");
+  });
+
   test("subscribers receive every successful event and none of the rejected ones", async () => {
     const { svc } = await setup();
     const seen: string[] = [];
