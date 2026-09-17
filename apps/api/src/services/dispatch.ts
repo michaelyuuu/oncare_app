@@ -61,6 +61,10 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     const cmd = db.select().from(t.robotCommand).where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.visitId, msg.correlationId))).get();
     if (!cmd?.visitId) return;
     if (msg.type === "ack") {
+      // The first ack settles the command. A later one (a duplicate the robot
+      // sends after a re-flush, or a stray retry) must never overwrite the
+      // recorded outcome, nor drive a second visit transition off it.
+      if (cmd.result !== null) return;
       db.update(t.robotCommand).set({ ackedAt: now().toISOString(), result: msg.result }).where(eq(t.robotCommand.id, cmd.id)).run();
       if (msg.result === "accepted") robotApply(robotId, cmd.visitId, "robot_en_route");
       else if (msg.result !== "duplicate") robotApply(robotId, cmd.visitId, "robot_unavailable", msg.result);

@@ -81,6 +81,18 @@ describe("dispatch service", () => {
     expect(state()).toBe("cancelled");
   });
 
+  test("a second ack never overwrites the recorded result", async () => {
+    const { app, db, visitId, state } = await acceptedVisit();
+    const cmd = () => db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visitId)).get()!;
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "accepted" });
+    const ackedAt = cmd().ackedAt;
+    expect(cmd().result).toBe("accepted");
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "duplicate" });
+    expect(cmd().result).toBe("accepted");
+    expect(cmd().ackedAt).toBe(ackedAt);
+    expect(state()).toBe("robot_en_route");
+  });
+
   test("a robot message with an unknown correlation id is ignored without throwing", async () => {
     const { app, state } = await acceptedVisit();
     expect(() => app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: "nope", result: "accepted" })).not.toThrow();
