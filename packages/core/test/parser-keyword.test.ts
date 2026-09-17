@@ -40,6 +40,7 @@ describe("KeywordParser", () => {
     expect(out.kind).toBe("clarification");
     if (out.kind === "clarification") {
       expect(out.options).toEqual([...DEMO_CATALOGUE.approvedItems]);
+      expect(out.code).toBe("clarify_no_item");
     }
   });
 
@@ -58,7 +59,12 @@ describe("KeywordParser", () => {
   });
 
   test("empty input asks for clarification", () => {
-    expect(parser.parse("   ", ctx).kind).toBe("clarification");
+    const out = parser.parse("   ", ctx);
+    expect(out.kind).toBe("clarification");
+    if (out.kind === "clarification") {
+      expect(out.options).toEqual([...DEMO_CATALOGUE.approvedItems]);
+      expect(out.code).toBe("clarify_unparseable");
+    }
   });
 
   test('Chinese "剪刀" (scissors) → proposal not conflicted by substring "刀" (knife)', () => {
@@ -111,11 +117,23 @@ describe("KeywordParser", () => {
     if (out.kind === "proposal") expect(out.proposal.item).toBe("water_bottle");
   });
 
-  test('"tissue box, tissue box, and a knife" → clarification with both items sorted', () => {
+  test('"tissue box, tissue box, and a knife" → clarification offering only the approved item', () => {
     const out = parser.parse("tissue box, tissue box, and a knife", ctx);
     expect(out.kind).toBe("clarification");
     if (out.kind === "clarification") {
-      expect(out.options.sort()).toEqual(["knife", "tissue_box"]);
+      expect(out.options).toEqual(["tissue_box"]);
+      expect(out.code).toBe("clarify_multiple");
+    }
+  });
+
+  test('"knife and scissors" (both prohibited) → clarification with the full approved list', () => {
+    const out = parser.parse("knife and scissors", ctx);
+    expect(out.kind).toBe("clarification");
+    if (out.kind === "clarification") {
+      expect(out.options).toEqual([...DEMO_CATALOGUE.approvedItems]);
+      expect(out.options).not.toContain("knife");
+      expect(out.options).not.toContain("scissors");
+      expect(out.code).toBe("clarify_multiple");
     }
   });
 
@@ -163,7 +181,7 @@ describe("KeywordParser", () => {
     }
   });
 
-  test("Regex escaping: c++ book (escapeRegExp protects metacharacters)", () => {
+  test("normalisation strips punctuation: \"c++ book\" still matches its synonym", () => {
     const customParser = new KeywordParser({
       cpp_book: ["c++ book"],
     });

@@ -1,5 +1,5 @@
 import { parseTaskProposal } from "../intent";
-import type { IntentParser, ParseContext, ParseOutcome } from "./types";
+import type { ClarificationCode, IntentParser, ParseContext, ParseOutcome } from "./types";
 
 /**
  * Deterministic parser: matches item synonyms in the text. No network, no model.
@@ -30,11 +30,12 @@ export class KeywordParser implements IntentParser {
   constructor(private readonly synonyms: Record<string, string[]> = DEFAULT_SYNONYMS) {}
 
   parse(text: string, ctx: ParseContext): ParseOutcome {
-    const clarify = (question: string, options: string[]): ParseOutcome => ({ kind: "clarification", question, options });
+    const clarify = (code: ClarificationCode, question: string, options: string[]): ParseOutcome =>
+      ({ kind: "clarification", code, question, options });
     const approvedItemsList = [...ctx.catalogue.approvedItems];
 
     let norm = normalize(text);
-    if (norm === "") return clarify("What would you like the robot to bring?", approvedItemsList);
+    if (norm === "") return clarify("clarify_unparseable", "What would you like the robot to bring?", approvedItemsList);
 
     // Build flat list of (itemId, normalizedSynonym) pairs and skip empty normalized strings
     const allSynonyms: Array<[string, string]> = [];
@@ -80,8 +81,14 @@ export class KeywordParser implements IntentParser {
       }
     }
 
-    if (found.size === 0) return clarify("Which item should the robot bring?", approvedItemsList);
-    if (found.size > 1) return clarify("Which one item should the robot bring?", [...found]);
+    if (found.size === 0) return clarify("clarify_no_item", "Which item should the robot bring?", approvedItemsList);
+    if (found.size > 1) {
+      // Never offer a prohibited item as a choice; fall back to the whole
+      // approved list when nothing matched is approved.
+      const approvedMatches = [...found].filter((i) => ctx.catalogue.approvedItems.includes(i));
+      const options = approvedMatches.length > 0 ? approvedMatches : approvedItemsList;
+      return clarify("clarify_multiple", "Which one item should the robot bring?", options);
+    }
 
     const [item] = found;
     const result = parseTaskProposal({
@@ -91,7 +98,7 @@ export class KeywordParser implements IntentParser {
       destination: ctx.defaultDestinationId,
       requires_confirmation: true,
     });
-    if (!result.ok) return clarify("Sorry, I could not understand that request.", approvedItemsList);
+    if (!result.ok) return clarify("clarify_unparseable", "Sorry, I could not understand that request.", approvedItemsList);
     return { kind: "proposal", proposal: result.proposal };
   }
 }
