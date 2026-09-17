@@ -56,4 +56,36 @@ describe("applyTransition", () => {
     svc.apply({ entityType: "visit", entityId: "visit_1", to: "accepted", actorType: "staff", actorId: SEED_IDS.staffUser });
     expect(seen).toEqual(["visit_1:awaiting_policy_or_staff"]);
   });
+
+  test("a throwing listener does not block other listeners or the return value", async () => {
+    const db = openDb(":memory:");
+    await seed(db);
+    db.insert(t.visitSession).values({ id: "visit_1", residentId: SEED_IDS.resident, requesterId: SEED_IDS.familyUser, robotId: SEED_IDS.robot, state: "requested", requestedAt: "2026-09-17T00:00:00.000Z" }).run();
+    const errors: unknown[] = [];
+    const svc = createTransitionService(db, {
+      now: () => new Date("2026-09-17T00:00:01.000Z"),
+      onListenerError: (err) => { errors.push(err); },
+    });
+    const seenB: string[] = [];
+    svc.subscribe(() => { throw new Error("boom"); });
+    svc.subscribe((ev) => seenB.push(`${ev.toState}`));
+    const ev = svc.apply({ entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff", actorType: "system", actorId: "api" });
+    expect(ev.toState).toBe("awaiting_policy_or_staff");
+    expect(seenB).toEqual(["awaiting_policy_or_staff"]);
+    expect(errors).toHaveLength(1);
+  });
+
+  test("free-text reason is refused before anything is written", async () => {
+    const { db, svc } = await setup();
+    expect(() => svc.apply({ entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff", actorType: "system", actorId: "api", reason: "Could you bring Mom the water bottle?" })).toThrow(TypeError);
+    expect(db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get()?.state).toBe("requested");
+    expect(db.select().from(t.auditEvent).all()).toHaveLength(0);
+  });
+
+  test("snake_case reason is accepted and stored", async () => {
+    const { db, svc } = await setup();
+    svc.apply({ entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff", actorType: "system", actorId: "api", reason: "auto_policy" });
+    const rows = db.select().from(t.auditEvent).all();
+    expect(rows[0]?.reason).toBe("auto_policy");
+  });
 });

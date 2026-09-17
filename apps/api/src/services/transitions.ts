@@ -11,6 +11,9 @@ export class TransitionError extends Error {
   constructor(public readonly reason: string) { super(reason); }
 }
 
+/** Audit `reason` values must be fixed snake_case codes, never free text. */
+export const REASON_CODE = /^[a-z][a-z0-9_]*$/;
+
 export interface TransitionInput {
   entityType: "visit" | "task";
   entityId: string;
@@ -22,8 +25,17 @@ export interface TransitionInput {
 
 export type Listener = (ev: AuditEvent) => void;
 
-export function createTransitionService(db: Db, opts: { now?: () => Date } = {}) {
+export interface CreateTransitionServiceOptions {
+  now?: () => Date;
+  /** Called when a subscribed listener throws. Default: logs event/entity ids only, never event contents. */
+  onListenerError?: (err: unknown, ev: AuditEvent) => void;
+}
+
+export function createTransitionService(db: Db, opts: CreateTransitionServiceOptions = {}) {
   const now = opts.now ?? (() => new Date());
+  const onListenerError = opts.onListenerError ?? ((err: unknown, ev: AuditEvent) => {
+    console.error(`[transitions] listener error for event ${ev.id} (entity ${ev.entityId})`, err);
+  });
   const listeners = new Set<Listener>();
 
   function load(input: TransitionInput): { from: string; correlationId: string } {
@@ -42,6 +54,9 @@ export function createTransitionService(db: Db, opts: { now?: () => Date } = {})
   }
 
   function apply(input: TransitionInput): AuditEvent {
+    if (input.reason !== undefined && !REASON_CODE.test(input.reason)) {
+      throw new TypeError("reason must be a fixed snake_case code");
+    }
     const { from, correlationId } = load(input);
     const result = input.entityType === "visit"
       ? transitionVisit(from as VisitState, input.to as VisitState)
@@ -60,7 +75,9 @@ export function createTransitionService(db: Db, opts: { now?: () => Date } = {})
       else tx.update(t.taskRequest).set({ state: input.to }).where(eq(t.taskRequest.id, input.entityId)).run();
       tx.insert(t.auditEvent).values(ev).run();
     });
-    for (const l of listeners) l(ev);
+    for (const l of listeners) {
+      try { l(ev); } catch (err) { onListenerError(err, ev); }
+    }
     return ev;
   }
 
