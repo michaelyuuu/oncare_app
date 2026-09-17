@@ -478,21 +478,22 @@ function act(input: { visitId: string; action: VisitAction; principal: Principal
   if (!visit) return { ok: false as const, error: "not_found" as const };
   const spec = ACTIONS[input.action];
   if (!spec.roles.includes(roleOf(input.principal)) || !canView(input.principal, visit)) return { ok: false as const, error: "forbidden" as const };
+  // Timestamps ride inside the same transaction as the final transition (Plan 1 final-review fix F1: `patch`).
+  const stamp: VisitPatch | undefined = input.action === "connected" ? { connectedAt: now().toISOString() } : input.action === "end" ? { endedAt: now().toISOString() } : undefined;
   try {
-    for (const to of spec.to) {
-      transitions.apply({ entityType: "visit", entityId: visit.id, to, actorType: actorTypeOf(input.principal), actorId: input.principal.id });
-    }
+    spec.to.forEach((to, i) => {
+      const last = i === spec.to.length - 1;
+      transitions.apply({ entityType: "visit", entityId: visit.id, to, actorType: actorTypeOf(input.principal), actorId: input.principal.id, ...(last && stamp ? { patch: stamp } : {}) });
+    });
   } catch (e) {
     if (e instanceof TransitionError) return { ok: false as const, error: "illegal_transition" as const, detail: e.reason };
     throw e;
   }
-  const stamp = input.action === "connected" ? { connectedAt: now().toISOString() } : input.action === "end" ? { endedAt: now().toISOString() } : null;
-  if (stamp) db.update(t.visitSession).set(stamp).where(eq(t.visitSession.id, visit.id)).run();
   return { ok: true as const, visit: get(visit.id)! };
 }
 ```
 
-Imports needed at the top of `visits.ts`: `import { TransitionError } from "./transitions";`, `import type { ActorType, VisitState } from "@oncare/core";`. Add `act` to the `VisitService` interface and to the returned object. Export `VISIT_ACTIONS = Object.keys(ACTIONS) as VisitAction[]`.
+Imports needed at the top of `visits.ts`: `import { TransitionError, type VisitPatch } from "./transitions";`, `import type { ActorType, VisitState } from "@oncare/core";`. Add `act` to the `VisitService` interface and to the returned object. Export `VISIT_ACTIONS = Object.keys(ACTIONS) as VisitAction[]`.
 
 Add to `apps/api/src/routes/visits.ts`:
 
