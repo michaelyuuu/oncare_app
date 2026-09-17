@@ -4,7 +4,7 @@ LOC = {"id": "room_demo_01", "x": 1.0, "y": 2.0, "yaw": 0.0}
 
 def test_arrives_after_travel_time(clock):
     a = MockRobotAdapter(travel_ms=2000)
-    a.start_goto(LOC)
+    a.start_goto(LOC, clock.now_ms())
     assert a.poll(clock.now_ms()) is None
     assert a.state()["navState"] == "navigating"
     clock.advance(1999)
@@ -17,14 +17,14 @@ def test_arrives_after_travel_time(clock):
 def test_injected_failure(clock):
     a = MockRobotAdapter(travel_ms=100)
     a.inject_failure("navigation_failed", reason="blocked")
-    a.start_goto(LOC)
+    a.start_goto(LOC, clock.now_ms())
     clock.advance(100)
     r = a.poll(clock.now_ms())
     assert r is not None and r.outcome == "navigation_failed" and r.reason == "blocked"
 
 def test_cancel_reports_cancelled_once(clock):
     a = MockRobotAdapter(travel_ms=5000)
-    a.start_goto(LOC)
+    a.start_goto(LOC, clock.now_ms())
     a.cancel()
     r = a.poll(clock.now_ms())
     assert r is not None and r.outcome == "cancelled"

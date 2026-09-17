@@ -18,9 +18,9 @@ class MockRobotAdapter(RobotAdapter):
     def inject_failure(self, outcome: Literal["navigation_failed"], reason: str = "injected") -> None:
         self._failure = NavResult(outcome, reason)
 
-    def start_goto(self, location: dict) -> None:
+    def start_goto(self, location: dict, now_ms: int) -> None:
         self._goal = location
-        self._started_ms = None
+        self._started_ms = now_ms
         self._pending = None
 
     def poll(self, now_ms: int) -> NavResult | None:
@@ -30,18 +30,16 @@ class MockRobotAdapter(RobotAdapter):
             return r
         if self._goal is None:
             return None
-        # An injected failure fires on the next poll regardless of elapsed
-        # travel time: it simulates the robot discovering mid-navigation
-        # that it cannot proceed, which is not gated by a fixed timer.
-        if self._failure is not None:
-            f, self._failure = self._failure, None
-            self._goal = None
-            return f
-        if self._started_ms is None:
-            self._started_ms = now_ms
+        assert self._started_ms is not None   # set by start_goto whenever _goal is set
         if now_ms - self._started_ms < self.travel_ms:
             return None
+        # Arrival time reached: report whichever outcome is due -- an
+        # injected failure "at arrival time" (per inject_failure's
+        # contract), or a normal arrival.
         goal, self._goal = self._goal, None
+        if self._failure is not None:
+            f, self._failure = self._failure, None
+            return f
         self._pose = {"x": float(goal["x"]), "y": float(goal["y"]), "yaw": float(goal["yaw"])}
         return NavResult("arrived")
 

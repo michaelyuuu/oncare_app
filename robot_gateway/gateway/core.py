@@ -1,26 +1,29 @@
 """Pure gateway logic: no sockets, no clocks of its own. The runner feeds it messages and ticks."""
+import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Callable
 from .messages import validate_down
-from .robot.base import NavResult, RobotAdapter
+from .robot.base import RobotAdapter
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-def _real_now_ms() -> int:
-    """Real wall-clock ms, used only to judge whether an absolute expiresAt
-    timestamp has passed. The injected `now_ms` clock is a separate, purely
-    relative clock used for travel-time and disconnect-grace durations."""
-    return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 def _parse_iso_ms(s: str) -> int:
     return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp() * 1000)
 
 class GatewayCore:
-    def __init__(self, adapter: RobotAdapter, now_ms: Callable[[], int], version: str = "0.0.1", disconnect_grace_ms: int = 10_000):
+    def __init__(self, adapter: RobotAdapter, now_ms: Callable[[], int],
+                 wall_ms: Callable[[], int] = lambda: int(time.time() * 1000),
+                 version: str = "0.0.1", disconnect_grace_ms: int = 10_000):
         self.adapter = adapter
         self.now_ms = now_ms
+        # `now_ms` is a relative/monotonic-ish clock used only for durations
+        # (travel time, disconnect grace). `expiresAt` is an absolute
+        # real-world timestamp set by the cloud, so it is judged against
+        # `wall_ms` instead -- a second, independently injectable clock, so
+        # the core still owns no clock of its own.
+        self.wall_ms = wall_ms
         self.version = version
         self.disconnect_grace_ms = disconnect_grace_ms
         self.locations: dict[str, dict] = {}
@@ -28,12 +31,6 @@ class GatewayCore:
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._stopped = False
         self._disconnected_at: int | None = None
-        # An outcome the adapter already reported when we polled it right
-        # after start_goto (e.g. an injected failure fires on the very next
-        # poll, regardless of elapsed travel time). We hold it here and
-        # surface it on the next tick() instead of from handle(), since
-        # state_events for an intent are always reported via tick().
-        self._pending_completion: NavResult | None = None
 
     # ---- lifecycle -------------------------------------------------------
     def on_connected(self) -> None:
@@ -58,7 +55,6 @@ class GatewayCore:
             return self._handle_intent(msg)
         if t == "cancel":
             if self._active and self._active["correlationId"] == msg["correlationId"]:
-                self._pending_completion = None
                 self.adapter.cancel()
             return []
         if t == "stop":
@@ -67,7 +63,6 @@ class GatewayCore:
             if self._active:
                 corr = self._active["correlationId"]
                 self._active = None
-                self._pending_completion = None
                 return [self._state_event(corr, "safety_stopped", {"reason": msg["reason"]})]
             return []
         if t == "resume":
@@ -83,7 +78,7 @@ class GatewayCore:
         ack = lambda result, reason=None: {"type": "ack", "correlationId": corr, "result": result, **({"reason": reason} if reason else {})}
         if corr in self._seen:
             return [ack("duplicate")]
-        if _parse_iso_ms(msg["expiresAt"]) <= _real_now_ms():
+        if _parse_iso_ms(msg["expiresAt"]) <= self.wall_ms():
             return [ack("expired")]
         if self._active is not None:
             return [ack("busy")]
@@ -97,15 +92,8 @@ class GatewayCore:
         if not self.adapter.state()["ready"]:
             return [ack("rejected", "robot_not_ready")]
         self._remember(corr)
-        self.adapter.start_goto(loc)
+        self.adapter.start_goto(loc, self.now_ms())
         self._active = {"correlationId": corr}
-        # Prime the adapter's own timing baseline immediately (some adapters
-        # only start counting travel time from their first poll() call) and
-        # capture any outcome that is already available (e.g. an injected
-        # failure) to report on the next tick() rather than losing it.
-        immediate = self.adapter.poll(self.now_ms())
-        if immediate is not None:
-            self._pending_completion = immediate
         return [ack("accepted"), self._state_event(corr, "robot_en_route")]
 
     def _remember(self, corr: str) -> None:
@@ -126,15 +114,11 @@ class GatewayCore:
                 self._stopped = True
                 corr = self._active["correlationId"]
                 self._active = None
-                self._pending_completion = None
                 return [self._state_event(corr, "safety_stopped", {"reason": "link_lost"})]
             return []
         if self._active is None:
             return []
-        if self._pending_completion is not None:
-            result, self._pending_completion = self._pending_completion, None
-        else:
-            result = self.adapter.poll(self.now_ms())
+        result = self.adapter.poll(self.now_ms())
         if result is None:
             return []
         corr = self._active["correlationId"]

@@ -41,9 +41,20 @@ def test_duplicate_correlation_is_acked_duplicate_and_not_re_executed(core, cloc
     assert types(out) == [("ack", "duplicate")]
     assert core.active_correlation_id is None
 
+W = 1_789_603_200_000   # epoch ms of 2026-09-17T00:00:00.000Z
+
 def test_expired_intent(core):
     out = core.handle(intent(expires="2000-01-01T00:00:00.000Z"))
     assert types(out) == [("ack", "expired")]
+
+    # Expiry is judged against the injected wall clock, exactly at the
+    # boundary: expiresAt == wall_ms() is already expired, one ms later
+    # is not.
+    c = GatewayCore(MockRobotAdapter(travel_ms=1000), now_ms=lambda: 0, wall_ms=lambda: W)
+    c.on_connected(); c.handle(LOCATIONS)
+    assert types(c.handle(intent("at_boundary", expires="2026-09-17T00:00:00.000Z"))) == [("ack", "expired")]
+    assert types(c.handle(intent("just_before_boundary", expires="2026-09-17T00:00:00.001Z"))) == \
+        [("ack", "accepted"), ("state_event", "robot_en_route")]
 
 def test_busy_while_active(core):
     core.handle(intent("visit_1"))
