@@ -1,4 +1,4 @@
 {
   "files": [],
-  "references": [{ "path": "packages/core" }, { "path": "packages/contracts" }, { "path": "apps/api" }, { "path": "packages/web-common" }, { "path": "apps/resident" }]
+  "references": [{ "path": "packages/core" }, { "path": "packages/contracts" }, { "path": "apps/api" }, { "path": "packages/web-common" }, { "path": "apps/resident" }, { "path": "apps/family" }]
 }

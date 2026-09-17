@@ -19,7 +19,7 @@ export async function visitRoutes(app: FastifyInstance) {
     const visit = app.visits.get(id);
     if (!visit) return reply.code(404).send({ error: "not_found" });
     if (!app.visits.canView(req.principal, visit)) return reply.code(403).send({ error: "forbidden" });
-    return { visit };
+    return { visit: { ...visit, simulated: app.hub.status(visit.robotId ?? "").lastHeartbeat?.adapter === "mock" } };
   });
 
   app.post("/visits/:id/:action", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {

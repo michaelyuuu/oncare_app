@@ -73,6 +73,15 @@ describe("GET /visits/:id", () => {
     }
   });
 
+  test("reports whether the visit robot is simulated from its latest heartbeat", async () => {
+    const { app, tokens, visitId } = await created();
+    const before = await app.inject({ method: "GET", url: `/visits/${visitId}`, headers: auth(tokens.family) });
+    expect(before.json().visit.simulated).toBe(false);
+    app.hub.receive(SEED_IDS.robot, { type: "heartbeat", at: "2026-01-01T00:00:00.000Z", robotReady: true, adapter: "mock", pose: null, navState: "idle", estop: false, lift: "down", battery: 100, activeCorrelationId: null, gatewayVersion: "test" });
+    const after = await app.inject({ method: "GET", url: `/visits/${visitId}`, headers: auth(tokens.family) });
+    expect(after.json().visit.simulated).toBe(true);
+  });
+
   test("another family user is 403 and an unknown id is 404", async () => {
     const { app, db, tokens, visitId } = await created();
     const { hashSecret } = await import("../src/auth/password");

@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "dist", "jsx": "react-jsx", "lib": ["ES2022", "DOM", "DOM.Iterable"], "resolveJsonModule": true, "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"] },
+  "include": ["src", "test"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/web-common" }]
+}
