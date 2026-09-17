@@ -60,4 +60,36 @@ describe("KeywordParser", () => {
   test("empty input asks for clarification", () => {
     expect(parser.parse("   ", ctx).kind).toBe("clarification");
   });
+
+  test('Chinese "剪刀" (scissors) → proposal not conflicted by substring "刀" (knife)', () => {
+    const out = parser.parse("剪刀", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("scissors");
+  });
+
+  test('Chinese "拿剪刀給她" (bring scissors) → proposal not conflicted by substring', () => {
+    const out = parser.parse("拿剪刀給她", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("scissors");
+  });
+
+  test('Chinese "刀" (knife) alone → proposal', () => {
+    const out = parser.parse("刀", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("knife");
+  });
+
+  test("multiple approved items still asks for clarification with sorted options", () => {
+    const out = parser.parse("water bottle and tissues", ctx);
+    expect(out.kind).toBe("clarification");
+    if (out.kind === "clarification") {
+      expect(out.options.sort()).toEqual(["tissue_box", "water_bottle"]);
+    }
+  });
+
+  test("longer synonym consumes text so shorter cannot double-count", () => {
+    const out = parser.parse("bottle of water", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("water_bottle");
+  });
 });

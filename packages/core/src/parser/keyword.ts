@@ -26,22 +26,48 @@ export class KeywordParser implements IntentParser {
 
   parse(text: string, ctx: ParseContext): ParseOutcome {
     const clarify = (question: string, options: string[]): ParseOutcome => ({ kind: "clarification", question, options });
-    const norm = normalize(text);
-    if (norm === "") return clarify("What would you like the robot to bring?", [...ctx.catalogue.approvedItems]);
+    const approvedItemsList = [...ctx.catalogue.approvedItems];
 
-    const found = new Set<string>();
-    // Longest synonyms first so "water bottle" wins over "water" for the same item.
+    let norm = normalize(text);
+    if (norm === "") return clarify("What would you like the robot to bring?", approvedItemsList);
+
+    // Build flat list of (itemId, normalizedSynonym) pairs and skip empty normalized strings
+    const allSynonyms: Array<[string, string]> = [];
     for (const [itemId, words] of Object.entries(this.synonyms)) {
-      for (const w of [...words].sort((a, b) => b.length - a.length)) {
+      for (const w of words) {
         const needle = normalize(w);
-        const hit = /[a-z]/.test(needle)
-          ? new RegExp(`(^|\\s)${needle}(\\s|$)`).test(norm)
-          : norm.includes(needle);
-        if (hit) { found.add(itemId); break; }
+        if (needle !== "") {
+          allSynonyms.push([itemId, needle]);
+        }
       }
     }
 
-    if (found.size === 0) return clarify("Which item should the robot bring?", [...ctx.catalogue.approvedItems]);
+    // Sort by synonym length descending (longest first)
+    allSynonyms.sort((a, b) => b[1].length - a[1].length);
+
+    const found = new Set<string>();
+
+    // Walk through sorted synonyms once; remove matched text so shorter synonyms cannot re-match
+    for (const [itemId, needle] of allSynonyms) {
+      const isLatin = /[a-z]/.test(needle);
+      const hit = isLatin
+        ? new RegExp(`(^|\\s)${needle}(\\s|$)`).test(norm)
+        : norm.includes(needle);
+
+      if (hit) {
+        found.add(itemId);
+        // Remove the matched text from norm so shorter synonyms cannot re-match the same characters
+        if (isLatin) {
+          norm = norm.replace(new RegExp(`(^|\\s)${needle}(\\s|$)`), " ");
+        } else {
+          norm = norm.replace(needle, " ");
+        }
+        // Normalize whitespace after removal
+        norm = norm.replace(/\s+/g, " ").trim();
+      }
+    }
+
+    if (found.size === 0) return clarify("Which item should the robot bring?", approvedItemsList);
     if (found.size > 1) return clarify("Which one item should the robot bring?", [...found]);
 
     const [item] = found;
@@ -52,7 +78,7 @@ export class KeywordParser implements IntentParser {
       destination: ctx.defaultDestinationId,
       requires_confirmation: true,
     });
-    if (!result.ok) return clarify("Sorry, I could not understand that request.", [...ctx.catalogue.approvedItems]);
+    if (!result.ok) return clarify("Sorry, I could not understand that request.", approvedItemsList);
     return { kind: "proposal", proposal: result.proposal };
   }
 }
