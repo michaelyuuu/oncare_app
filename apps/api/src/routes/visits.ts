@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireRole } from "../auth/plugin";
+import { VISIT_ACTIONS, type VisitAction } from "../services/visits";
 
 export async function visitRoutes(app: FastifyInstance) {
   app.post("/visits", { preHandler: requireRole("family") }, async (req, reply) => {
@@ -19,5 +20,16 @@ export async function visitRoutes(app: FastifyInstance) {
     if (!visit) return reply.code(404).send({ error: "not_found" });
     if (!app.visits.canView(req.principal, visit)) return reply.code(403).send({ error: "forbidden" });
     return { visit };
+  });
+
+  app.post("/visits/:id/:action", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+    const { id, action } = req.params as { id: string; action: string };
+    if (!(VISIT_ACTIONS as string[]).includes(action)) return reply.code(404).send({ error: "not_found" });
+    const result = app.visits.act({ visitId: id, action: action as VisitAction, principal: req.principal });
+    if (!result.ok) {
+      const status = result.error === "not_found" ? 404 : result.error === "forbidden" ? 403 : 409;
+      return reply.code(status).send({ error: result.error, ...(result.detail ? { detail: result.detail } : {}) });
+    }
+    return { visit: result.visit };
   });
 }

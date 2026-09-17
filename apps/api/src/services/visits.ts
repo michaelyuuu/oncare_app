@@ -1,18 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
+import type { ActorType, VisitState } from "@oncare/core";
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
-import type { createTransitionService } from "./transitions";
+import { TransitionError, type createTransitionService } from "./transitions";
 
 export type TransitionService = ReturnType<typeof createTransitionService>;
 export type VisitRow = typeof t.visitSession.$inferSelect;
 export type CreateVisitError = "no_relationship" | "consent_missing" | "resident_unavailable";
+export type VisitAction = "approve" | "deny" | "answer" | "decline" | "connected" | "end" | "cancel";
+export type ActError = "not_found" | "forbidden" | "illegal_transition";
+
+const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">; to: VisitState[] }> = {
+  approve:   { roles: ["staff"],                     to: ["accepted"] },
+  deny:      { roles: ["staff"],                     to: ["denied"] },
+  answer:    { roles: ["device"],                    to: ["connecting"] },
+  decline:   { roles: ["device"],                    to: ["resident_unavailable"] },
+  connected: { roles: ["family", "device"],          to: ["active"] },
+  end:       { roles: ["family", "device", "staff"], to: ["ending", "completed"] },
+  cancel:    { roles: ["family", "staff"],           to: ["cancelled"] },
+};
+
+export const VISIT_ACTIONS = Object.keys(ACTIONS) as VisitAction[];
+
+function roleOf(p: Principal): "family" | "staff" | "device" { return p.kind === "device" ? "device" : p.role; }
+function actorTypeOf(p: Principal): ActorType { return p.kind === "device" ? "device" : p.role; }
 
 export interface VisitService {
   create(input: { requesterId: string; residentId: string }): { ok: true; visit: VisitRow } | { ok: false; error: CreateVisitError };
   get(id: string): VisitRow | undefined;
   canView(principal: Principal, visit: VisitRow): boolean;
+  act(input: { visitId: string; action: VisitAction; principal: Principal }): { ok: true; visit: VisitRow } | { ok: false; error: ActError; detail?: string };
 }
 
 export function createVisitService(db: Db, transitions: TransitionService, opts: { now?: () => Date; id?: () => string } = {}): VisitService {
@@ -50,5 +69,31 @@ export function createVisitService(db: Db, transitions: TransitionService, opts:
     return principal.id === visit.requesterId;
   }
 
-  return { create, get, canView };
+  function act(input: { visitId: string; action: VisitAction; principal: Principal }): { ok: true; visit: VisitRow } | { ok: false; error: ActError; detail?: string } {
+    const visit = get(input.visitId);
+    if (!visit) return { ok: false as const, error: "not_found" as const };
+    const spec = ACTIONS[input.action];
+    if (!spec.roles.includes(roleOf(input.principal)) || !canView(input.principal, visit)) return { ok: false as const, error: "forbidden" as const };
+    try {
+      const last = spec.to.length - 1;
+      spec.to.forEach((to, i) => {
+        const isFinal = i === last;
+        const patch = isFinal
+          ? input.action === "connected" ? { connectedAt: now().toISOString() }
+          : input.action === "end" ? { endedAt: now().toISOString() }
+          : undefined
+          : undefined;
+        transitions.apply({
+          entityType: "visit", entityId: visit.id, to, actorType: actorTypeOf(input.principal), actorId: input.principal.id,
+          ...(patch ? { patch } : {}),
+        });
+      });
+    } catch (e) {
+      if (e instanceof TransitionError) return { ok: false as const, error: "illegal_transition" as const, detail: e.reason };
+      throw e;
+    }
+    return { ok: true as const, visit: get(visit.id)! };
+  }
+
+  return { create, get, canView, act };
 }
