@@ -19,4 +19,8 @@ await seed(db);
 const app = buildApp({ db, jwtSecret: configuredSecret ?? DEV_JWT_SECRET });
 const port = Number(process.env.PORT ?? 3000);
 await app.listen({ port, host: "0.0.0.0" });
+// Reconcile intents the robot never acked. Deliberately started here and not
+// in buildApp: tests drive sweepExpired directly with an injected clock, and a
+// background timer inside the app object would leak into every one of them.
+setInterval(() => app.dispatch.sweepExpired(), 5000).unref();
 console.log(`api listening on :${port}`);

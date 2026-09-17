@@ -150,5 +150,29 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     return n;
   }
 
-  return { flushPending, stop() { unsubTransitions(); unsubHub(); } };
+  /**
+   * Reconcile commands whose TTL ran out with no ack: the robot either never
+   * saw the intent or never answered, so the visit would otherwise sit
+   * `accepted` forever. Settles the row as `expired` and fails the visit over
+   * to robot_unavailable. Safe to call on a timer -- settled rows are not
+   * candidates, so each command is swept at most once.
+   */
+  function sweepExpired(at: Date = now()): number {
+    const nowIso = at.toISOString();
+    const due = db.select().from(t.robotCommand)
+      .where(and(isNull(t.robotCommand.ackedAt), isNull(t.robotCommand.result))).all()
+      .filter((c) => c.expiresAt <= nowIso);
+    let n = 0;
+    for (const c of due) {
+      if (!c.visitId) continue;   // Plan 5 adds the task analogue
+      const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
+      if (visit?.state !== "accepted") continue;
+      db.update(t.robotCommand).set({ result: "expired" }).where(eq(t.robotCommand.id, c.id)).run();
+      applyQuietly({ visitId: c.visitId, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "expired" });
+      n++;
+    }
+    return n;
+  }
+
+  return { flushPending, sweepExpired, stop() { unsubTransitions(); unsubHub(); } };
 }

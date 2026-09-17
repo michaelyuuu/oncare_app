@@ -195,6 +195,41 @@ describe("dispatch service", () => {
     });
   });
 
+  test("sweepExpired reconciles a command the robot never acked", async () => {
+    const clock = new Date("2026-09-17T00:00:00.000Z");
+    const ctx = await makeTestApp({ now: () => clock });
+    const { sent, link } = fakeLink();
+    ctx.app.hub.attach(SEED_IDS.robot, link);
+    const visit = (await ctx.app.inject({ method: "POST", url: "/visits", headers: auth(ctx.tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    const state = () => ctx.db.select().from(t.visitSession).where(eq(t.visitSession.id, visit.id)).get()!.state;
+    expect(sent).toHaveLength(1);
+    expect(state()).toBe("accepted");
+    // the default 120 s TTL has not run out yet
+    expect(ctx.app.dispatch.sweepExpired(new Date("2026-09-17T00:01:00.000Z"))).toBe(0);
+    expect(state()).toBe("accepted");
+    expect(ctx.app.dispatch.sweepExpired(new Date("2026-09-17T00:05:00.000Z"))).toBe(1);
+    expect(state()).toBe("robot_unavailable");
+    const cmd = ctx.db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visit.id)).get();
+    expect(cmd?.result).toBe("expired");
+    expect(cmd?.ackedAt).toBeNull();
+    const last = ctx.db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visit.id)).all().at(-1);
+    expect(last).toMatchObject({ actorType: "system", toState: "robot_unavailable", reason: "expired" });
+    // idempotent: the settled row is never swept twice
+    expect(ctx.app.dispatch.sweepExpired(new Date("2026-09-17T00:06:00.000Z"))).toBe(0);
+  });
+
+  test("sweepExpired leaves an acked command and its visit alone", async () => {
+    const clock = new Date("2026-09-17T00:00:00.000Z");
+    const ctx = await makeTestApp({ now: () => clock });
+    const { link } = fakeLink();
+    ctx.app.hub.attach(SEED_IDS.robot, link);
+    const visit = (await ctx.app.inject({ method: "POST", url: "/visits", headers: auth(ctx.tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    ctx.app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visit.id, result: "accepted" });
+    expect(ctx.app.dispatch.sweepExpired(new Date("2026-09-17T00:05:00.000Z"))).toBe(0);
+    expect(ctx.db.select().from(t.visitSession).where(eq(t.visitSession.id, visit.id)).get()!.state).toBe("robot_en_route");
+    expect(ctx.db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visit.id)).get()?.result).toBe("accepted");
+  });
+
   test("heartbeat is recorded on the hub status", async () => {
     const { app } = await acceptedVisit();
     app.hub.receive(SEED_IDS.robot, { type: "heartbeat", at: "2026-09-17T00:00:00.000Z", robotReady: true, adapter: "mock", pose: { x: 0, y: 0, yaw: 0 }, navState: "idle", estop: false, lift: "rest", battery: "unknown", activeCorrelationId: null, gatewayVersion: "0.0.1" });
