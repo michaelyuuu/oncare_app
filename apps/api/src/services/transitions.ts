@@ -11,6 +11,11 @@ export class TransitionError extends Error {
   constructor(public readonly reason: string) { super(reason); }
 }
 
+/** Visit columns that may be written in the same transaction as the state. */
+export type VisitPatch = Partial<Pick<typeof t.visitSession.$inferSelect, "connectedAt" | "endedAt" | "livekitRoom" | "robotId">>;
+/** Task columns that may be written in the same transaction as the state. */
+export type TaskPatch = Partial<Pick<typeof t.taskRequest.$inferSelect, "visitId" | "mode">>;
+
 export interface TransitionInput {
   entityType: "visit" | "task";
   entityId: string;
@@ -18,6 +23,8 @@ export interface TransitionInput {
   actorType: ActorType;
   actorId: string;
   reason?: string;
+  /** Sibling columns written in the SAME transaction as the state change. */
+  patch?: VisitPatch | TaskPatch;
 }
 
 export type Listener = (ev: AuditEvent) => void;
@@ -76,8 +83,13 @@ export function createTransitionService(db: Db, opts: CreateTransitionServiceOpt
 
     const ev = makeTransitionEvent({ ...base, ...(input.reason !== undefined ? { reason: input.reason } : {}) });
     db.transaction((tx) => {
-      if (input.entityType === "visit") tx.update(t.visitSession).set({ state: input.to }).where(eq(t.visitSession.id, input.entityId)).run();
-      else tx.update(t.taskRequest).set({ state: input.to }).where(eq(t.taskRequest.id, input.entityId)).run();
+      if (input.entityType === "visit") {
+        const patch = (input.patch ?? {}) as VisitPatch;
+        tx.update(t.visitSession).set({ state: input.to, ...patch }).where(eq(t.visitSession.id, input.entityId)).run();
+      } else {
+        const patch = (input.patch ?? {}) as TaskPatch;
+        tx.update(t.taskRequest).set({ state: input.to, ...patch }).where(eq(t.taskRequest.id, input.entityId)).run();
+      }
       tx.insert(t.auditEvent).values(ev).run();
     });
     for (const l of listeners) {

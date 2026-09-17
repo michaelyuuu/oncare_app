@@ -91,6 +91,51 @@ describe("applyTransition", () => {
     expect(errors).toHaveLength(1);
   });
 
+  test("a patch is written together with the new state", async () => {
+    const { db, svc } = await setup();
+    svc.apply({
+      entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff",
+      actorType: "system", actorId: "api", patch: { connectedAt: "2026-09-17T00:00:05.000Z" },
+    });
+    const row = db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get();
+    expect(row?.state).toBe("awaiting_policy_or_staff");
+    expect(row?.connectedAt).toBe("2026-09-17T00:00:05.000Z");
+  });
+
+  test("an illegal transition with a patch writes neither the state nor the patched column", async () => {
+    const { db, svc } = await setup();
+    expect(() => svc.apply({
+      entityType: "visit", entityId: "visit_1", to: "active",
+      actorType: "system", actorId: "api", patch: { connectedAt: "2026-09-17T00:00:05.000Z" },
+    })).toThrow(TransitionError);
+    const row = db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get();
+    expect(row?.state).toBe("requested");
+    expect(row?.connectedAt).toBeNull();
+  });
+
+  test("a patch that violates a constraint rolls the whole transition back", async () => {
+    const { db, svc } = await setup();
+    expect(() => svc.apply({
+      entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff",
+      actorType: "system", actorId: "api", patch: { robotId: "no_such_robot" },
+    })).toThrow();
+    const row = db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get();
+    expect(row?.state).toBe("requested");
+    expect(row?.robotId).toBe(SEED_IDS.robot);
+    expect(db.select().from(t.auditEvent).all()).toHaveLength(0);
+  });
+
+  test("a task patch rides along in the same transaction", async () => {
+    const { db, svc } = await setup();
+    svc.apply({
+      entityType: "task", entityId: "task_1", to: "awaiting_user_confirmation",
+      actorType: "system", actorId: "api", patch: { mode: "tray" },
+    });
+    const row = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, "task_1")).get();
+    expect(row?.state).toBe("awaiting_user_confirmation");
+    expect(row?.mode).toBe("tray");
+  });
+
   test("free-text reason is refused before anything is written", async () => {
     const { db, svc } = await setup();
     expect(() => svc.apply({ entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff", actorType: "system", actorId: "api", reason: "Could you bring Mom the water bottle?" })).toThrow(TypeError);
