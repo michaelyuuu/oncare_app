@@ -914,6 +914,9 @@ describe("WS /gateway", () => {
     const created = await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } });
     const visitId = created.json().visit.id;
     const ws = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
+    const first = await nextMessage(ws);
+    expect(first).toMatchObject({ type: "locations" });
+    expect(first.locations.map((l: any) => l.id).sort()).toEqual([SEED_IDS.pickupLocation, SEED_IDS.roomLocation, SEED_IDS.standbyLocation].sort());
     const msg = await nextMessage(ws);
     expect(msg).toMatchObject({ type: "intent", intent: "request_visit", correlationId: visitId });
     ws.close();
@@ -973,6 +976,10 @@ export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
 
     const link = { send: (msg: GatewayDown) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg)); } };
     app.hub.attach(robotId, link);
+    // The gateway only accepts location IDs it has been told about: send the approved table first, then any pending intents.
+    const locations = db.select().from(t.location).where(eq(t.location.approved, true)).all()
+      .map((l) => ({ id: l.id, name: l.name, kind: l.kind, x: l.x, y: l.y, yaw: l.yaw, approved: l.approved }));
+    link.send({ type: "locations", locations });
     app.dispatch.flushPending(robotId);
 
     socket.on("message", (raw) => {
