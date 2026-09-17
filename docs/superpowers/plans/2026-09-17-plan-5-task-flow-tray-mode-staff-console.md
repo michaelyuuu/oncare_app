@@ -321,7 +321,7 @@ git commit -m "feat(api): task creation with keyword parsing, deterministic poli
 | received | device (same resident), staff | `placing → verifying_delivery → completed` (reason `tray_mode`) | hub `staff_event received` |
 | stop | staff | any physical state or `queued` → `safety_stopped` (reason `staff_stop`) | hub `stop { reason: "staff_stop" }` |
 
-- Dispatch additions (`dispatch.ts`):
+- Dispatch additions (`dispatch.ts`) — note `flushPending` now (Plan 2 fix C1) only re-sends commands whose visit is `accepted`; extend that check so task commands are re-sent only when the task is `queued`, and mark others `stale`:
   - On task transition to `queued`: build `IntentDeliverItem { correlationId: task.correlationId, expiresAt: now + ttl, payload: { itemId: proposal.item, pickupLocationId: <location kind pickup_station>, destinationLocationId: resident.roomLocationId, standbyLocationId: <location kind standby>, mode: "tray" } }`; insert `robot_command { taskId }`; `hub.send`.
   - Task-scoped gateway messages are matched by `robot_command.taskId` via `correlationId === task.correlationId`. `ack accepted` → `navigating_to_pickup`; `ack expired|rejected|busy` → `operator_required` (reason = ack result). `state_event`: `arrived_pickup` → `locating_item`; `arrived_delivery` → `placing`; `navigation_failed` → `navigation_failed`; `safety_stopped` → `safety_stopped`; `cancelled` → `cancelled` (no-op if already); `expired` → `operator_required`; `completed_leg` → no task transition (robot back at standby; audit only as entity `robot`).
   - Task transitions caused by the robot use `actorType: "robot"`; illegal ones are swallowed (already audited as `rejected_transition`).
@@ -1011,6 +1011,8 @@ git commit -m "feat(family): ask-the-robot flow with clarification, confirmation
 ---
 
 ### Task 6: Staff routes — queue, audit, robot stop/resume/standby, resident availability
+
+> **Already present from Plan 2's final fix wave:** `apps/api/src/routes/robots.ts` with `GET /robots/:id/status`, `POST /robots/:id/stop` and `POST /robots/:id/resume` (PIN), plus `dispatch.sendStop(robotId, actorId)` / `dispatch.sendResume(robotId)`, and `dispatch.sweepExpired()`. Extend that file for `standby` and put the queue/audit/availability routes in `routes/staff.ts`; do not duplicate the stop/resume routes. Reuse the existing `robots.test.ts` and add cases rather than re-testing stop/resume.
 
 **Files:**
 - Create: `apps/api/src/routes/staff.ts`
