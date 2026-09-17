@@ -1,7 +1,9 @@
+import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
 import { authRoutes } from "./routes/auth";
+import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
 import { visitRoutes } from "./routes/visits";
 import { createDispatchService } from "./services/dispatch";
@@ -27,9 +29,11 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
   app.decorate("visits", createVisitService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
   app.register(authPlugin, { secret: opts.jwtSecret });
+  app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
   app.register(meRoutes, { db: opts.db });
   app.register(visitRoutes);
+  app.register(gatewayRoutes, { db: opts.db });
   app.get("/health", async () => ({ ok: true }));
   return app;
 }
