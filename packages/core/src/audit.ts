@@ -4,6 +4,9 @@ import { z } from "zod";
 export const ACTOR_TYPES = ["family", "staff", "device", "robot", "system"] as const;
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
+/** Audit reasons are fixed snake_case codes, never free text. */
+export const REASON_CODE = /^[a-z][a-z0-9_]*$/;
+
 export const ENTITY_TYPES = ["visit", "task", "robot", "command"] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
@@ -17,7 +20,7 @@ export const AuditEventSchema = z
     entityId: z.string().min(1),
     fromState: z.string().nullable(),
     toState: z.string().nullable(),
-    reason: z.string().nullable(),
+    reason: z.string().regex(REASON_CODE).nullable(),
     correlationId: z.string().min(1),
   })
   .strict();
@@ -40,6 +43,9 @@ export interface TransitionEventInput {
 export function makeTransitionEvent(input: TransitionEventInput): AuditEvent {
   const now = input.now ?? (() => new Date());
   const id = input.id ?? (() => `evt_${randomUUID()}`);
+  if (input.reason !== undefined && !REASON_CODE.test(input.reason)) {
+    throw new TypeError("reason must be a fixed snake_case code");
+  }
   return {
     id: id(),
     at: now().toISOString(),

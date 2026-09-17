@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AuditEventSchema, makeTransitionEvent } from "../src/audit";
+import { AuditEventSchema, REASON_CODE, makeTransitionEvent } from "../src/audit";
 
 describe("audit events", () => {
   test("makeTransitionEvent fills id, timestamp and copies every field", () => {
@@ -31,9 +31,27 @@ describe("audit events", () => {
   test("reason defaults to null and is kept when given", () => {
     const ev = makeTransitionEvent({
       actorType: "system", actorId: "api", entityType: "task", entityId: "t1",
-      fromState: "parsed", toState: "clarification_required", reason: "two items", correlationId: "c",
+      fromState: "parsed", toState: "clarification_required", reason: "two_items", correlationId: "c",
     });
-    expect(ev.reason).toBe("two items");
+    expect(ev.reason).toBe("two_items");
+  });
+
+  test("a free-text reason is rejected by makeTransitionEvent and by the schema", () => {
+    expect(() =>
+      makeTransitionEvent({
+        actorType: "system", actorId: "api", entityType: "task", entityId: "t1",
+        fromState: "parsed", toState: "clarification_required", reason: "two items", correlationId: "c",
+      }),
+    ).toThrow(TypeError);
+
+    const bad = {
+      id: "x", at: new Date().toISOString(), actorType: "system", actorId: "api",
+      entityType: "task", entityId: "t1", fromState: "parsed", toState: "clarification_required",
+      reason: "two items", correlationId: "c",
+    };
+    expect(AuditEventSchema.safeParse(bad).success).toBe(false);
+    expect(REASON_CODE.test("two_items")).toBe(true);
+    expect(REASON_CODE.test("two items")).toBe(false);
   });
 
   test("generated ids are unique and timestamps are ISO strings", () => {

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import {
-  makeTransitionEvent, transitionTask, transitionVisit,
+  REASON_CODE, makeTransitionEvent, transitionTask, transitionVisit,
   type ActorType, type AuditEvent, type TaskState, type VisitState,
 } from "@oncare/core";
 import type { Db } from "../db/client";
@@ -10,9 +10,6 @@ export class TransitionError extends Error {
   readonly status = 409;
   constructor(public readonly reason: string) { super(reason); }
 }
-
-/** Audit `reason` values must be fixed snake_case codes, never free text. */
-export const REASON_CODE = /^[a-z][a-z0-9_]*$/;
 
 export interface TransitionInput {
   entityType: "visit" | "task";
