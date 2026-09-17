@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
 import { authRoutes } from "./routes/auth";
+import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
 import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
@@ -33,6 +34,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
+  app.register(deviceRoutes, { db: opts.db });
   app.register(meRoutes, { db: opts.db });
   app.register(visitRoutes);
   app.register(gatewayRoutes, { db: opts.db });
