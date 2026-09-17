@@ -58,7 +58,10 @@ export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
       return;
     }
 
-    const link = { send: (msg: GatewayDown) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg)); } };
+    const link = {
+      send: (msg: GatewayDown) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg)); },
+      close: (code: number, reason: string) => { if (socket.readyState === socket.OPEN) socket.close(code, reason); },
+    };
     attached = true;
     attachedRobotId = robotId;
     attachedLink = link;

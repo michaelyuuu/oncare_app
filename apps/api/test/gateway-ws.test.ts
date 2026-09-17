@@ -130,6 +130,20 @@ describe("WS /gateway", () => {
     expect(app.hub.status(SEED_IDS.robot).connected).toBe(false);
   });
 
+  test("a superseded gateway socket is closed with 4409 and the new one stays attached", async () => {
+    const { app } = await makeTestApp();
+    const srv = await listen(app); closers.push(srv.close);
+    const ws1 = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
+    await nextMessage(ws1);   // ws1's own `locations` push: it is attached
+    const ws2 = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
+    await nextMessage(ws2);   // ws2 attached, superseding ws1
+    expect(await closed(ws1)).toBe(4409);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(app.hub.status(SEED_IDS.robot).connected).toBe(true);
+    ws2.close();
+    await closed(ws2);
+  });
+
   test("closing during token verification never leaves the robot attached", async () => {
     const { app } = await makeTestApp();
     const srv = await listen(app); closers.push(srv.close);
