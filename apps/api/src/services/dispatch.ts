@@ -22,12 +22,19 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   const id = opts.id ?? (() => `cmd_${randomUUID()}`);
   const ttl = opts.intentTtlMs ?? 120_000;
 
-  function robotApply(robotId: string, visitId: string, to: VisitState, reason?: string) {
+  function applyQuietly(input: { visitId: string; to: VisitState; actorType: "robot" | "system"; actorId: string; reason?: string }) {
     try {
-      transitions.apply({ entityType: "visit", entityId: visitId, to, actorType: "robot", actorId: robotId, ...(reason ? { reason } : {}) });
+      transitions.apply({
+        entityType: "visit", entityId: input.visitId, to: input.to, actorType: input.actorType, actorId: input.actorId,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
     } catch (e) {
       if (!(e instanceof TransitionError)) throw e; // rejected_transition already audited
     }
+  }
+
+  function robotApply(robotId: string, visitId: string, to: VisitState, reason?: string) {
+    applyQuietly({ visitId, to, actorType: "robot", actorId: robotId, ...(reason ? { reason } : {}) });
   }
 
   function onVisitAccepted(ev: AuditEvent) {
@@ -40,6 +47,16 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       type: "intent", intent: "request_visit", correlationId: visit.id,
       expiresAt: new Date(issuedAt.getTime() + ttl).toISOString(), payload: { locationId: resident.roomLocationId },
     };
+    // A robot that has told us it is not ready (estopped, lift fault, ...) must
+    // not be sent anywhere: the command is recorded as refused and the visit
+    // fails over immediately, rather than sitting accepted until the intent
+    // expires. No heartbeat at all means "never seen": store and send as usual,
+    // the robot itself will reject what it cannot do.
+    if (hub.status(visit.robotId).lastHeartbeat?.robotReady === false) {
+      db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: "robot_not_ready" }).run();
+      applyQuietly({ visitId: visit.id, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "robot_not_ready" });
+      return;
+    }
     db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: null }).run();
     hub.send(visit.robotId, intent);
   }

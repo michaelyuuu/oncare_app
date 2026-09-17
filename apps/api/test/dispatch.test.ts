@@ -41,6 +41,38 @@ describe("dispatch service", () => {
     expect(sent[0]).toMatchObject({ type: "intent", correlationId: visitId });
   });
 
+  const heartbeat = (robotReady: boolean) => ({
+    type: "heartbeat", at: "2026-09-17T00:00:00.000Z", robotReady, adapter: "mock", pose: null, navState: "idle",
+    estop: !robotReady, lift: "rest", battery: "unknown", activeCorrelationId: null, gatewayVersion: "0.0.1",
+  }) as const;
+
+  test("a robot whose last heartbeat says it is not ready is never sent an intent", async () => {
+    const ctx = await makeTestApp();
+    const { sent, link } = fakeLink();
+    ctx.app.hub.attach(SEED_IDS.robot, link);
+    ctx.app.hub.receive(SEED_IDS.robot, heartbeat(false));
+    const visit = (await ctx.app.inject({ method: "POST", url: "/visits", headers: auth(ctx.tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    expect(visit.state).toBe("robot_unavailable");
+    expect(sent).toHaveLength(0);
+    const cmd = ctx.db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visit.id)).get();
+    expect(cmd?.result).toBe("robot_not_ready");
+    expect(cmd?.ackedAt).toBeNull();
+    const last = ctx.db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visit.id)).all().at(-1);
+    expect(last).toMatchObject({ actorType: "system", toState: "robot_unavailable", reason: "robot_not_ready" });
+    // and the settled row is not flushed on a later attach either
+    expect(ctx.app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+  });
+
+  test("a ready heartbeat still dispatches normally", async () => {
+    const ctx = await makeTestApp();
+    const { sent, link } = fakeLink();
+    ctx.app.hub.attach(SEED_IDS.robot, link);
+    ctx.app.hub.receive(SEED_IDS.robot, heartbeat(true));
+    const visit = (await ctx.app.inject({ method: "POST", url: "/visits", headers: auth(ctx.tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    expect(visit.state).toBe("accepted");
+    expect(sent).toHaveLength(1);
+  });
+
   test("a visit cancelled while the robot was offline is never flushed to it", async () => {
     const { app, db, tokens, sent, link, visitId, state } = await acceptedVisit(false);
     await app.inject({ method: "POST", url: `/visits/${visitId}/cancel`, headers: auth(tokens.family) });
