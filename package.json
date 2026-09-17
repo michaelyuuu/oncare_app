@@ -1,0 +1,20 @@
+{
+  "name": "oncare",
+  "private": true,
+  "version": "0.0.1",
+  "description": "AGI Carehouse family-to-robot care platform (prototype)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}
