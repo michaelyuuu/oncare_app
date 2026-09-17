@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import type { GatewayUp, Intent } from "@oncare/contracts";
-import type { AuditEvent, VisitState } from "@oncare/core";
+import { REASON_CODE, makeTransitionEvent, type AuditEvent, type VisitState } from "@oncare/core";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import type { GatewayHub } from "./gateway-hub";
@@ -56,10 +56,31 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     if (ev.toState === "cancelled") onVisitCancelled(ev);
   });
 
+  /** The robot's own diagnostic code, kept only when it is a real reason code. */
+  function reasonCode(value: unknown): string | undefined {
+    return typeof value === "string" && REASON_CODE.test(value) ? value : undefined;
+  }
+
+  /**
+   * A message we have no command row for: the robot and this API disagree about
+   * what is in flight (an intent issued by a previous process, a replayed
+   * message, a bug). Record it against the robot so staff can see it, rather
+   * than dropping it silently.
+   */
+  function auditUnknownCorrelation(robotId: string, correlationId: string) {
+    const ev = makeTransitionEvent({
+      actorType: "robot", actorId: robotId, entityType: "robot", entityId: robotId,
+      fromState: null, toState: null, reason: "unknown_correlation", correlationId, now,
+    });
+    db.insert(t.auditEvent).values(ev).run();
+    transitions.emit(ev);
+  }
+
   function onUp(robotId: string, msg: GatewayUp) {
     if (msg.type === "heartbeat") return;
     const cmd = db.select().from(t.robotCommand).where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.visitId, msg.correlationId))).get();
-    if (!cmd?.visitId) return;
+    if (!cmd) { auditUnknownCorrelation(robotId, msg.correlationId); return; }
+    if (!cmd.visitId) return;   // Plan 5 adds the task analogue
     if (msg.type === "ack") {
       // The first ack settles the command. A later one (a duplicate the robot
       // sends after a re-flush, or a stray retry) must never overwrite the
@@ -67,14 +88,14 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       if (cmd.result !== null) return;
       db.update(t.robotCommand).set({ ackedAt: now().toISOString(), result: msg.result }).where(eq(t.robotCommand.id, cmd.id)).run();
       if (msg.result === "accepted") robotApply(robotId, cmd.visitId, "robot_en_route");
-      else if (msg.result !== "duplicate") robotApply(robotId, cmd.visitId, "robot_unavailable", msg.result);
+      else if (msg.result !== "duplicate") robotApply(robotId, cmd.visitId, "robot_unavailable", reasonCode(msg.reason) ?? msg.result);
       return;
     }
     const to = STATE_EVENT_TO_VISIT[msg.event];
     if (!to) return;
     const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, cmd.visitId)).get();
     if (to === "cancelled" && visit?.state === "cancelled") return;
-    robotApply(robotId, cmd.visitId, to, msg.event);
+    robotApply(robotId, cmd.visitId, to, reasonCode(msg.detail?.["reason"]) ?? msg.event);
   }
   const unsubHub = hub.onUp(onUp);
 

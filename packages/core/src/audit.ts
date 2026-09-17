@@ -32,8 +32,9 @@ export interface TransitionEventInput {
   actorId: string;
   entityType: EntityType;
   entityId: string;
-  fromState: string;
-  toState: string;
+  /** null for events that are not a state change (e.g. a robot-entity note). */
+  fromState: string | null;
+  toState: string | null;
   reason?: string;
   correlationId: string;
   now?: () => Date;

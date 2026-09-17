@@ -50,6 +50,24 @@ describe("WS /events", () => {
     for (const c of [staff, fam1, fam2, dev]) c.ws.close();
   });
 
+  test("a robot-entity audit event reaches staff only", async () => {
+    const { app, tokens } = await makeTestApp();
+    const srv = await listen(app); closers.push(srv.close);
+    const staff = await connect(srv.url, tokens.staff);
+    const fam = await connect(srv.url, tokens.family);
+    const dev = await connect(srv.url, tokens.device);
+    await settle();
+    // an ack for a correlation id this API has no command row for
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: "visit_gone", result: "accepted" });
+    await settle();
+    const robotEvents = (m: any[]) => m.filter((x) => x.entityType === "robot");
+    expect(robotEvents(staff.messages)).toHaveLength(1);
+    expect(robotEvents(staff.messages)[0]).toMatchObject({ reason: "unknown_correlation", correlationId: "visit_gone", entityId: SEED_IDS.robot });
+    expect(robotEvents(fam.messages)).toHaveLength(0);
+    expect(robotEvents(dev.messages)).toHaveLength(0);
+    for (const c of [staff, fam, dev]) c.ws.close();
+  });
+
   test("bad token is closed with 4401", async () => {
     const { app } = await makeTestApp();
     const srv = await listen(app); closers.push(srv.close);

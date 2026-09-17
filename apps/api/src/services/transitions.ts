@@ -98,10 +98,21 @@ export function createTransitionService(db: Db, opts: CreateTransitionServiceOpt
       }
       tx.insert(t.auditEvent).values(ev).run();
     });
+    emit(ev);
+    return ev;
+  }
+
+  /**
+   * Run the listener loop for an event that was written elsewhere. Used by
+   * services that record an audit row of their own (e.g. dispatch's
+   * robot-entity rows, which are not state transitions and so cannot go
+   * through `apply`) and still want it fanned out to subscribers. It never
+   * writes the row itself -- the caller owns that.
+   */
+  function emit(ev: AuditEvent): void {
     for (const l of listeners) {
       try { l(ev); } catch (err) { onListenerError(err, ev); }
     }
-    return ev;
   }
 
   function subscribe(listener: Listener): () => void {
@@ -109,5 +120,5 @@ export function createTransitionService(db: Db, opts: CreateTransitionServiceOpt
     return () => { listeners.delete(listener); };
   }
 
-  return { apply, subscribe };
+  return { apply, emit, subscribe };
 }

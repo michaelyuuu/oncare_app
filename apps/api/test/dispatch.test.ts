@@ -99,6 +99,47 @@ describe("dispatch service", () => {
     expect(state()).toBe("accepted");
   });
 
+  test("an ack reason code from the robot survives into the audit trail", async () => {
+    const { app, db, visitId, state } = await acceptedVisit();
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "rejected", reason: "robot_not_ready" });
+    expect(state()).toBe("robot_unavailable");
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visitId)).all().at(-1)?.reason).toBe("robot_not_ready");
+  });
+
+  test("an ack reason that is not a snake_case code falls back to the ack result", async () => {
+    const { app, db, visitId, state } = await acceptedVisit();
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "rejected", reason: "Nav stack is down!" });
+    expect(state()).toBe("robot_unavailable");
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visitId)).all().at(-1)?.reason).toBe("rejected");
+  });
+
+  test("a state_event detail reason code survives into the audit trail", async () => {
+    const { app, db, visitId, state } = await acceptedVisit();
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "accepted" });
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: visitId, at: new Date().toISOString(), event: "navigation_failed", detail: { reason: "path_blocked" } });
+    expect(state()).toBe("navigation_failed");
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visitId)).all().at(-1)?.reason).toBe("path_blocked");
+  });
+
+  test("a state_event detail reason that is not a code falls back to the event name", async () => {
+    const { app, db, visitId } = await acceptedVisit();
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "accepted" });
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: visitId, at: new Date().toISOString(), event: "navigation_failed", detail: { reason: 42 } });
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visitId)).all().at(-1)?.reason).toBe("navigation_failed");
+  });
+
+  test("a message for an unknown correlation id is audited against the robot", async () => {
+    const { app, db, state } = await acceptedVisit();
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: "visit_gone", result: "accepted" });
+    expect(state()).toBe("accepted");
+    const rows = db.select().from(t.auditEvent).where(eq(t.auditEvent.entityType, "robot")).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorType: "robot", actorId: SEED_IDS.robot, entityType: "robot", entityId: SEED_IDS.robot,
+      fromState: null, toState: null, reason: "unknown_correlation", correlationId: "visit_gone",
+    });
+  });
+
   test("heartbeat is recorded on the hub status", async () => {
     const { app } = await acceptedVisit();
     app.hub.receive(SEED_IDS.robot, { type: "heartbeat", at: "2026-09-17T00:00:00.000Z", robotReady: true, adapter: "mock", pose: { x: 0, y: 0, yaw: 0 }, navState: "idle", estop: false, lift: "rest", battery: "unknown", activeCorrelationId: null, gatewayVersion: "0.0.1" });
