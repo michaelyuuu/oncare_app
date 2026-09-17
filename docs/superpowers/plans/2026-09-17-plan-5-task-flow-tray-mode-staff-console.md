@@ -642,13 +642,13 @@ In `core.py`, replace the `deliver_item` branch of `_handle_intent` and generali
             self._remember(corr)
             self._active = {"correlationId": corr, "kind": "deliver", "leg": "pickup", "mode": p["mode"],
                             "pickup": legs["pickupLocationId"], "delivery": legs["destinationLocationId"], "standby": legs["standbyLocationId"]}
-            self.adapter.start_goto(self._active["pickup"])
+            self.adapter.start_goto(self._active["pickup"], self.now_ms())
             return [ack("accepted"), self._state_event(corr, "robot_en_route", {"leg": "pickup", "mode": p["mode"]})]
         loc = self.locations.get(p["locationId"])
         if loc is None: return [ack("rejected", "unknown_location")]
         if not self.adapter.state()["ready"]: return [ack("rejected", "robot_not_ready")]
         self._remember(corr)
-        self.adapter.start_goto(loc)
+        self.adapter.start_goto(loc, self.now_ms())
         self._active = {"correlationId": corr, "kind": "visit", "leg": "goto"}
         return [ack("accepted"), self._state_event(corr, "robot_en_route")]
 ```
@@ -659,9 +659,9 @@ In `core.py`, replace the `deliver_item` branch of `_handle_intent` and generali
             a = self._active
             if a is None or a["kind"] != "deliver" or a["correlationId"] != msg["correlationId"]: return []
             if msg["event"] == "staff_loaded" and a["leg"] == "await_loaded":
-                a["leg"] = "delivery"; self.adapter.start_goto(a["delivery"])
+                a["leg"] = "delivery"; self.adapter.start_goto(a["delivery"], self.now_ms())
             elif msg["event"] == "received" and a["leg"] == "await_received":
-                a["leg"] = "standby"; self.adapter.start_goto(a["standby"])
+                a["leg"] = "standby"; self.adapter.start_goto(a["standby"], self.now_ms())
             return []
 ```
 

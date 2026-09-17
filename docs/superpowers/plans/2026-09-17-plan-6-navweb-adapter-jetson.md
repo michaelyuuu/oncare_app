@@ -186,7 +186,7 @@ git commit -m "feat(gateway): occupancy-grid goal check mirroring nav_web map.bi
 class NavWebAdapter(RobotAdapter):
     name = "navweb"
     def __init__(self, navweb_url="http://127.0.0.1:5804", health_url="http://127.0.0.1:5808", http_timeout_s=2.0, goal_timeout_s=120.0, now_ms=None): ...
-    def start_goto(self, location): ...    # GET /map.bin -> is_cell_free -> POST /goal {x,y,yaw}; on check failure the next poll() returns NavResult("navigation_failed", reason)
+    def start_goto(self, location, now_ms): ...    # GET /map.bin -> is_cell_free -> POST /goal {x,y,yaw}; on check failure the next poll() returns NavResult("navigation_failed", reason)
     def poll(self, now_ms): ...            # GET /state -> map nav status to arrived | navigation_failed | None; cancelled when estop latched during a goal; timeout after goal_timeout_s without "succeeded"
     def cancel(self): ...                  # POST /cancel then POST /resume; next poll -> cancelled
     def safety_stop(self): ...             # POST /cancel only
@@ -267,7 +267,7 @@ def test_not_ready_when_unreachable(clock):
     assert s["ready"] is False and s["navState"] == "unreachable"
 
 def test_goto_checks_map_then_posts_goal_and_reports_arrival(fake, adapter, clock):
-    adapter.start_goto(LOC)
+    adapter.start_goto(LOC, clock.now_ms())
     assert fake.posts == [("/goal", {"x": -0.5, "y": -0.5, "yaw": 0.0})]
     fake.state = fx("navweb_state_navigating.json")
     assert adapter.poll(clock.now_ms()) is None
@@ -276,26 +276,26 @@ def test_goto_checks_map_then_posts_goal_and_reports_arrival(fake, adapter, cloc
     assert r is not None and r.outcome == "arrived"
 
 def test_goto_refuses_occupied_cell_without_posting(fake, adapter, clock):
-    adapter.start_goto({"id": "wall", "x": -1.0 + 10 * 0.1 + 0.05, "y": -0.5, "yaw": 0.0})
+    adapter.start_goto({"id": "wall", "x": -1.0 + 10 * 0.1 + 0.05, "y": -0.5, "yaw": 0.0}, clock.now_ms())
     assert fake.posts == []
     r = adapter.poll(clock.now_ms())
     assert r is not None and r.outcome == "navigation_failed" and r.reason == "occupied"
 
 def test_estop_during_goal_reports_cancelled(fake, adapter, clock):
-    adapter.start_goto(LOC)
+    adapter.start_goto(LOC, clock.now_ms())
     fake.state = fx("navweb_state_estop.json")
     r = adapter.poll(clock.now_ms())
     assert r is not None and r.outcome == "cancelled"
 
 def test_timeout(fake, adapter, clock):
-    adapter.start_goto(LOC)
+    adapter.start_goto(LOC, clock.now_ms())
     fake.state = fx("navweb_state_navigating.json")
     clock.advance(10_000)
     r = adapter.poll(clock.now_ms())
     assert r is not None and r.outcome == "navigation_failed" and r.reason == "timeout"
 
 def test_cancel_posts_cancel_then_resume(fake, adapter, clock):
-    adapter.start_goto(LOC); fake.posts.clear()
+    adapter.start_goto(LOC, clock.now_ms()); fake.posts.clear()
     adapter.cancel()
     assert [p for p, _ in fake.posts] == ["/cancel", "/resume"]
     r = adapter.poll(clock.now_ms())
@@ -384,7 +384,7 @@ class NavWebAdapter(RobotAdapter):
             return False
 
     # ---- RobotAdapter ---------------------------------------------------------
-    def start_goto(self, location: dict) -> None:
+    def start_goto(self, location: dict, now_ms: int) -> None:
         self._pending = None
         blob = self._get_bytes("/map.bin")
         if blob is None:
@@ -398,7 +398,7 @@ class NavWebAdapter(RobotAdapter):
         if not self._post("/goal", {"x": float(location["x"]), "y": float(location["y"]), "yaw": float(location["yaw"])}):
             self._pending = NavResult("navigation_failed", "goal_refused"); return
         self._active = True
-        self._goal_started_ms = self.now_ms()
+        self._goal_started_ms = now_ms
 
     def poll(self, now_ms: int) -> NavResult | None:
         if self._pending is not None:
