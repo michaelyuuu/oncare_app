@@ -1,0 +1,7 @@
+# Copy to config.toml (git-ignored) and fill in. Never commit a real token.
+api_url = "ws://127.0.0.1:3000"
+robot_token = "replace_me"
+adapter = "mock"          # "mock" on a dev machine, "navweb" on the Jetson (Plan 6)
+heartbeat_ms = 1000
+tick_ms = 250
+mock_travel_ms = 2000
