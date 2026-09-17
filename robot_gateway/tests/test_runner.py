@@ -193,6 +193,38 @@ async def test_send_queues_the_message_when_the_link_dies_under_it():
     assert runner._queue == [{"type": "state_event", "event": "arrived"}]
     assert ws.sent == [{"type": "state_event", "event": "cancelled"}]
 
+async def test_a_failed_first_event_keeps_the_rest_of_its_batch_queued():
+    core = GatewayCore(MockRobotAdapter(), now_ms=lambda: 0)
+    runner = GatewayRunner(core, api_url="ws://127.0.0.1:1", robot_token="t")
+    events = [
+        {"type": "ack", "correlationId": "visit_1", "result": "accepted"},
+        {"type": "state_event", "correlationId": "visit_1", "event": "robot_en_route"},
+    ]
+    ws = _RecordingWS(fail_first=True)
+    with pytest.raises(ConnectionClosed):
+        await runner._send_all(ws, events)
+    assert runner._queue == events
+    await runner._flush(ws)
+    assert ws.sent == events
+
+async def test_cancelling_a_suspended_send_keeps_the_whole_batch_for_replay():
+    core = GatewayCore(MockRobotAdapter(), now_ms=lambda: 0)
+    runner = GatewayRunner(core, api_url="ws://127.0.0.1:1", robot_token="t")
+    events = [
+        {"type": "state_event", "correlationId": "visit_1", "event": "arrived"},
+        {"type": "state_event", "correlationId": "visit_2", "event": "arrived"},
+    ]
+    blocked = _BlockingWS()
+    send = asyncio.create_task(runner._send_all(blocked, events))
+    await blocked.started.wait()
+    send.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await send
+    assert runner._queue == events
+    replay = _RecordingWS()
+    await runner._flush(replay)
+    assert replay.sent == events and runner._queue == []
+
 async def test_a_drop_mid_travel_loses_no_state_event():
     api = ReplayingApi(drop_on_ack=True)
     await api.start()
@@ -222,6 +254,15 @@ class _RecordingWS:
             self._fail_first = False
             raise ConnectionClosed(None, None)
         self.sent.append(json.loads(raw))
+
+class _BlockingWS:
+    def __init__(self):
+        self.started = asyncio.Event()
+        self._unblock = asyncio.Event()
+
+    async def send(self, raw: str) -> None:
+        self.started.set()
+        await self._unblock.wait()
 
 async def test_flush_leaves_message_queued_if_send_fails():
     core = GatewayCore(MockRobotAdapter(), now_ms=lambda: 0)

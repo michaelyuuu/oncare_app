@@ -68,14 +68,12 @@ class GatewayRunner:
                     msg = json.loads(raw)
                     if not isinstance(msg, dict):
                         raise MessageError("not an object")
-                    for out in self.core.handle(msg):
-                        await self._send(ws, out)
+                    await self._send_all(ws, self.core.handle(msg))
                 except (MessageError, json.JSONDecodeError) as e:
                     log.warning("ignored invalid message: %s", e)
         async def tick():
             while True:
-                for out in self.core.tick():
-                    await self._send(ws, out)
+                await self._send_all(ws, self.core.tick())
                 await asyncio.sleep(self.tick_s)
         async def heartbeat():
             while True:
@@ -109,6 +107,21 @@ class GatewayRunner:
         except (ConnectionClosed, OSError):
             self._queue.append(msg)
             raise
+
+    async def _send_all(self, ws, messages: list[dict]) -> None:
+        """Retain the failed event and every later event from one core batch."""
+        for index, msg in enumerate(messages):
+            try:
+                await self._send(ws, msg)
+            except (ConnectionClosed, OSError):
+                self._queue.extend(messages[index + 1:])
+                raise
+            except asyncio.CancelledError:
+                # Session teardown can cancel a send that is suspended by
+                # backpressure.  The core has already produced this batch, so
+                # replay the interrupted message and everything after it.
+                self._queue.extend(messages[index:])
+                raise
 
     async def _flush(self, ws) -> None:
         # Peek, send, then pop -- if send() raises (link drops mid-flush) the
