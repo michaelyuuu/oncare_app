@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { GatewayDownSchema, GatewayUpSchema } from "../src/gateway";
 
 describe("gateway contracts", () => {
@@ -42,11 +43,11 @@ describe("gateway contracts", () => {
     expect(GatewayDownSchema.safeParse({ type: "resume" }).success).toBe(true);
   });
 
-  test("JSON Schema files are emitted and mention the discriminator", () => {
-    for (const f of ["robot_gateway/schema/gateway-down.json", "robot_gateway/schema/gateway-up.json"]) {
-      expect(existsSync(f), f).toBe(true);
-      const json = JSON.parse(readFileSync(f, "utf8"));
-      expect(JSON.stringify(json)).toContain('"type"');
-    }
+  test("the emitted JSON Schema files still match the zod schemas", () => {
+    const read = (f: string) => JSON.parse(readFileSync(f, "utf8"));
+    expect(read("robot_gateway/schema/gateway-down.json"))
+      .toEqual(zodToJsonSchema(GatewayDownSchema, "GatewayDown"));
+    expect(read("robot_gateway/schema/gateway-up.json"))
+      .toEqual(zodToJsonSchema(GatewayUpSchema, "GatewayUp"));
   });
 });
