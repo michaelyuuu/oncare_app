@@ -148,6 +148,14 @@ describe("dispatch service", () => {
     expect(state()).toBe("robot_en_route");
   });
 
+  test("a robot-originated cancel is not echoed back to the robot", async () => {
+    const { app, sent, visitId, state } = await acceptedVisit();
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "accepted" });
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: visitId, at: new Date().toISOString(), event: "cancelled" });
+    expect(state()).toBe("cancelled");
+    expect(sent.filter((m) => m.type === "cancel")).toHaveLength(0);
+  });
+
   test("a robot message with an unknown correlation id is ignored without throwing", async () => {
     const { app, state } = await acceptedVisit();
     expect(() => app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: "nope", result: "accepted" })).not.toThrow();

@@ -71,6 +71,17 @@ describe("visit actions", () => {
     expect(states.slice(-2)).toEqual(["ending", "completed"]);
   });
 
+  test("end from ending completes instead of 409: the satisfied step is skipped", async () => {
+    const { db, tokens, id, act } = await visitIn("ending");
+    const res = await act("end", tokens.family);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().visit.state).toBe("completed");
+    expect(typeof res.json().visit.endedAt).toBe("string");
+    const states = db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, id)).all().map((e) => e.toState);
+    expect(states.at(-1)).toBe("completed");
+    expect(states.filter((s) => s === "ending")).toHaveLength(0);
+  });
+
   test("family cancel works from robot_en_route and is refused once completed", async () => {
     const a = await visitIn("robot_en_route");
     expect((await a.act("cancel", a.tokens.family)).json().visit.state).toBe("cancelled");

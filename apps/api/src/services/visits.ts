@@ -77,6 +77,12 @@ export function createVisitService(db: Db, transitions: TransitionService, opts:
     try {
       const last = spec.to.length - 1;
       spec.to.forEach((to, i) => {
+        // A multi-step action (end: active -> ending -> completed) may be
+        // asked of a visit that is already part-way through it -- a retried
+        // tap, or a client that reported `ending` itself. A step whose state
+        // the visit already holds is satisfied, so skip it rather than
+        // failing the whole action on an illegal ending -> ending.
+        if (get(visit.id)?.state === to) return;
         const isFinal = i === last;
         const patch = isFinal
           ? input.action === "connected" ? { connectedAt: now().toISOString() }

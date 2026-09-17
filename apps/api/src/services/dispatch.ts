@@ -62,6 +62,8 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   }
 
   function onVisitCancelled(ev: AuditEvent) {
+    // The robot told us it cancelled: it does not need to be told back.
+    if (ev.actorType === "robot") return;
     const cmd = db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, ev.entityId)).get();
     if (!cmd || cmd.result === "expired" || cmd.result === "rejected" || cmd.result === "busy") return;
     if (hub.send(cmd.robotId, { type: "cancel", correlationId: ev.entityId })) return;
