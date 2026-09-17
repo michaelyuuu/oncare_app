@@ -21,6 +21,11 @@ function normalize(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
+/** Escape regex metacharacters so a needle can be interpolated into a RegExp safely. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export class KeywordParser implements IntentParser {
   constructor(private readonly synonyms: Record<string, string[]> = DEFAULT_SYNONYMS) {}
 
@@ -50,17 +55,24 @@ export class KeywordParser implements IntentParser {
     // Walk through sorted synonyms once; remove matched text so shorter synonyms cannot re-match
     for (const [itemId, needle] of allSynonyms) {
       const isLatin = /[a-z]/.test(needle);
+
+      // Build regex once and reuse for both test and replacement
+      const escaped = escapeRegExp(needle);
+      const regex = isLatin
+        ? new RegExp(`(^|\\s)${escaped}(\\s|$)`, "g")
+        : undefined; // CJK uses replaceAll, no regex needed
+
       const hit = isLatin
-        ? new RegExp(`(^|\\s)${needle}(\\s|$)`).test(norm)
+        ? regex!.test(norm)
         : norm.includes(needle);
 
       if (hit) {
         found.add(itemId);
-        // Remove the matched text from norm so shorter synonyms cannot re-match the same characters
+        // Remove ALL occurrences of the matched text so shorter synonyms cannot re-match
         if (isLatin) {
-          norm = norm.replace(new RegExp(`(^|\\s)${needle}(\\s|$)`), " ");
+          norm = norm.replace(regex!, " ");
         } else {
-          norm = norm.replace(needle, " ");
+          norm = norm.replaceAll(needle, " ");
         }
         // Normalize whitespace after removal
         norm = norm.replace(/\s+/g, " ").trim();

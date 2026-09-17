@@ -92,4 +92,30 @@ describe("KeywordParser", () => {
     expect(out.kind).toBe("proposal");
     if (out.kind === "proposal") expect(out.proposal.item).toBe("water_bottle");
   });
+
+  test('Chinese "剪刀 剪刀" (scissors twice) → proposal, all occurrences consumed', () => {
+    const out = parser.parse("剪刀 剪刀", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("scissors");
+  });
+
+  test('Chinese "剪刀在桌上，媽媽要剪刀" (scissors in sentence, twice) → proposal', () => {
+    const out = parser.parse("剪刀在桌上，媽媽要剪刀", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("scissors");
+  });
+
+  test('"water water bottle water" → proposal water_bottle (all occurrences consumed)', () => {
+    const out = parser.parse("water water bottle water", ctx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("water_bottle");
+  });
+
+  test('"tissue box, tissue box, and a knife" → clarification with both items sorted', () => {
+    const out = parser.parse("tissue box, tissue box, and a knife", ctx);
+    expect(out.kind).toBe("clarification");
+    if (out.kind === "clarification") {
+      expect(out.options.sort()).toEqual(["knife", "tissue_box"]);
+    }
+  });
 });
