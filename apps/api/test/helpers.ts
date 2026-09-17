@@ -2,10 +2,10 @@ import { buildApp } from "../src/app";
 import { openDb } from "../src/db/client";
 import { SEED_SECRETS, seed } from "../src/db/seed";
 
-export async function makeTestApp() {
+export async function makeTestApp(opts: { now?: () => Date } = {}) {
   const db = openDb(":memory:");
   await seed(db);
-  const app = buildApp({ db, jwtSecret: "test-secret" });
+  const app = buildApp({ db, jwtSecret: "test-secret", ...(opts.now ? { now: opts.now } : {}) });
   await app.ready();
   const login = async (username: string, password: string) =>
     (await app.inject({ method: "POST", url: "/auth/login", payload: { username, password } })).json().token as string;

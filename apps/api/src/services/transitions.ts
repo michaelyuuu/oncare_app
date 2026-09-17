@@ -31,12 +31,15 @@ export type Listener = (ev: AuditEvent) => void;
 
 export interface CreateTransitionServiceOptions {
   now?: () => Date;
+  /** Audit event id generator. Default: a random `evt_` id. Override only for tests. */
+  id?: () => string;
   /** Called when a subscribed listener throws. Default: logs event/entity ids only, never event contents. */
   onListenerError?: (err: unknown, ev: AuditEvent) => void;
 }
 
 export function createTransitionService(db: Db, opts: CreateTransitionServiceOptions = {}) {
   const now = opts.now ?? (() => new Date());
+  const id = opts.id;
   const onListenerError = opts.onListenerError ?? ((err: unknown, ev: AuditEvent) => {
     console.error(`[transitions] listener error for event ${ev.id} (entity ${ev.entityId})`, err);
   });
@@ -74,7 +77,10 @@ export function createTransitionService(db: Db, opts: CreateTransitionServiceOpt
       ? transitionVisit(from as VisitState, input.to as VisitState)
       : transitionTask(from as TaskState, input.to as TaskState);
 
-    const base = { actorType: input.actorType, actorId: input.actorId, entityType: input.entityType, entityId: input.entityId, fromState: from, toState: input.to, correlationId, now } as const;
+    const base = {
+      actorType: input.actorType, actorId: input.actorId, entityType: input.entityType, entityId: input.entityId,
+      fromState: from, toState: input.to, correlationId, now, ...(id !== undefined ? { id } : {}),
+    } as const;
 
     if (!result.ok) {
       writeAudit(makeTransitionEvent({ ...base, reason: "rejected_transition" }));

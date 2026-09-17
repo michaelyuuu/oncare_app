@@ -152,4 +152,20 @@ describe("applyTransition", () => {
     const rows = db.select().from(t.auditEvent).all();
     expect(rows[0]?.reason).toBe("auto_policy");
   });
+
+  test("a duplicate audit id fails the second apply after the state update ran, and the whole transaction rolls back", async () => {
+    const db = openDb(":memory:");
+    await seed(db);
+    db.insert(t.visitSession).values({ id: "visit_1", residentId: SEED_IDS.resident, requesterId: SEED_IDS.familyUser, robotId: SEED_IDS.robot, state: "requested", requestedAt: "2026-09-17T00:00:00.000Z" }).run();
+    const svc = createTransitionService(db, { now: () => new Date("2026-09-17T00:00:01.000Z"), id: () => "evt_fixed" });
+
+    svc.apply({ entityType: "visit", entityId: "visit_1", to: "awaiting_policy_or_staff", actorType: "system", actorId: "api" });
+    const stateBeforeSecondCall = db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get()?.state;
+    expect(stateBeforeSecondCall).toBe("awaiting_policy_or_staff");
+
+    expect(() => svc.apply({ entityType: "visit", entityId: "visit_1", to: "accepted", actorType: "system", actorId: "api", reason: "auto_policy" })).toThrow();
+
+    expect(db.select().from(t.visitSession).where(eq(t.visitSession.id, "visit_1")).get()?.state).toBe(stateBeforeSecondCall);
+    expect(db.select().from(t.auditEvent).all()).toHaveLength(1);
+  });
 });
