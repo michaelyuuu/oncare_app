@@ -118,4 +118,68 @@ describe("KeywordParser", () => {
       expect(out.options.sort()).toEqual(["knife", "tissue_box"]);
     }
   });
+
+  test("Latin lookahead: back-to-back repeats with custom synonyms", () => {
+    const customParser = new KeywordParser({
+      red_apple: ["red apple"],
+      apple: ["apple"],
+    });
+    const customCtx: ParseContext = {
+      recipientId: "resident_demo_01",
+      defaultDestinationId: "bedside_table_demo",
+      catalogue: {
+        approvedItems: ["red_apple", "apple"],
+        prohibitedItems: [],
+        approvedDestinations: [
+          { id: "bedside_table_demo", kind: "surface", label: "Bedside table" },
+        ],
+      },
+    };
+    const out = customParser.parse("red apple red apple", customCtx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("red_apple");
+  });
+
+  test("Latin lookahead: genuine overlap after full consumption", () => {
+    const customParser = new KeywordParser({
+      red_apple: ["red apple"],
+      apple: ["apple"],
+    });
+    const customCtx: ParseContext = {
+      recipientId: "resident_demo_01",
+      defaultDestinationId: "bedside_table_demo",
+      catalogue: {
+        approvedItems: ["red_apple", "apple"],
+        prohibitedItems: [],
+        approvedDestinations: [
+          { id: "bedside_table_demo", kind: "surface", label: "Bedside table" },
+        ],
+      },
+    };
+    const out = customParser.parse("apple red apple apple", customCtx);
+    expect(out.kind).toBe("clarification");
+    if (out.kind === "clarification") {
+      expect(out.options.sort()).toEqual(["apple", "red_apple"]);
+    }
+  });
+
+  test("Regex escaping: c++ book (escapeRegExp protects metacharacters)", () => {
+    const customParser = new KeywordParser({
+      cpp_book: ["c++ book"],
+    });
+    const customCtx: ParseContext = {
+      recipientId: "resident_demo_01",
+      defaultDestinationId: "bedside_table_demo",
+      catalogue: {
+        approvedItems: ["cpp_book"],
+        prohibitedItems: [],
+        approvedDestinations: [
+          { id: "bedside_table_demo", kind: "surface", label: "Bedside table" },
+        ],
+      },
+    };
+    const out = customParser.parse("the c++ book please", customCtx);
+    expect(out.kind).toBe("proposal");
+    if (out.kind === "proposal") expect(out.proposal.item).toBe("cpp_book");
+  });
 });

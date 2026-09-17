@@ -57,9 +57,10 @@ export class KeywordParser implements IntentParser {
       const isLatin = /[a-z]/.test(needle);
 
       // Build regex once and reuse for both test and replacement
+      // Use lookahead for trailing boundary so it's not consumed; allows matching multiple back-to-back occurrences
       const escaped = escapeRegExp(needle);
       const regex = isLatin
-        ? new RegExp(`(^|\\s)${escaped}(\\s|$)`, "g")
+        ? new RegExp(`(^|\\s)${escaped}(?=\\s|$)`, "g")
         : undefined; // CJK uses replaceAll, no regex needed
 
       const hit = isLatin
