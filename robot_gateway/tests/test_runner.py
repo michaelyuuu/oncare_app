@@ -1,6 +1,7 @@
-import asyncio, json, time
+import asyncio, json, logging, time
 import pytest
 import websockets
+from websockets.exceptions import ConnectionClosed
 from gateway.core import GatewayCore
 from gateway.robot.mock import MockRobotAdapter
 from gateway.runner import GatewayRunner
@@ -97,3 +98,52 @@ async def test_invalid_message_from_api_is_ignored(api):
     await asyncio.sleep(0.2)
     assert all(m["type"] in ("heartbeat",) for m in api.received)
     stop.set(); await task
+
+async def test_connect_error_never_logs_the_token(caplog, capsys):
+    # A malformed api_url (no scheme) makes websockets.connect raise InvalidURI, whose
+    # message embeds the full URI -- including the token query param. The runner must
+    # never let that string reach a log record or stderr, and must keep looping (not crash).
+    core = GatewayCore(MockRobotAdapter(), now_ms=lambda: int(time.monotonic() * 1000))
+    runner = GatewayRunner(core, api_url="not-a-url", robot_token="SECRET_TOKEN_XYZ",
+                            heartbeat_ms=100, tick_ms=20, reconnect_min_s=0.05, reconnect_max_s=0.1)
+    stop = asyncio.Event()
+    with caplog.at_level(logging.DEBUG, logger="gateway"):
+        task = asyncio.create_task(runner.run(stop))
+        await asyncio.sleep(0.3)
+        stop.set()
+        await task   # must return without raising
+    assert "SECRET_TOKEN_XYZ" not in caplog.text
+    out, err = capsys.readouterr()
+    assert "SECRET_TOKEN_XYZ" not in out
+    assert "SECRET_TOKEN_XYZ" not in err
+
+class _RecordingWS:
+    """Fake socket for unit-testing _flush without a real connection."""
+    def __init__(self, fail_first: bool = False):
+        self.sent: list[dict] = []
+        self._fail_first = fail_first
+
+    async def send(self, raw: str) -> None:
+        if self._fail_first:
+            self._fail_first = False
+            raise ConnectionClosed(None, None)
+        self.sent.append(json.loads(raw))
+
+async def test_flush_leaves_message_queued_if_send_fails():
+    core = GatewayCore(MockRobotAdapter(), now_ms=lambda: 0)
+    runner = GatewayRunner(core, api_url="ws://127.0.0.1:1", robot_token="t")
+    runner._queue = [{"a": 1}, {"b": 2}, {"c": 3}]
+    ws = _RecordingWS(fail_first=True)
+    with pytest.raises(ConnectionClosed):
+        await runner._flush(ws)
+    assert runner._queue == [{"a": 1}, {"b": 2}, {"c": 3}]
+    assert ws.sent == []
+
+async def test_flush_sends_all_queued_messages_in_order_and_empties_queue():
+    core = GatewayCore(MockRobotAdapter(), now_ms=lambda: 0)
+    runner = GatewayRunner(core, api_url="ws://127.0.0.1:1", robot_token="t")
+    runner._queue = [{"a": 1}, {"b": 2}, {"c": 3}]
+    ws = _RecordingWS(fail_first=False)
+    await runner._flush(ws)
+    assert runner._queue == []
+    assert ws.sent == [{"a": 1}, {"b": 2}, {"c": 3}]

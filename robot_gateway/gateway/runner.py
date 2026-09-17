@@ -4,7 +4,7 @@ produces, and manages the WebSocket connection lifecycle (heartbeat, offline
 safe-stop ticking, reconnect with backoff, queuing while disconnected)."""
 import asyncio, json, logging, random
 import websockets
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, WebSocketException
 from .core import GatewayCore
 from .messages import MessageError
 
@@ -21,6 +21,13 @@ class GatewayRunner:
         self.reconnect_max_s = reconnect_max_s
         self._queue: list[dict] = []
 
+    @property
+    def _scrubbed_url(self) -> str:
+        # Never format/log self.url directly: it embeds the robot token as a
+        # query param, and some exceptions (e.g. InvalidURI) embed the whole
+        # URI they failed to parse in their message.
+        return self.url.split("?")[0]
+
     async def run(self, stop: asyncio.Event) -> None:
         backoff = self.reconnect_min_s
         while not stop.is_set():
@@ -28,12 +35,17 @@ class GatewayRunner:
                 async with websockets.connect(self.url, open_timeout=5) as ws:
                     backoff = self.reconnect_min_s
                     self.core.on_connected()
-                    log.info("connected to %s", self.url.split("?")[0])
+                    log.info("connected to %s", self._scrubbed_url)
                     await self._flush(ws)
                     await ws.send(json.dumps(self.core.heartbeat()))
                     await self._session(ws, stop)
-            except (OSError, ConnectionClosed, asyncio.TimeoutError) as e:
-                log.warning("link down: %s", e)
+            except ConnectionClosedOK:
+                log.info("connection closed: %s", self._scrubbed_url)
+            except (OSError, ConnectionClosed, asyncio.TimeoutError, WebSocketException) as e:
+                # Log only the exception type, never str(e): for some
+                # exceptions (InvalidURI, InvalidHandshake, ...) the message
+                # embeds the URI we tried to connect to, token and all.
+                log.warning("link down: %s (%s)", type(e).__name__, self._scrubbed_url)
             if stop.is_set():
                 return
             self.core.on_disconnected()
@@ -81,5 +93,9 @@ class GatewayRunner:
             await asyncio.sleep(self.tick_s)
 
     async def _flush(self, ws) -> None:
+        # Peek, send, then pop -- if send() raises (link drops mid-flush) the
+        # message stays at the front of the queue instead of being lost, and
+        # the exception propagates so the reconnect loop can retry later.
         while self._queue:
-            await ws.send(json.dumps(self._queue.pop(0)))
+            await ws.send(json.dumps(self._queue[0]))
+            self._queue.pop(0)
