@@ -18,20 +18,50 @@ export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
   }
 
   app.get("/gateway", { websocket: true }, async (socket, req) => {
+    // Track what (if anything) actually got attached to the hub so the close
+    // handler -- registered below, before verification even starts -- knows
+    // whether, and which link, to detach. Registering "close" this early (and
+    // unconditionally) means a disconnect that races token verification is
+    // never lost: EventEmitter.emit with no listener drops the event outright,
+    // so a "close" that fired before this listener existed would otherwise
+    // leave a socket attached forever, or never detached, with nothing left
+    // to close it.
+    let attached = false;
+    let attachedRobotId: string | null = null;
+    let attachedLink: { send: (msg: GatewayDown) => void } | null = null;
+    socket.on("close", () => {
+      if (attached && attachedRobotId && attachedLink) app.hub.detach(attachedRobotId, attachedLink);
+    });
+
     // Hold off reading any inbound frames until the token is verified and our
-    // "message"/"close" listeners are attached -- verifySecret is async (scrypt),
-    // and without this the client's first message can arrive and be dropped
+    // "message" listener is attached -- verifySecret is async (scrypt), and
+    // without this the client's first message can arrive and be dropped
     // before we're listening for it.
     socket.pause();
     const { token } = req.query as { token?: string };
-    const robotId = await robotIdForToken(token);
+    let robotId: string | null;
+    try {
+      robotId = await robotIdForToken(token);
+    } catch {
+      robotId = null;
+    }
     if (!robotId) {
       socket.close(4401, "unauthorized");
       socket.resume(); // let the closing handshake drain so the socket can actually terminate
       return;
     }
+    if (socket.readyState !== socket.OPEN) {
+      // The client disconnected while we were verifying the token: the "close"
+      // listener above has already run (or will, harmlessly, with nothing
+      // attached). Don't attach a dead socket to the hub.
+      socket.resume();
+      return;
+    }
 
     const link = { send: (msg: GatewayDown) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg)); } };
+    attached = true;
+    attachedRobotId = robotId;
+    attachedLink = link;
     app.hub.attach(robotId, link);
     // The gateway only accepts location IDs it has been told about: send the approved table first, then any pending intents.
     const locations = db.select().from(t.location).where(eq(t.location.approved, true)).all()
@@ -46,7 +76,6 @@ export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
       if (!result.success) { socket.send(JSON.stringify({ type: "error", reason: "invalid_message" })); return; }
       app.hub.receive(robotId, result.data);
     });
-    socket.on("close", () => { app.hub.detach(robotId); });
     socket.resume();
   });
 

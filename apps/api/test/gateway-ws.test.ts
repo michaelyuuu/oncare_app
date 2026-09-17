@@ -104,4 +104,38 @@ describe("WS /gateway", () => {
     const { app, tokens } = await makeTestApp();
     expect((await app.inject({ method: "GET", url: `/robots/${SEED_IDS.robot}/status`, headers: auth(tokens.family) })).statusCode).toBe(403);
   });
+
+  test("a second connection for the same robot supersedes the first, and the stale close does not detach the live link", async () => {
+    const { app } = await makeTestApp();
+    const srv = await listen(app); closers.push(srv.close);
+    const ws1 = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
+    // Wait for ws1's own attach to complete (the `locations` push only happens
+    // after hub.attach) before opening ws2, so ws2 is deterministically the
+    // *later* attach and therefore the current link -- otherwise, under heavy
+    // parallel load, two concurrent token verifications (scrypt) can finish in
+    // either order and this test would flake on which socket ends up "current".
+    await nextMessage(ws1);
+    const ws2 = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
+    await nextMessage(ws2);
+    ws1.close();
+    await closed(ws1);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(app.hub.status(SEED_IDS.robot).connected).toBe(true);
+    ws2.send(JSON.stringify({ type: "heartbeat", at: "2026-09-17T00:00:00.000Z", robotReady: true, adapter: "mock", pose: null, navState: "idle", estop: false, lift: "rest", battery: "unknown", activeCorrelationId: null, gatewayVersion: "0.0.1" }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(app.hub.status(SEED_IDS.robot).lastHeartbeat).toMatchObject({ robotReady: true });
+    ws2.close();
+    await closed(ws2);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(app.hub.status(SEED_IDS.robot).connected).toBe(false);
+  });
+
+  test("closing during token verification never leaves the robot attached", async () => {
+    const { app } = await makeTestApp();
+    const srv = await listen(app); closers.push(srv.close);
+    const ws = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
+    ws.close();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(app.hub.status(SEED_IDS.robot).connected).toBe(false);
+  });
 });

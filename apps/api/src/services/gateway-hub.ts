@@ -10,7 +10,16 @@ export class GatewayHub {
   private listeners = new Set<UpListener>();
 
   attach(robotId: string, link: RobotLink): void { this.links.set(robotId, link); }
-  detach(robotId: string): void { this.links.delete(robotId); }
+
+  // When `link` is given, only remove it if it's still the currently-attached
+  // link (identity check). This guards against a superseded connection's
+  // stale `close` handler detaching a newer, live connection for the same
+  // robot id. The no-arg form is kept for callers that always want an
+  // unconditional removal.
+  detach(robotId: string, link?: RobotLink): void {
+    if (link !== undefined && this.links.get(robotId) !== link) return;
+    this.links.delete(robotId);
+  }
 
   send(robotId: string, msg: GatewayDown): boolean {
     const link = this.links.get(robotId);
