@@ -9,7 +9,10 @@ async function setup() {
   const db = openDb(":memory:");
   await seed(db);
   db.insert(t.visitSession).values({ id: "visit_1", residentId: SEED_IDS.resident, requesterId: SEED_IDS.familyUser, robotId: SEED_IDS.robot, state: "requested", requestedAt: "2026-09-17T00:00:00.000Z" }).run();
-  db.insert(t.taskRequest).values({ id: "task_1", requesterId: SEED_IDS.familyUser, residentId: SEED_IDS.resident, proposal: {}, state: "parsed", mode: "mock", correlationId: "corr_task_1", createdAt: "2026-09-17T00:00:00.000Z" }).run();
+  db.insert(t.taskRequest).values({ id: "task_1", requesterId: SEED_IDS.familyUser, residentId: SEED_IDS.resident, proposal: {
+    task_type: "deliver_item", item: "water_bottle", recipient: "resident_demo_01",
+    destination: "bedside_table_demo", requires_confirmation: true,
+  }, state: "parsed", mode: "mock", correlationId: "corr_task_1", createdAt: "2026-09-17T00:00:00.000Z" }).run();
   return { db, svc: createTransitionService(db, { now: () => new Date("2026-09-17T00:00:01.000Z") }) };
 }
 

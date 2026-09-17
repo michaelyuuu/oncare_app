@@ -1,4 +1,6 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { Intent } from "@oncare/contracts";
+import type { TaskProposal } from "@oncare/core";
 
 export const facility = sqliteTable("facility", {
   id: text("id").primaryKey(), name: text("name").notNull(), timezone: text("timezone").notNull(),
@@ -49,7 +51,7 @@ export const visitSession = sqliteTable("visit_session", {
 export const taskRequest = sqliteTable("task_request", {
   id: text("id").primaryKey(), visitId: text("visit_id").references(() => visitSession.id),
   requesterId: text("requester_id").notNull().references(() => user.id), residentId: text("resident_id").notNull().references(() => resident.id),
-  proposal: text("proposal", { mode: "json" }).notNull(), state: text("state").notNull(),
+  proposal: text("proposal", { mode: "json" }).$type<TaskProposal>().notNull(), state: text("state").notNull(),
   mode: text("mode", { enum: ["tray", "manipulation", "mock"] }).notNull(), correlationId: text("correlation_id").notNull().unique(),
   createdAt: text("created_at").notNull(),
 });
@@ -61,7 +63,7 @@ export const taskApproval = sqliteTable("task_approval", {
 export const robotCommand = sqliteTable("robot_command", {
   id: text("id").primaryKey(), robotId: text("robot_id").notNull().references(() => robot.id),
   taskId: text("task_id").references(() => taskRequest.id), visitId: text("visit_id").references(() => visitSession.id),
-  intent: text("intent", { mode: "json" }).notNull(), issuedAt: text("issued_at").notNull(), expiresAt: text("expires_at").notNull(),
+  intent: text("intent", { mode: "json" }).$type<Intent>().notNull(), issuedAt: text("issued_at").notNull(), expiresAt: text("expires_at").notNull(),
   ackedAt: text("acked_at"), result: text("result"),
 });
 export const auditEvent = sqliteTable("audit_event", {
