@@ -117,6 +117,100 @@ async def test_connect_error_never_logs_the_token(caplog, capsys):
     assert "SECRET_TOKEN_XYZ" not in out
     assert "SECRET_TOKEN_XYZ" not in err
 
+class ReplayingApi(FakeApi):
+    """Like FakeApi, but pushes the locations table on every connection the way
+    the real API does, and can be told to drop the link the moment it sees the
+    robot's ack -- i.e. while the mock robot is still travelling."""
+    def __init__(self, drop_on_ack: bool = False):
+        super().__init__()
+        self.drop_on_ack = drop_on_ack
+
+    async def _handler(self, ws):
+        self.connections += 1
+        self._conn = ws
+        await ws.send(json.dumps(LOCATIONS))
+        try:
+            async for raw in ws:
+                m = json.loads(raw)
+                self.received.append(m)
+                if self.drop_on_ack and m.get("type") == "ack":
+                    self.drop_on_ack = False
+                    await ws.close()
+        except websockets.ConnectionClosed:
+            pass
+
+class FlappingApi(FakeApi):
+    """Accepts a TCP/WebSocket handshake then drops it until explicitly healed."""
+    def __init__(self):
+        super().__init__()
+        self.flapping = True
+
+    async def _handler(self, ws):
+        self.connections += 1
+        self._conn = ws
+        if self.flapping:
+            await ws.close()
+            return
+        await ws.send(json.dumps(LOCATIONS))
+        try:
+            async for raw in ws:
+                self.received.append(json.loads(raw))
+        except websockets.ConnectionClosed:
+            pass
+
+async def test_unproven_flapping_connections_do_not_reset_safety_grace():
+    api = FlappingApi()
+    await api.start()
+    now_ms = lambda: int(time.monotonic() * 1000)
+    core = GatewayCore(MockRobotAdapter(travel_ms=5_000), now_ms=now_ms, disconnect_grace_ms=300)
+    core.on_connected()
+    core.handle(LOCATIONS)
+    core.handle({"type": "intent", "intent": "request_visit", "correlationId": "visit_flap", "expiresAt": "2099-01-01T00:00:00.000Z", "payload": {"locationId": "room_demo_01"}})
+    core.on_disconnected()
+    runner = GatewayRunner(core, api_url=f"ws://127.0.0.1:{api.port}", robot_token="t", heartbeat_ms=100,
+                           tick_ms=20, reconnect_min_s=0.05, reconnect_max_s=0.1)
+    stop = asyncio.Event()
+    task = asyncio.create_task(runner.run(stop))
+    try:
+        assert await wait_for(lambda: core.active_correlation_id is None, timeout=2.0)
+        assert runner.current_backoff == runner.reconnect_max_s
+        assert any(m.get("event") == "safety_stopped" for m in runner._queue)
+        api.flapping = False
+        assert await wait_for(lambda: any(m.get("event") == "safety_stopped" for m in api.received), timeout=2.0)
+    finally:
+        stop.set(); await task; await api.stop()
+
+async def test_send_queues_the_message_when_the_link_dies_under_it():
+    core = GatewayCore(MockRobotAdapter(), now_ms=lambda: 0)
+    runner = GatewayRunner(core, api_url="ws://127.0.0.1:1", robot_token="t")
+    ws = _RecordingWS(fail_first=True)
+    with pytest.raises(ConnectionClosed):
+        await runner._send(ws, {"type": "state_event", "event": "arrived"})
+    assert runner._queue == [{"type": "state_event", "event": "arrived"}]
+    assert ws.sent == []
+    # a send that works does not queue anything
+    await runner._send(ws, {"type": "state_event", "event": "cancelled"})
+    assert runner._queue == [{"type": "state_event", "event": "arrived"}]
+    assert ws.sent == [{"type": "state_event", "event": "cancelled"}]
+
+async def test_a_drop_mid_travel_loses_no_state_event():
+    api = ReplayingApi(drop_on_ack=True)
+    await api.start()
+    core, runner = make_runner(api, travel_ms=200, reconnect_min_s=0.05, reconnect_max_s=0.1)
+    stop = asyncio.Event()
+    task = asyncio.create_task(runner.run(stop))
+    try:
+        assert await wait_for(lambda: api.connections == 1)
+        await api.send({"type": "intent", "intent": "request_visit", "correlationId": "visit_i1", "expiresAt": "2099-01-01T00:00:00.000Z", "payload": {"locationId": "room_demo_01"}})
+        # the API hangs up as soon as it has the ack, while the robot is still moving
+        assert await wait_for(lambda: api.connections == 2, timeout=3.0)
+        assert await wait_for(lambda: any(m.get("event") == "arrived" for m in api.received), timeout=3.0)
+        await asyncio.sleep(0.3)
+        assert [m.get("event") for m in api.received if m.get("event") == "arrived"] == ["arrived"]
+        assert core.active_correlation_id is None
+    finally:
+        stop.set(); await task; await api.stop()
+
 class _RecordingWS:
     """Fake socket for unit-testing _flush without a real connection."""
     def __init__(self, fail_first: bool = False):

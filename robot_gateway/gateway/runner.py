@@ -19,6 +19,7 @@ class GatewayRunner:
         self.tick_s = tick_ms / 1000
         self.reconnect_min_s = reconnect_min_s
         self.reconnect_max_s = reconnect_max_s
+        self.current_backoff = reconnect_min_s
         self._queue: list[dict] = []
 
     @property
@@ -29,13 +30,14 @@ class GatewayRunner:
         return self.url.split("?")[0]
 
     async def run(self, stop: asyncio.Event) -> None:
-        backoff = self.reconnect_min_s
         while not stop.is_set():
             try:
                 async with websockets.connect(self.url, open_timeout=5) as ws:
-                    backoff = self.reconnect_min_s
-                    self.core.on_connected()
-                    log.info("connected to %s", self._scrubbed_url)
+                    # A completed handshake alone does not prove the API link is
+                    # usable: a flapping peer can close immediately afterwards.
+                    # _session marks the core connected only after it receives
+                    # the first inbound message (the API sends locations first).
+                    log.info("transport connected to %s", self._scrubbed_url)
                     await self._flush(ws)
                     await ws.send(json.dumps(self.core.heartbeat()))
                     await self._session(ws, stop)
@@ -49,24 +51,31 @@ class GatewayRunner:
             if stop.is_set():
                 return
             self.core.on_disconnected()
-            await self._offline_wait(stop, backoff)
-            backoff = min(self.reconnect_max_s, backoff * 2)
+            await self._offline_wait(stop, self.current_backoff)
+            self.current_backoff = min(self.reconnect_max_s, self.current_backoff * 2)
 
     async def _session(self, ws, stop: asyncio.Event) -> None:
+        proven = False
+
         async def recv():
+            nonlocal proven
             async for raw in ws:
                 try:
+                    if not proven:
+                        proven = True
+                        self.core.on_connected()
+                        self.current_backoff = self.reconnect_min_s
                     msg = json.loads(raw)
                     if not isinstance(msg, dict):
                         raise MessageError("not an object")
                     for out in self.core.handle(msg):
-                        await ws.send(json.dumps(out))
+                        await self._send(ws, out)
                 except (MessageError, json.JSONDecodeError) as e:
                     log.warning("ignored invalid message: %s", e)
         async def tick():
             while True:
                 for out in self.core.tick():
-                    await ws.send(json.dumps(out))
+                    await self._send(ws, out)
                 await asyncio.sleep(self.tick_s)
         async def heartbeat():
             while True:
@@ -87,10 +96,19 @@ class GatewayRunner:
 
     async def _offline_wait(self, stop: asyncio.Event, seconds: float) -> None:
         """Keep ticking the core while offline so the disconnect grace timer can fire."""
-        deadline = asyncio.get_event_loop().time() + seconds + random.uniform(0, seconds * 0.2)
-        while not stop.is_set() and asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + seconds + random.uniform(0, seconds * 0.2)
+        while not stop.is_set() and loop.time() < deadline:
             self._queue.extend(self.core.tick())
             await asyncio.sleep(self.tick_s)
+
+    async def _send(self, ws, msg: dict) -> None:
+        """Send an event or retain it for the next proven connection."""
+        try:
+            await ws.send(json.dumps(msg))
+        except (ConnectionClosed, OSError):
+            self._queue.append(msg)
+            raise
 
     async def _flush(self, ws) -> None:
         # Peek, send, then pop -- if send() raises (link drops mid-flush) the
