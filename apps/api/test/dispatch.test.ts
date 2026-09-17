@@ -41,6 +41,29 @@ describe("dispatch service", () => {
     expect(sent[0]).toMatchObject({ type: "intent", correlationId: visitId });
   });
 
+  test("a visit cancelled while the robot was offline is never flushed to it", async () => {
+    const { app, db, tokens, sent, link, visitId, state } = await acceptedVisit(false);
+    await app.inject({ method: "POST", url: `/visits/${visitId}/cancel`, headers: auth(tokens.family) });
+    expect(state()).toBe("cancelled");
+    expect(db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visitId)).get()?.result).toBe("cancelled");
+    app.hub.attach(SEED_IDS.robot, link);
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+    expect(sent).toHaveLength(0);
+    // and it stays settled: a second attach does not resurrect it either
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+  });
+
+  test("a pending command whose visit is no longer dispatchable is marked stale, not sent", async () => {
+    const { app, db, sent, link, visitId } = await acceptedVisit(false);
+    app.transitions.apply({ entityType: "visit", entityId: visitId, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "expired" });
+    app.hub.attach(SEED_IDS.robot, link);
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+    expect(sent).toHaveLength(0);
+    const cmd = db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visitId)).get();
+    expect(cmd?.result).toBe("stale");
+    expect(cmd?.ackedAt).toBeNull();
+  });
+
   test("ack accepted -> robot_en_route; state_event arrived -> awaiting_resident_consent", async () => {
     const { app, db, visitId, state } = await acceptedVisit();
     app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: visitId, result: "accepted" });

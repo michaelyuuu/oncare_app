@@ -47,7 +47,14 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   function onVisitCancelled(ev: AuditEvent) {
     const cmd = db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, ev.entityId)).get();
     if (!cmd || cmd.result === "expired" || cmd.result === "rejected" || cmd.result === "busy") return;
-    hub.send(cmd.robotId, { type: "cancel", correlationId: ev.entityId });
+    if (hub.send(cmd.robotId, { type: "cancel", correlationId: ev.entityId })) return;
+    // The robot is offline, so it never learned about this visit or its
+    // cancellation. Settle the row here: an unsettled row would be flushed
+    // to the robot the moment it reconnects, sending it to a resident whose
+    // family already called the visit off.
+    if (cmd.result === null) {
+      db.update(t.robotCommand).set({ result: "cancelled" }).where(eq(t.robotCommand.id, cmd.id)).run();
+    }
   }
 
   const unsubTransitions = transitions.subscribe((ev) => {
@@ -99,12 +106,30 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   }
   const unsubHub = hub.onUp(onUp);
 
+  /**
+   * Send every still-dispatchable command for `robotId`. A command is only
+   * dispatchable while its visit is still `accepted`: anything else (cancelled,
+   * denied, already failed over to robot_unavailable, ...) means the robot must
+   * not be sent on this errand at all, so the row is settled as `stale` instead
+   * of being sent -- and, because settled rows are not candidates, it is never
+   * considered again. Rows are settled but never acked here: `ackedAt` records
+   * what the *robot* said.
+   */
   function flushPending(robotId: string): number {
     const nowIso = now().toISOString();
-    const pending = db.select().from(t.robotCommand).where(and(eq(t.robotCommand.robotId, robotId), isNull(t.robotCommand.ackedAt))).all()
+    const pending = db.select().from(t.robotCommand)
+      .where(and(eq(t.robotCommand.robotId, robotId), isNull(t.robotCommand.ackedAt), isNull(t.robotCommand.result))).all()
       .filter((c) => c.expiresAt > nowIso);
     let n = 0;
-    for (const c of pending) if (hub.send(robotId, c.intent as Intent)) n++;
+    for (const c of pending) {
+      if (!c.visitId) continue;   // Plan 5 adds the task analogue
+      const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
+      if (visit?.state !== "accepted") {
+        db.update(t.robotCommand).set({ result: "stale" }).where(eq(t.robotCommand.id, c.id)).run();
+        continue;
+      }
+      if (hub.send(robotId, c.intent as Intent)) n++;
+    }
     return n;
   }
 
