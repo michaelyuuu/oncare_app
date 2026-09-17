@@ -1,0 +1,287 @@
+{
+  "$ref": "#/definitions/GatewayDown",
+  "definitions": {
+    "GatewayDown": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "intent"
+                },
+                "correlationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "intent": {
+                  "type": "string",
+                  "const": "request_visit"
+                },
+                "payload": {
+                  "type": "object",
+                  "properties": {
+                    "locationId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    }
+                  },
+                  "required": [
+                    "locationId"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "correlationId",
+                "expiresAt",
+                "intent",
+                "payload"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/type"
+                },
+                "correlationId": {
+                  "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/correlationId"
+                },
+                "expiresAt": {
+                  "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/expiresAt"
+                },
+                "intent": {
+                  "type": "string",
+                  "const": "go_to_location"
+                },
+                "payload": {
+                  "type": "object",
+                  "properties": {
+                    "locationId": {
+                      "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/payload/properties/locationId"
+                    }
+                  },
+                  "required": [
+                    "locationId"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "correlationId",
+                "expiresAt",
+                "intent",
+                "payload"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/type"
+                },
+                "correlationId": {
+                  "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/correlationId"
+                },
+                "expiresAt": {
+                  "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/expiresAt"
+                },
+                "intent": {
+                  "type": "string",
+                  "const": "deliver_item"
+                },
+                "payload": {
+                  "type": "object",
+                  "properties": {
+                    "itemId": {
+                      "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/payload/properties/locationId"
+                    },
+                    "pickupLocationId": {
+                      "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/payload/properties/locationId"
+                    },
+                    "destinationLocationId": {
+                      "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/payload/properties/locationId"
+                    },
+                    "standbyLocationId": {
+                      "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/payload/properties/locationId"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "tray",
+                        "manipulation",
+                        "mock"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "itemId",
+                    "pickupLocationId",
+                    "destinationLocationId",
+                    "standbyLocationId",
+                    "mode"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "correlationId",
+                "expiresAt",
+                "intent",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "cancel"
+            },
+            "correlationId": {
+              "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/correlationId"
+            }
+          },
+          "required": [
+            "type",
+            "correlationId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "stop"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "resume"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "staff_event"
+            },
+            "correlationId": {
+              "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/correlationId"
+            },
+            "event": {
+              "type": "string",
+              "enum": [
+                "staff_loaded",
+                "received"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "correlationId",
+            "event"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "locations"
+            },
+            "locations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/GatewayDown/anyOf/0/anyOf/0/properties/payload/properties/locationId"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "resident_room",
+                      "pickup_station",
+                      "standby"
+                    ]
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "yaw": {
+                    "type": "number"
+                  },
+                  "approved": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "kind",
+                  "x",
+                  "y",
+                  "yaw",
+                  "approved"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "type",
+            "locations"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@oncare/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "emit": "tsx scripts/emit-json-schema.ts" },
+  "dependencies": { "zod": "^3.23.0", "zod-to-json-schema": "^3.23.0" }
+}
