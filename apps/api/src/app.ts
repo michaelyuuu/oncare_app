@@ -6,6 +6,7 @@ import { authRoutes } from "./routes/auth";
 import { eventsRoutes } from "./routes/events-ws";
 import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
+import { robotRoutes } from "./routes/robots";
 import { visitRoutes } from "./routes/visits";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
@@ -35,6 +36,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(meRoutes, { db: opts.db });
   app.register(visitRoutes);
   app.register(gatewayRoutes, { db: opts.db });
+  app.register(robotRoutes, { db: opts.db });
   app.register(eventsRoutes, { db: opts.db });
   app.get("/health", async () => ({ ok: true }));
   return app;

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import type { GatewayUp, Intent } from "@oncare/contracts";
-import { REASON_CODE, makeTransitionEvent, type AuditEvent, type VisitState } from "@oncare/core";
+import { REASON_CODE, VISIT_TERMINAL_STATES, makeTransitionEvent, type ActorType, type AuditEvent, type VisitState } from "@oncare/core";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import type { GatewayHub } from "./gateway-hub";
@@ -22,7 +22,7 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   const id = opts.id ?? (() => `cmd_${randomUUID()}`);
   const ttl = opts.intentTtlMs ?? 120_000;
 
-  function applyQuietly(input: { visitId: string; to: VisitState; actorType: "robot" | "system"; actorId: string; reason?: string }) {
+  function applyQuietly(input: { visitId: string; to: VisitState; actorType: ActorType; actorId: string; reason?: string }) {
     try {
       transitions.apply({
         entityType: "visit", entityId: input.visitId, to: input.to, actorType: input.actorType, actorId: input.actorId,
@@ -91,13 +91,64 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
    * message, a bug). Record it against the robot so staff can see it, rather
    * than dropping it silently.
    */
-  function auditUnknownCorrelation(robotId: string, correlationId: string) {
+  /**
+   * Record something that happened to the robot itself rather than to a visit.
+   * These rows are not state transitions, so they cannot go through
+   * `transitions.apply`: write the row, then fan it out by hand.
+   */
+  function auditRobotEvent(input: { robotId: string; actorType: ActorType; actorId: string; reason: string; correlationId?: string }): AuditEvent {
     const ev = makeTransitionEvent({
-      actorType: "robot", actorId: robotId, entityType: "robot", entityId: robotId,
-      fromState: null, toState: null, reason: "unknown_correlation", correlationId, now,
+      actorType: input.actorType, actorId: input.actorId, entityType: "robot", entityId: input.robotId,
+      fromState: null, toState: null, reason: input.reason, correlationId: input.correlationId ?? input.robotId, now,
     });
     db.insert(t.auditEvent).values(ev).run();
     transitions.emit(ev);
+    return ev;
+  }
+
+  function auditUnknownCorrelation(robotId: string, correlationId: string) {
+    auditRobotEvent({ robotId, actorType: "robot", actorId: robotId, reason: "unknown_correlation", correlationId });
+  }
+
+  /** Staff-facing audit hook for actions that never reach the robot (e.g. a refused PIN). */
+  function auditRobot(robotId: string, actorId: string, reason: string): void {
+    auditRobotEvent({ robotId, actorType: "staff", actorId, reason });
+  }
+
+  /**
+   * The visit command this robot is actually driving: acked `accepted`, with a
+   * visit that has not reached a terminal state. The newest such row wins.
+   */
+  function activeVisitCommand(robotId: string): { commandId: string; visitId: string } | undefined {
+    const rows = db.select().from(t.robotCommand)
+      .where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.result, "accepted"))).all()
+      .filter((c) => c.ackedAt !== null && c.visitId !== null);
+    for (const c of [...rows].reverse()) {
+      const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId!)).get();
+      if (visit && !(VISIT_TERMINAL_STATES as readonly string[]).includes(visit.state)) return { commandId: c.id, visitId: visit.id };
+    }
+    return undefined;
+  }
+
+  /**
+   * Staff pressed stop. The robot is told to stop and the visit it is driving
+   * is safety-stopped whether or not the message got through: the stop is a
+   * decision about the visit, and `delivered` only reports whether the robot
+   * was reachable.
+   */
+  function sendStop(robotId: string, actorId: string): boolean {
+    const delivered = hub.send(robotId, { type: "stop", reason: "staff_stop" });
+    const active = activeVisitCommand(robotId);
+    if (active) applyQuietly({ visitId: active.visitId, to: "safety_stopped", actorType: "staff", actorId, reason: "staff_stop" });
+    auditRobotEvent({ robotId, actorType: "staff", actorId, reason: "staff_stop", ...(active ? { correlationId: active.visitId } : {}) });
+    return delivered;
+  }
+
+  /** Staff cleared the stop (PIN already verified by the route). */
+  function sendResume(robotId: string, actorId: string): boolean {
+    const delivered = hub.send(robotId, { type: "resume" });
+    auditRobotEvent({ robotId, actorType: "staff", actorId, reason: "staff_resume" });
+    return delivered;
   }
 
   function onUp(robotId: string, msg: GatewayUp) {
@@ -174,5 +225,5 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     return n;
   }
 
-  return { flushPending, sweepExpired, stop() { unsubTransitions(); unsubHub(); } };
+  return { flushPending, sweepExpired, sendStop, sendResume, auditRobot, stop() { unsubTransitions(); unsubHub(); } };
 }

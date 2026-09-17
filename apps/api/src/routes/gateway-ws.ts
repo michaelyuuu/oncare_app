@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { GatewayUpSchema, type GatewayDown } from "@oncare/contracts";
-import { requireRole } from "../auth/plugin";
 import { verifySecret } from "../auth/password";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
@@ -80,12 +79,5 @@ export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
       app.hub.receive(robotId, result.data);
     });
     socket.resume();
-  });
-
-  app.get("/robots/:id/status", { preHandler: requireRole("staff") }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const robot = db.select().from(t.robot).where(eq(t.robot.id, id)).get();
-    if (!robot) return reply.code(404).send({ error: "not_found" });
-    return { robotId: id, ...app.hub.status(id) };
   });
 }
