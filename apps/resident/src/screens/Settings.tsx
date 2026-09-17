@@ -24,16 +24,18 @@ export function Settings({ api, requirePin, currentToken, onSaveToken, onBack, o
     busy.current = true; setPending(true);
     try {
       await api.post("/device/unlock", { pin });
-      if (!mounted.current) return;
-      guard.failures = 0; setUnlocked(true);
+      guard.failures = 0;
+      if (mounted.current) setUnlocked(true);
     } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "invalid_pin") { if (mounted.current) onError(); return; }
+      // Attempt accounting belongs to the persistent guard, even after Back unmounts this screen.
+      guard.failures++;
+      if (guard.failures >= 3) { guard.lockedUntil = Date.now() + 30_000; guard.failures = 0; }
       if (!mounted.current) return;
-      if (!(error instanceof ApiError) || error.code !== "invalid_pin") { onError(); return; }
       setShake(true);
       if (shakeTimer.current) clearTimeout(shakeTimer.current);
       shakeTimer.current = setTimeout(() => setShake(false), 400);
-      guard.failures++;
-      if (guard.failures >= 3) { guard.lockedUntil = Date.now() + 30_000; guard.failures = 0; setLocked(true); }
+      setLocked(guard.lockedUntil > Date.now());
     } finally { busy.current = false; if (mounted.current) setPending(false); }
   };
   return <section className={`screen screen--settings${shake ? " shake" : ""}`}>

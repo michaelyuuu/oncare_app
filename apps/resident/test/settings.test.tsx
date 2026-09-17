@@ -31,6 +31,28 @@ test("PIN request disables repeat entry, network failure returns home, timers cl
   await act(async () => reject(new Error("offline"))); expect(onError).toHaveBeenCalledTimes(1);
   view.unmount(); expect(vi.getTimerCount()).toBe(0);
 });
+test("closing settings before each deferred PIN rejection still locks after three failures", async () => {
+  vi.useFakeTimers();
+  let reject: (error: Error) => void = () => {};
+  const post = vi.fn(() => new Promise((_, fail) => { reject = fail; }));
+  const guard: PinGuard = { failures: 0, lockedUntil: 0 };
+  const props = { api: { get: vi.fn(), post } as Api, requirePin: true, currentToken: "demo", onSaveToken: vi.fn(), pinGuard: guard };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const view = render(<Settings {...props} onBack={() => view.unmount()}/>);
+    enterPin();
+    fireEvent.click(screen.getByRole("button", { name: "Back to resident view" }));
+    expect(screen.queryByRole("group", { name: "PIN" })).not.toBeInTheDocument();
+    await act(async () => reject(new ApiError(401, "invalid_pin")));
+  }
+  expect(post).toHaveBeenCalledTimes(3);
+  expect(vi.getTimerCount()).toBe(0);
+  render(<Settings {...props} onBack={vi.fn()}/>);
+  expect(screen.getByRole("button", { name: "1" })).toBeDisabled();
+  await act(async () => vi.advanceTimersByTimeAsync(29_999));
+  expect(screen.getByRole("button", { name: "1" })).toBeDisabled();
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByRole("button", { name: "1" })).toBeEnabled();
+});
 test("hold requires three seconds; cancel and unmount remove timers", () => {
   vi.useFakeTimers(); const unlock = vi.fn(); const view = render(<HoldToUnlock onUnlock={unlock}/>);
   const logo = screen.getByRole("button"); fireEvent.pointerDown(logo);
