@@ -1828,9 +1828,9 @@ async def api():
     yield a
     await a.stop()
 
-def make_runner(api, travel_ms=200):
+def make_runner(api, travel_ms=200, reconnect_min_s=0.05, reconnect_max_s=0.1):
     core = GatewayCore(MockRobotAdapter(travel_ms=travel_ms), now_ms=lambda: int(time.monotonic() * 1000), disconnect_grace_ms=300)
-    runner = GatewayRunner(core, api_url=f"ws://127.0.0.1:{api.port}", robot_token="robot-demo-token", heartbeat_ms=100, tick_ms=20, reconnect_min_s=0.05, reconnect_max_s=0.1)
+    runner = GatewayRunner(core, api_url=f"ws://127.0.0.1:{api.port}", robot_token="robot-demo-token", heartbeat_ms=100, tick_ms=20, reconnect_min_s=reconnect_min_s, reconnect_max_s=reconnect_max_s)
     return core, runner
 
 async def test_connects_heartbeats_and_executes_an_intent(api):
@@ -1846,7 +1846,8 @@ async def test_connects_heartbeats_and_executes_an_intent(api):
     stop.set(); await task
 
 async def test_reconnects_after_drop_and_flushes_queued_messages(api):
-    core, runner = make_runner(api, travel_ms=5000)
+    # reconnect slower than the 300 ms grace so the offline tick fires the safety stop before the link comes back
+    core, runner = make_runner(api, travel_ms=5000, reconnect_min_s=0.5, reconnect_max_s=0.6)
     stop = asyncio.Event()
     task = asyncio.create_task(runner.run(stop))
     assert await wait_for(lambda: api.connections == 1 and api.received)
@@ -1867,7 +1868,7 @@ async def test_invalid_message_from_api_is_ignored(api):
     task = asyncio.create_task(runner.run(stop))
     assert await wait_for(lambda: api.received)
     await api.send({"type": "joy", "vx": 1})
-    await api.send("not-a-dict") if False else None
+    await api._conn.send("not json at all")
     await asyncio.sleep(0.2)
     assert all(m["type"] in ("heartbeat",) for m in api.received)
     stop.set(); await task
