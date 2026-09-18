@@ -1,0 +1,20 @@
+# Source file: install as oncare-gateway@.service, then use a named user instance.
+[Unit]
+Description=OnCare Robot Gateway (cloud intents to nav_web)
+After=network-online.target health-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/oncare_app/robot_gateway
+Environment=ROBOT_ADAPTER=navweb
+Environment=PYTHONNOUSERSITE=1
+UnsetEnvironment=PYTHONPATH PYTHONHOME VIRTUAL_ENV CONDA_PREFIX CONDA_DEFAULT_ENV
+ExecStart=/home/%i/oncare_app/robot_gateway/.venv/bin/python -m gateway /home/%i/oncare_app/robot_gateway/config.toml
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

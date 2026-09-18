@@ -18,4 +18,5 @@ packages = ["gateway"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["hardware: requires the physical robot; deselect with -m 'not hardware'"]
+addopts = "-m 'not hardware'"
+markers = ["hardware: opt-in read-only live robot checks; owner authorization, attendance and doctor preflight required"]
