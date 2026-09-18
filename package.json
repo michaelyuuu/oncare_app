@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "dev": "concurrently -n api,resident,family,staff \"npm run dev -w @oncare/api\" \"npm run dev -w @oncare/resident\" \"npm run dev -w @oncare/family\" \"npm run dev -w @oncare/staff\"",
-    "demo:check": "node scripts/demo-check.mjs"
+    "demo:check": "node scripts/demo-check.mjs",
+    "bench:visit": "node scripts/bench-visit.mjs"
   },
   "devDependencies": {
     "vite": "^6.0.0",
