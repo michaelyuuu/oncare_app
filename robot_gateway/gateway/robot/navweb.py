@@ -10,13 +10,13 @@ from collections import deque
 from dataclasses import dataclass
 import json
 import http.client
+import io
 import math
+import socket
 import threading
 import time
 from typing import Callable, Literal
-import urllib.error
 import urllib.parse
-import urllib.request
 
 from .base import NavResult
 from .mapcheck import is_cell_free, parse_map_blob
@@ -72,9 +72,28 @@ def _parse_state(d: dict) -> ParsedState:
                        _vector(nav.get("goal")), distance)
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+class _DeadlineReader(io.RawIOBase):
+    """HTTPResponse framing over a socket with one absolute request deadline."""
+
+    def __init__(self, connection, deadline):
+        self.connection = connection
+        self.deadline = deadline
+        self.remaining_bytes = 64 * 1024
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0 or self.remaining_bytes <= 0:
+            raise TimeoutError("HTTP deadline or response limit exceeded")
+        self.connection.settimeout(remaining)
+        count = self.connection.recv_into(buffer, min(len(buffer), self.remaining_bytes))
+        self.remaining_bytes -= count
+        return count
+
+    def makefile(self, *_args, **_kwargs):
+        return io.BufferedReader(self)
 
 
 def _origin(value: str) -> str:
@@ -100,7 +119,6 @@ class NavWebAdapter:
         self.timeout = http_timeout_s
         self.goal_timeout_ms = goal_timeout_s * 1000
         self.now_ms = now_ms or (lambda: int(time.monotonic() * 1000))
-        self._http = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._closed = False
@@ -145,17 +163,40 @@ class NavWebAdapter:
         if (method, path) not in allowed:
             raise ValueError("HTTP operation not allowed")
         base = self.health_url if path == "/health.json" else self.navweb_url
-        data = json.dumps(body or {}, allow_nan=False).encode() if method == "POST" else None
-        req = urllib.request.Request(base + path, data=data, method=method,
-                                     headers={"content-type": "application/json"} if data else {})
+        data = json.dumps(body or {}, allow_nan=False).encode() if method == "POST" else b""
+        port = urllib.parse.urlsplit(base).port
+        headers = (f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+                   "Connection: close\r\n")
+        if method == "POST":
+            headers += f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n"
+        deadline = time.monotonic() + self.timeout
+        limit = 32 * 1024 * 1024 if path == "/map.bin" else 1024 * 1024
         try:
-            with self._http.open(req, timeout=self.timeout) as response:
-                raw = response.read()
-                if path == "/map.bin":
-                    return raw
-                value = json.loads(raw)
-                return value if isinstance(value, dict) else None
-        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException):
+            # Numeric IPv4 only: no DNS, proxy, redirects, or reusable connection.
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as connection:
+                connection.settimeout(max(0.000001, deadline - time.monotonic()))
+                connection.connect(("127.0.0.1", port))
+                connection.settimeout(max(0.000001, deadline - time.monotonic()))
+                connection.sendall(headers.encode("ascii") + b"\r\n" + data)
+                reader = _DeadlineReader(connection, deadline)
+                with http.client.HTTPResponse(reader) as response:
+                    response.begin()
+                    if response.length is not None and response.length > limit:
+                        return None
+                    reader.remaining_bytes = limit + 64 * 1024
+                    raw = response.read(limit + 1)
+                    if (len(raw) > limit or time.monotonic() >= deadline
+                            or (response.length is not None and response.length != 0)):
+                        return None
+                    if path == "/map.bin":
+                        return raw if 200 <= response.status < 300 else None
+                    value = json.loads(raw)
+                    if not isinstance(value, dict):
+                        return None
+                    if 200 <= response.status < 300 or (method == "POST" and value.get("ok") is False):
+                        return value
+                    return None
+        except (OSError, ValueError, http.client.HTTPException):
             return None
 
     def _post(self, path, body=None):
@@ -225,8 +266,6 @@ class NavWebAdapter:
             if self._closed or self._closing:
                 return
             self._generation += 1
-            if self._goal:
-                self._finish_locked("cancelled")
             self._queued_goal = None
             if not self._latched:
                 self._controls.clear()
@@ -284,14 +323,29 @@ class NavWebAdapter:
                 if self._closed or self._closing or generation != self._generation:
                     return
                 self._navigation_issued = True
-            ok = self._post("/goal", target)
-            reason = "goal_refused"
+            response = self._request("POST", "/goal", target)
+            ok = response is not None and response.get("ok") is True
+            reason = "goal_refused" if response is not None and response.get("ok") is False else "goal_uncertain"
         with self._lock:
             if generation == self._generation and self._goal and not self._closed:
                 if ok:
                     self._goal["accepted"] = True
+                elif reason == "goal_uncertain":
+                    self._uncertain_locked(reason)
                 else:
+                    if reason == "goal_refused":
+                        self._navigation_issued = False
                     self._finish_locked("navigation_failed", reason)
+
+    def _uncertain_locked(self, reason):
+        """One bounded cleanup attempt; failed cleanup stays latched/tracked."""
+        self._generation += 1
+        self._latched = True
+        self._queued_goal = None
+        self._controls.clear()
+        self._controls.append(("stop", self._generation))
+        self._finish_locked("navigation_failed", reason)
+        self._wake.set()
 
     def _run_control(self, kind, generation):
         if kind != "stop" and not self._valid(generation):
@@ -301,6 +355,12 @@ class NavWebAdapter:
             if ok:
                 with self._lock:
                     self._navigation_issued = False
+                    if kind == "cancel" and generation == self._generation and self._goal:
+                        self._finish_locked("cancelled")
+            elif kind == "cancel":
+                with self._lock:
+                    if generation == self._generation:
+                        self._uncertain_locked("cancel_failed")
             if kind == "cancel" and ok and self._valid(generation):
                 self._post("/resume")
         elif kind == "resume":

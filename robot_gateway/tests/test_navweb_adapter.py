@@ -328,3 +328,90 @@ def test_unrepresentable_pose_fails_closed_without_losing_stop_worker(fake, adap
     eventually(lambda: not adapter.state()["ready"])
     adapter.safety_stop()
     eventually(lambda: any(path == "/cancel" for path, _ in fake.posts))
+
+
+@pytest.mark.parametrize("reply", [b"invalid json", {}, {"ok": "true"}])
+def test_uncertain_goal_latches_and_attempts_stop_despite_fresh_active_state(fake, adapter, clock, reply):
+    fake.responses["/goal"] = (reply, 200)
+    fake.responses["/cancel"] = ({"ok": False}, 200)
+    start(fake, adapter, clock)
+    assert result(adapter, clock).reason == "goal_uncertain"
+    eventually(lambda: ("/cancel", {}) in fake.posts)
+    fake.state["nav"].update(state="navigating", goal=[-0.5, -0.5, 0])
+    eventually(lambda: adapter.state()["navState"] == "active")
+    assert adapter.state()["ready"] is False
+    adapter.start_goto(LOC, clock.now_ms())
+    assert result(adapter, clock).reason == "robot_not_ready"
+    assert [path for path, _ in fake.posts] == ["/goal", "/cancel"]
+
+
+def test_failed_cancel_latches_retries_stop_and_never_claims_cancelled(fake, adapter, clock):
+    start(fake, adapter, clock)
+    fake.responses["/cancel"] = ({"ok": False}, 503)
+    adapter.cancel()
+    answer = result(adapter, clock)
+    assert (answer.outcome, answer.reason) == ("navigation_failed", "cancel_failed")
+    eventually(lambda: len(fake.posts) == 3)
+    fake.state["nav"]["state"] = "navigating"
+    eventually(lambda: adapter.state()["navState"] == "active")
+    assert adapter.state()["ready"] is False
+    assert [path for path, _ in fake.posts] == ["/goal", "/cancel", "/cancel"]
+
+
+@pytest.mark.parametrize("phase", ["headers", "body"])
+def test_total_http_deadline_releases_worker_for_stop_during_slow_stream(fake, clock, phase):
+    value = NavWebAdapter(fake.url, fake.url, http_timeout_s=0.15, now_ms=clock.now_ms)
+    try:
+        eventually(lambda: value.state()["ready"])
+        entered = fake.stream("/state", phase)
+        assert entered.wait(1)
+        started = time.monotonic()
+        value.safety_stop()
+        eventually(lambda: ("/cancel", {}) in fake.posts, timeout=0.35)
+        assert time.monotonic() - started < 0.35
+    finally:
+        value.close()
+
+
+def test_accepted_goal_with_lost_response_is_stopped_and_stays_latched(fake, clock):
+    import threading
+    value = NavWebAdapter(fake.url, fake.url, http_timeout_s=0.15, now_ms=clock.now_ms)
+    entered, release = threading.Event(), threading.Event()
+    fake.response_gates["/goal"] = entered, release
+    try:
+        eventually(lambda: value.state()["ready"])
+        value.start_goto(LOC, clock.now_ms())
+        assert entered.wait(1)
+        assert fake.state["nav"]["state"] == "sending"
+        assert result(value, clock).reason == "goal_uncertain"
+        eventually(lambda: fake.state["estop"] is True)
+        release.set()
+        assert [path for path, _ in fake.posts] == ["/goal", "/cancel"]
+        fake.state["estop"] = False
+        eventually(lambda: value.state()["navState"] == "canceled")
+        assert value.state()["ready"] is False
+    finally:
+        release.set()
+        value.close()
+
+
+@pytest.mark.parametrize("wire", [
+    b'HTTP/1.1 200 OK\r\nContent-Length: 22\r\n\r\n{"ok": true}',
+    b'HTTP/1.1 200 OK\r\nContent-Length: 1048577\r\n\r\n',
+    b'HTTP/1.1 200 OK\r\n' + b'X-Pad: ' + b'x' * 65536 + b'\r\n\r\n{"ok": true}',
+], ids=["truncated", "large-body", "large-header"])
+def test_invalid_or_oversized_goal_framing_is_uncertain_and_stopped(fake, adapter, clock, wire):
+    fake.raw_responses["/goal"] = wire
+    start(fake, adapter, clock)
+    assert result(adapter, clock).reason == "goal_uncertain"
+    eventually(lambda: ("/cancel", {}) in fake.posts)
+    assert not adapter.state()["ready"]
+
+
+def test_chunked_goal_acknowledgment_uses_http_framing(fake, adapter, clock):
+    fake.raw_responses["/goal"] = (b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+                                   b'5\r\n{"ok"\r\n6\r\n: true\r\n1\r\n}\r\n0\r\n\r\n')
+    start(fake, adapter, clock)
+    fake.state["nav"]["state"] = "succeeded"
+    assert result(adapter, clock).outcome == "arrived"
+    assert [path for path, _ in fake.posts] == ["/goal"]
