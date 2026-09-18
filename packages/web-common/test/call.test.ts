@@ -54,6 +54,8 @@ const livekit = vi.hoisted(() => {
       Disconnected: "disconnected",
       Reconnecting: "reconnecting",
       Reconnected: "reconnected",
+      TrackMuted: "trackMuted",
+      TrackUnmuted: "trackUnmuted",
     },
   };
 });
@@ -61,7 +63,7 @@ const livekit = vi.hoisted(() => {
 vi.mock("livekit-client", () => ({
   Room: livekit.FakeRoom,
   RoomEvent: livekit.RoomEvent,
-  Track: { Kind: { Video: "video", Audio: "audio" } },
+  Track: { Kind: { Video: "video", Audio: "audio" }, Source: { Camera: "camera", Microphone: "microphone" } },
 }));
 
 const { FakeRoom, FakeTrack } = livekit;
@@ -77,6 +79,23 @@ function callbacks() {
 }
 
 describe("createCall", () => {
+  test("server camera mute updates the resident indicator without changing microphone or call", async () => {
+    const cb = callbacks();
+    const handle = await createCall("wss://x", "tok", cb, { publish: true, RoomImpl: FakeRoom as never });
+    const room = FakeRoom.last;
+    room.emit("trackMuted", { source: "camera" }, room.localParticipant);
+    expect(cb.onLocalState).toHaveBeenLastCalledWith({ camera: false, mic: true });
+    room.emit("trackUnmuted", { source: "camera" }, room.localParticipant);
+    expect(cb.onLocalState).toHaveBeenLastCalledWith({ camera: true, mic: true });
+    const calls = cb.onLocalState.mock.calls.length;
+    room.emit("trackMuted", { source: "camera" }, {});
+    expect(cb.onLocalState).toHaveBeenCalledTimes(calls);
+    expect(cb.onLost).not.toHaveBeenCalled();
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenCalledTimes(1);
+    await handle.leave();
+    room.emit("trackMuted", { source: "camera" }, room.localParticipant);
+    expect(cb.onLocalState).toHaveBeenCalledTimes(calls);
+  });
   test("reports camera publishing before microphone startup completes", async () => {
     const cb = callbacks();
     let finishMic!: () => void;

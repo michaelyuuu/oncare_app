@@ -25,6 +25,85 @@ async function enRouteVisit(connect = true) {
 }
 
 describe("staff robot controls", () => {
+  test("standby is staff-only, checks robot existence and records one independent intent and event", async () => {
+    const { app, db, tokens } = await makeTestApp();
+    const { sent, link } = fakeLink(); app.hub.attach(SEED_IDS.robot, link);
+    const events: unknown[] = []; app.transitions.subscribe(e => events.push(e));
+    const standby = (robot: string, token = tokens.staff) => app.inject({ method: "POST", url: `/robots/${robot}/standby`, headers: auth(token) });
+    expect((await standby("missing")).statusCode).toBe(404);
+    expect((await standby(SEED_IDS.robot, tokens.family)).statusCode).toBe(403);
+    expect((await standby(SEED_IDS.robot, tokens.device)).statusCode).toBe(403);
+    expect((await standby(SEED_IDS.robot)).json()).toEqual({ ok: true, delivered: true });
+    expect(sent).toEqual([expect.objectContaining({ type: "intent", intent: "go_to_location", payload: { locationId: SEED_IDS.standbyLocation } })]);
+    const cmd = db.select().from(t.robotCommand).get()!;
+    expect(cmd).toMatchObject({ taskId: null, visitId: null, result: null, correlationId: expect.stringMatching(/^standby_/) });
+    expect(events).toEqual([expect.objectContaining({ entityType: "robot", reason: "standby", actorId: SEED_IDS.staffUser, correlationId: cmd.correlationId })]);
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+    expect((await standby(SEED_IDS.robot)).statusCode).toBe(409);
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: cmd.correlationId, result: "accepted" });
+    expect((await standby(SEED_IDS.robot)).statusCode).toBe(409);
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: cmd.correlationId, at: new Date().toISOString(), event: "arrived" });
+    expect((await standby(SEED_IDS.robot)).statusCode).toBe(200);
+  });
+
+  test("standby is busy while a visit awaits ack or a task is returning to standby", async () => {
+    const { app, db, tokens } = await makeTestApp();
+    const { link } = fakeLink(); app.hub.attach(SEED_IDS.robot, link);
+    const standby = () => app.inject({ method: "POST", url: `/robots/${SEED_IDS.robot}/standby`, headers: auth(tokens.staff) });
+    const visit = (await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    expect((await standby()).statusCode).toBe(409);
+    await app.inject({ method: "POST", url: `/visits/${visit.id}/cancel`, headers: auth(tokens.family) });
+    const task = (await app.inject({ method: "POST", url: "/tasks", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident, text: "water" } })).json().task;
+    await app.inject({ method: "POST", url: `/tasks/${task.id}/confirm`, headers: auth(tokens.family) });
+    await app.inject({ method: "POST", url: `/tasks/${task.id}/approve`, headers: auth(tokens.staff) });
+    expect((await standby()).statusCode).toBe(409);
+    app.hub.receive(SEED_IDS.robot, { type: "ack", correlationId: task.correlationId, result: "accepted" });
+    db.update(t.taskRequest).set({ state: "verifying_delivery" }).where(eq(t.taskRequest.id, task.id)).run();
+    expect((await standby()).statusCode).toBe(409);
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: task.correlationId, at: new Date().toISOString(), event: "completed_leg" });
+    expect((await standby()).statusCode).toBe(200);
+  });
+
+  test("STOP settles unacknowledged commands and standalone motion without replay or automatic resume", async () => {
+    const { app, db, tokens } = await makeTestApp();
+    const visit = (await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    await app.inject({ method: "POST", url: `/robots/${SEED_IDS.robot}/stop`, headers: auth(tokens.staff) });
+    expect(app.visits.get(visit.id)?.state).toBe("safety_stopped");
+    const { sent, link } = fakeLink(); app.hub.attach(SEED_IDS.robot, link);
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+    expect(sent).toEqual([]);
+    await app.inject({ method: "POST", url: `/robots/${SEED_IDS.robot}/standby`, headers: auth(tokens.staff) });
+    const cmd = db.select().from(t.robotCommand).all().at(-1)!;
+    await app.inject({ method: "POST", url: `/robots/${SEED_IDS.robot}/stop`, headers: auth(tokens.staff) });
+    expect(db.select().from(t.robotCommand).where(eq(t.robotCommand.id, cmd.id)).get()?.result).toBe("safety_stopped");
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+    expect(sent.some(m => m.type === "resume")).toBe(false);
+  });
+
+  test("offline standby never queues a future physical action and expired pending standby is settled", async () => {
+    let clock = new Date("2030-01-01T12:00:00Z");
+    const { app, db, tokens } = await makeTestApp({ now: () => clock });
+    const standby = () => app.inject({ method: "POST", url: `/robots/${SEED_IDS.robot}/standby`, headers: auth(tokens.staff) });
+    expect((await standby()).json()).toEqual({ ok: true, delivered: false });
+    expect(db.select().from(t.robotCommand).get()?.result).toBe("offline");
+    const { sent, link } = fakeLink(); app.hub.attach(SEED_IDS.robot, link);
+    expect(app.dispatch.flushPending(SEED_IDS.robot)).toBe(0);
+    expect(sent).toEqual([]);
+    await standby();
+    clock = new Date("2030-01-01T12:03:00Z");
+    expect(app.dispatch.sweepExpired()).toBe(1);
+    expect(db.select().from(t.robotCommand).all().at(-1)?.result).toBe("expired");
+    expect((await standby()).statusCode).toBe(200);
+  });
+
+  test("standby refuses an unapproved destination without creating a command", async () => {
+    const { app, db, tokens } = await makeTestApp();
+    const { sent, link } = fakeLink(); app.hub.attach(SEED_IDS.robot, link);
+    db.update(t.location).set({ approved: false }).where(eq(t.location.id, SEED_IDS.standbyLocation)).run();
+    const response = await app.inject({ method: "POST", url: `/robots/${SEED_IDS.robot}/standby`, headers: auth(tokens.staff) });
+    expect(response.statusCode).toBe(409); expect(response.json()).toEqual({ error: "robot_unavailable" });
+    expect(sent).toEqual([]); expect(db.select().from(t.robotCommand).all()).toEqual([]);
+  });
   test("stop sends a staff_stop, safety-stops the active visit and audits the robot", async () => {
     const { app, db, tokens, sent, visitId, state, robotAudit } = await enRouteVisit();
     expect(state()).toBe("robot_en_route");

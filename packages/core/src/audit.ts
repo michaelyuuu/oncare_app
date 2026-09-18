@@ -7,7 +7,7 @@ export type ActorType = (typeof ACTOR_TYPES)[number];
 /** Audit reasons are fixed snake_case codes, never free text. */
 export const REASON_CODE = /^[a-z][a-z0-9_]*$/;
 
-export const ENTITY_TYPES = ["visit", "task", "robot", "command"] as const;
+export const ENTITY_TYPES = ["visit", "task", "robot", "command", "resident"] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
 export const AuditEventSchema = z

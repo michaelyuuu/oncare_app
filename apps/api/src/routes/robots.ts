@@ -11,6 +11,17 @@ export async function robotRoutes(app: FastifyInstance, opts: { db: Db }) {
   const { db } = opts;
   const robotExists = (id: string) => db.select().from(t.robot).where(eq(t.robot.id, id)).get() !== undefined;
 
+  app.post("/robots/:id/standby", { preHandler: requireRole("staff") }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!robotExists(id)) return reply.code(404).send({ error: "not_found" });
+    const p = req.principal;
+    if (p.kind !== "user") return reply.code(403).send({ error: "forbidden" });
+    const result = app.dispatch.sendStandby(id, p.id);
+    if (result === "busy") return reply.code(409).send({ error: "busy" });
+    if (result === "unavailable") return reply.code(409).send({ error: "robot_unavailable" });
+    return { ok: true, delivered: result === "sent" };
+  });
+
   app.get("/robots/:id/status", { preHandler: requireRole("staff") }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!robotExists(id)) return reply.code(404).send({ error: "not_found" });

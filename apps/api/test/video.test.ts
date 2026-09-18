@@ -3,9 +3,77 @@ import { eq } from "drizzle-orm";
 import { makeTestApp } from "./helpers";
 import * as t from "../src/db/schema";
 import { SEED_IDS } from "../src/db/seed";
-import { grantsFor } from "../src/services/video";
+import { grantsFor, LiveKitProvider } from "../src/services/video";
+import { RoomServiceClient, ParticipantInfo, TrackInfo, TrackSource, TrackType, ServerError } from "livekit-server-sdk";
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+
+describe("staff camera media control", () => {
+  test("only staff can pause/resume the resident camera; reports state, audits and never sends physical commands", async () => {
+    const { app, db, video, tokens, id } = await visitIn("active");
+    const sent: unknown[] = []; app.hub.attach(SEED_IDS.robot, { send: m => sent.push(m) });
+    const events: unknown[] = []; app.transitions.subscribe(e => events.push(e));
+    // The fake has no media until an explicit camera fixture is supplied.
+    video.cameras.set(`${id}:${SEED_IDS.device}`, "on");
+    const camera = (paused: unknown, token = tokens.staff, visit = id) => app.inject({ method: "POST", url: `/visits/${visit}/camera`, headers: auth(token), payload: { paused } });
+    expect((await camera(true, tokens.family)).statusCode).toBe(403);
+    expect((await camera(true, tokens.device)).statusCode).toBe(403);
+    expect((await camera(true, tokens.staff, "missing")).statusCode).toBe(404);
+    expect((await camera("true")).statusCode).toBe(400);
+    expect((await camera(true)).json()).toEqual({ ok: true, cameraState: "paused" });
+    expect((await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) })).json().activeVisits[0].cameraState).toBe("paused");
+    expect((await camera(false)).json()).toEqual({ ok: true, cameraState: "on" });
+    expect(events).toEqual([expect.objectContaining({ reason: "staff_camera_paused", entityType: "visit", entityId: id, fromState: null, toState: null }), expect.objectContaining({ reason: "staff_camera_resumed" })]);
+    expect(app.visits.get(id)?.state).toBe("active");
+    expect(sent).toEqual([]); expect(video.closed).toEqual([]);
+    db.update(t.visitSession).set({ state: "ending" }).where(eq(t.visitSession.id, id)).run();
+    expect((await camera(true)).statusCode).toBe(409);
+  });
+  test("no camera is unavailable and provider failure is unknown, with no success audit", async () => {
+    const { app, video, tokens, id } = await visitIn("active");
+    const camera = () => app.inject({ method: "POST", url: `/visits/${id}/camera`, headers: auth(tokens.staff), payload: { paused: true } });
+    expect((await camera()).json()).toEqual({ error: "camera_unavailable" });
+    const queue = async () => (await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) })).json();
+    expect((await queue()).activeVisits[0].cameraState).toBe("unavailable");
+    vi.spyOn(video, "setCameraPaused").mockRejectedValue(new Error("secret upstream failure"));
+    vi.spyOn(video, "cameraState").mockRejectedValue(new Error("secret upstream failure"));
+    const failed = await camera();
+    expect(failed.statusCode).toBe(503); expect(failed.json()).toEqual({ error: "camera_control_failed" });
+    expect((await queue()).activeVisits[0].cameraState).toBe("unknown");
+    expect((await app.inject({ method: "GET", url: "/audit", headers: auth(tokens.staff) })).json().events.filter((e: { reason: string }) => e.reason?.startsWith("staff_camera"))).toEqual([]);
+  });
+  test("provider changes only CAMERA video tracks and verifies the returned mute result", async () => {
+    const tracks = [new TrackInfo({ sid: "cam", source: TrackSource.CAMERA, type: TrackType.VIDEO, muted: false }), new TrackInfo({ sid: "mic", source: TrackSource.MICROPHONE, type: TrackType.AUDIO }), new TrackInfo({ sid: "screen", source: TrackSource.SCREEN_SHARE, type: TrackType.VIDEO })];
+    const get = vi.spyOn(RoomServiceClient.prototype, "getParticipant").mockResolvedValue(new ParticipantInfo({ identity: "device", tracks }));
+    const mute = vi.spyOn(RoomServiceClient.prototype, "mutePublishedTrack").mockImplementation(async (_room, _identity, sid, muted) => new TrackInfo({ sid, source: TrackSource.CAMERA, type: TrackType.VIDEO, muted }));
+    try {
+      const provider = new LiveKitProvider("wss://example.invalid", "key", "secret");
+      expect(await provider.cameraState("visit", "device")).toBe("on");
+      expect(await provider.setCameraPaused("visit", "device", true)).toBe("paused");
+      expect(mute.mock.calls).toEqual([["visit", "device", "cam", true]]);
+      expect(await provider.setCameraPaused("visit", "device", false)).toBe("on");
+      mute.mockResolvedValueOnce(new TrackInfo({ sid: "cam", source: TrackSource.CAMERA, type: TrackType.VIDEO, muted: true }));
+      await expect(provider.setCameraPaused("visit", "device", false)).rejects.toThrow("camera_control_failed");
+      get.mockResolvedValueOnce(new ParticipantInfo({ identity: "device", tracks: tracks.slice(1) }));
+      expect(await provider.setCameraPaused("visit", "device", true)).toBe("unavailable");
+      get.mockResolvedValueOnce(new ParticipantInfo({ identity: "device", tracks: [new TrackInfo({ ...tracks[0], muted: true })] }));
+      expect(await provider.cameraState("visit", "device")).toBe("paused");
+      get.mockRejectedValueOnce(new ServerError("not_found", "participant missing", 404, "not_found"));
+      expect(await provider.cameraState("visit", "device")).toBe("unavailable");
+    } finally { get.mockRestore(); mute.mockRestore(); }
+  });
+  test("a camera operation finishing after the call ends cannot report a current camera success", async () => {
+    const { app, video, tokens, id } = await visitIn("active");
+    let finish!: (state: "paused") => void;
+    const operation = vi.spyOn(video, "setCameraPaused").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = app.inject({ method: "POST", url: `/visits/${id}/camera`, headers: auth(tokens.staff), payload: { paused: true } });
+    const response = pending.then(res => res);
+    await vi.waitFor(() => expect(operation).toHaveBeenCalled());
+    await app.inject({ method: "POST", url: `/visits/${id}/end`, headers: auth(tokens.staff) });
+    finish("paused");
+    expect((await response).statusCode).toBe(409);
+  });
+});
 
 async function visitIn(state: string) {
   const ctx = await makeTestApp();

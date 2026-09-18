@@ -148,24 +148,20 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     auditRobotEvent({ robotId, actorType: "staff", actorId, reason });
   }
 
-  /**
-   * The visit command this robot is actually driving: acked `accepted`, with a
-   * visit that has not reached a terminal state. The newest such row wins.
-   */
-  function activeCommand(robotId: string): { entityType: "visit" | "task"; entityId: string; correlationId: string } | undefined {
-    const rows = db.select().from(t.robotCommand)
-      .where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.result, "accepted"))).all()
-      .filter((c) => c.ackedAt !== null);
-    for (const c of [...rows].reverse()) {
+  /** Pending acknowledgements and the delivery return leg still occupy the robot. */
+  function activeCommands(robotId: string) {
+    return db.select().from(t.robotCommand).where(eq(t.robotCommand.robotId, robotId)).all().filter(c => {
+      if (c.result !== null && c.result !== "accepted") return false;
       if (c.taskId) {
         const task = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, c.taskId)).get();
-        if (task && !(TASK_TERMINAL_STATES as readonly string[]).includes(task.state)) return { entityType: "task", entityId: task.id, correlationId: c.correlationId };
-      } else if (c.visitId) {
-        const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
-        if (visit && !(VISIT_TERMINAL_STATES as readonly string[]).includes(visit.state)) return { entityType: "visit", entityId: visit.id, correlationId: c.correlationId };
+        return !!task && !(TASK_TERMINAL_STATES as readonly string[]).includes(task.state);
       }
-    }
-    return undefined;
+      if (c.visitId) {
+        const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
+        return !!visit && !(VISIT_TERMINAL_STATES as readonly string[]).includes(visit.state);
+      }
+      return c.intent.intent === "go_to_location";
+    });
   }
 
   /**
@@ -176,8 +172,13 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
    */
   function sendStop(robotId: string, actorId: string): boolean {
     const delivered = hub.send(robotId, { type: "stop", reason: "staff_stop" });
-    const active = activeCommand(robotId);
-    if (active) applyQuietly({ entityType: active.entityType, entityId: active.entityId, to: "safety_stopped", actorType: "staff", actorId, reason: "staff_stop" });
+    const commands = activeCommands(robotId);
+    for (const c of commands) {
+      // Settle before emitting transitions so no listener can replay a pending intent.
+      db.update(t.robotCommand).set({ result: "safety_stopped" }).where(eq(t.robotCommand.id, c.id)).run();
+      if (c.taskId || c.visitId) applyQuietly({ entityType: c.taskId ? "task" : "visit", entityId: (c.taskId ?? c.visitId)!, to: "safety_stopped", actorType: "staff", actorId, reason: "staff_stop" });
+    }
+    const active = commands.at(-1);
     auditRobotEvent({ robotId, actorType: "staff", actorId, reason: "staff_stop", ...(active ? { correlationId: active.correlationId } : {}) });
     return delivered;
   }
@@ -187,6 +188,24 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     const delivered = hub.send(robotId, { type: "resume" });
     auditRobotEvent({ robotId, actorType: "staff", actorId, reason: "staff_resume" });
     return delivered;
+  }
+
+  function sendStandby(robotId: string, actorId: string): "sent" | "busy" | "offline" | "unavailable" {
+    sweepExpired();
+    if (activeCommands(robotId).length) return "busy";
+    const robot = db.select().from(t.robot).where(eq(t.robot.id, robotId)).get();
+    const standby = robot && db.select().from(t.location).where(and(eq(t.location.facilityId, robot.facilityId), eq(t.location.kind, "standby"), eq(t.location.approved, true))).get();
+    if (!standby || hub.status(robotId).lastHeartbeat?.robotReady === false) return "unavailable";
+    const issuedAt = now();
+    const correlationId = `standby_${randomUUID()}`;
+    const intent: Intent = { type: "intent", intent: "go_to_location", correlationId, expiresAt: new Date(issuedAt.getTime() + ttl).toISOString(), payload: { locationId: standby.id } };
+    const commandId = id();
+    db.insert(t.robotCommand).values({ id: commandId, robotId, taskId: null, visitId: null, correlationId, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: null }).run();
+    const delivered = hub.send(robotId, intent);
+    // Standby is an immediate staff action, never an offline job for later replay.
+    if (!delivered) db.update(t.robotCommand).set({ result: "offline" }).where(eq(t.robotCommand.id, commandId)).run();
+    auditRobotEvent({ robotId, actorType: "staff", actorId, reason: delivered ? "standby" : "standby_offline", correlationId });
+    return delivered ? "sent" : "offline";
   }
 
   function onUp(robotId: string, msg: GatewayUp) {
@@ -219,7 +238,14 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       }
       return;
     }
-    if (!cmd.visitId) return;
+    if (!cmd.visitId) {
+      if (cmd.result !== "accepted" && cmd.result !== null) return;
+      if (["arrived", "completed_leg", "navigation_failed", "safety_stopped", "cancelled", "expired"].includes(msg.event)) {
+        db.update(t.robotCommand).set({ result: msg.event === "arrived" || msg.event === "completed_leg" ? "completed" : msg.event }).where(eq(t.robotCommand.id, cmd.id)).run();
+        auditRobotEvent({ robotId, actorType: "robot", actorId: robotId, reason: msg.event, correlationId: cmd.correlationId });
+      }
+      return;
+    }
     const to = STATE_EVENT_TO_VISIT[msg.event];
     if (!to) return;
     const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, cmd.visitId)).get();
@@ -244,6 +270,9 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       .filter((c) => c.expiresAt > nowIso);
     let n = 0;
     for (const c of pending) {
+      // A standalone action may already be moving before its ack arrives.
+      // Never replay it, and retain its busy reservation until ack/expiry/STOP.
+      if (!c.taskId && !c.visitId) continue;
       const dispatchable = c.taskId
         ? db.select().from(t.taskRequest).where(eq(t.taskRequest.id, c.taskId)).get()?.state === "queued"
         : c.visitId ? db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get()?.state === "accepted" : false;
@@ -272,7 +301,7 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     for (const c of due) {
       const dispatchable = c.taskId
         ? db.select().from(t.taskRequest).where(eq(t.taskRequest.id, c.taskId)).get()?.state === "queued"
-        : c.visitId ? db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get()?.state === "accepted" : false;
+        : c.visitId ? db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get()?.state === "accepted" : c.intent.intent === "go_to_location";
       if (!dispatchable) continue;
       db.update(t.robotCommand).set({ result: "expired" }).where(eq(t.robotCommand.id, c.id)).run();
       if (c.taskId) applyQuietly({ entityType: "task", entityId: c.taskId, to: "operator_required", actorType: "system", actorId: "api", reason: "expired" });
@@ -282,5 +311,5 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     return n;
   }
 
-  return { flushPending, sweepExpired, sendStop, sendResume, auditRobot, stop() { unsubTransitions(); unsubHub(); } };
+  return { flushPending, sweepExpired, sendStop, sendResume, sendStandby, auditRobot, stop() { unsubTransitions(); unsubHub(); } };
 }

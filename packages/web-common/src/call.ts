@@ -105,6 +105,15 @@ export async function createCall(
   });
   room.on(RoomEvent.ParticipantConnected, updatePresence);
   room.on(RoomEvent.ParticipantDisconnected, updatePresence);
+  const mediaMuted = (publication: { source: Track.Source }, participant: unknown, muted: boolean) => {
+    if (!callbacksActive || participant !== room.localParticipant) return;
+    if (publication.source === Track.Source.Camera) local.camera = !muted;
+    else if (publication.source === Track.Source.Microphone) local.mic = !muted;
+    else return;
+    cb.onLocalState({ ...local });
+  };
+  room.on(RoomEvent.TrackMuted, (publication, participant) => mediaMuted(publication, participant, true));
+  room.on(RoomEvent.TrackUnmuted, (publication, participant) => mediaMuted(publication, participant, false));
   room.on(RoomEvent.Reconnecting, () => {
     console.info("LiveKit room reconnecting");
     startAbsenceTimer();
