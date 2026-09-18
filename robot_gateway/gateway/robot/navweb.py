@@ -372,6 +372,8 @@ class NavWebAdapter:
             self._post("/lift", {"cmd": "preset", "slot": "rest"})
 
     def _refresh(self):
+        with self._lock:
+            generation = self._generation
         started = time.monotonic()
         data = self._request("GET", "/state")
         with self._lock:
@@ -391,7 +393,10 @@ class NavWebAdapter:
                               "navState": parsed.nav_status if parsed and health is not None else "unreachable",
                               "estop": parsed.estop if parsed else True,
                               "lift": parsed.lift if parsed else "unknown", "battery": "unknown"}
-            if not self._goal or not self._goal["accepted"] or parsed is None:
+            # Telemetry may update, but observations begun before a command
+            # cannot complete or advance the command's navigation lifecycle.
+            if (generation != self._generation or not self._goal
+                    or not self._goal["accepted"] or parsed is None):
                 return
             if self._expire_locked(self.now_ms()):
                 return

@@ -415,3 +415,23 @@ def test_chunked_goal_acknowledgment_uses_http_framing(fake, adapter, clock):
     fake.state["nav"]["state"] = "succeeded"
     assert result(adapter, clock).outcome == "arrived"
     assert [path for path, _ in fake.posts] == ["/goal"]
+
+
+def test_cancel_invalidates_success_from_refresh_waiting_on_health(fake, adapter, clock):
+    start(fake, adapter, clock)
+    state_entered, state_release = fake.block("/state")
+    assert state_entered.wait(1)
+    health_entered, health_release = fake.block("/health.json")
+    fake.state["nav"]["state"] = "succeeded"
+    state_release.set()
+    assert health_entered.wait(1)
+    cancel_entered, cancel_release = fake.block("/cancel")
+    adapter.cancel()
+    health_release.set()
+    assert cancel_entered.wait(1)
+    assert adapter.poll(clock.now_ms()) is None
+    cancel_release.set()
+    assert result(adapter, clock).outcome == "cancelled"
+    eventually(lambda: len(fake.posts) == 3)
+    assert [path for path, _ in fake.posts] == ["/goal", "/cancel", "/resume"]
+    assert adapter.poll(clock.now_ms()) is None
