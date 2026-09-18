@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "../src/App";
+import { AuditTable } from "../src/components/AuditTable";
+import { createApi } from "@oncare/web-common";
 class Socket {
     static current: Socket;
     onmessage?: (event: {
@@ -176,4 +178,78 @@ test("audit filters are encoded and audit refreshes on events and polling", asyn
     await waitFor(() => expect(gets.length).toBeGreaterThan(count + 1));
     const before = gets.length;
     await waitFor(() => expect(gets.length).toBeGreaterThan(before), { timeout: 3500 });
+});
+
+test("slow queue and audit responses complete despite repeated polling and event refreshes", async () => {
+    vi.useFakeTimers();
+    const waiting: Array<{ path: string; resolve: (response: Response) => void }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => new Promise<Response>(resolve => {
+        waiting.push({ path: url.replace("http://api", ""), resolve });
+    })));
+    render(<App apiBase="http://api"/>);
+    await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+        for (let i = 0; i < 4; i++) Socket.current.onmessage?.({ data: '{"id":"refresh"}' });
+    });
+    await act(async () => {
+        waiting.find(r => r.path === "/queue")!.resolve(new Response(JSON.stringify(queue)));
+        waiting.find(r => r.path === "/audit")!.resolve(new Response(JSON.stringify({ events: [{ id: "slow-audit", reason: "first_slow_result" }] })));
+    });
+    expect(screen.getByRole("button", { name: "STOP ROBOT" })).toBeEnabled();
+    expect(screen.getByText("first_slow_result")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeEnabled();
+    // Many triggers produce only one current request and one coalesced follow-up.
+    expect(waiting.filter(r => r.path === "/queue")).toHaveLength(2);
+    expect(waiting.filter(r => r.path === "/audit")).toHaveLength(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    await act(async () => {
+        waiting.filter(r => r.path === "/queue")[1]!.resolve(new Response(JSON.stringify({ ...queue, robot: null })));
+        waiting.filter(r => r.path === "/audit")[1]!.resolve(new Response(JSON.stringify({ events: [{ id: "new-audit", reason: "second_slow_result" }] })));
+    });
+    expect(screen.getByText("No robot configured")).toBeInTheDocument();
+    expect(screen.getByText("second_slow_result")).toBeInTheDocument();
+    expect(screen.queryByText("first_slow_result")).toBeNull();
+});
+
+test("late audit responses cannot cross a resident filter or API session change", async () => {
+    const waiting: Array<{ url: string; resolve: (response: Response) => void }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => new Promise<Response>(resolve => waiting.push({ url, resolve }))));
+    const api = createApi("http://old-session", () => "old-token");
+    const view = render(<AuditTable api={api} revision={0}/>);
+    fireEvent.change(screen.getByLabelText("Resident id"), { target: { value: "resident-a" } });
+    fireEvent.change(screen.getByLabelText("Resident id"), { target: { value: "resident-b" } });
+    await act(async () => {
+        waiting.find(r => r.url.endsWith("residentId=resident-b"))!.resolve(new Response(JSON.stringify({ events: [{ id: "b", reason: "resident_b_event" }] })));
+    });
+    expect(screen.getByText("resident_b_event")).toBeInTheDocument();
+    await act(async () => {
+        waiting.find(r => r.url.endsWith("residentId=resident-a"))!.resolve(new Response(JSON.stringify({ events: [{ id: "a", reason: "resident_a_event" }] })));
+    });
+    expect(screen.queryByText("resident_a_event")).toBeNull();
+    view.rerender(<AuditTable api={createApi("http://new-session", () => "new-token")} revision={0}/>);
+    expect(screen.queryByText("resident_b_event")).toBeNull();
+    await act(async () => {
+        waiting.find(r => r.url === "http://old-session/audit")!.resolve(new Response(JSON.stringify({ events: [{ id: "old", reason: "old_session_event" }] })));
+        waiting.find(r => r.url.startsWith("http://new-session"))!.resolve(new Response(JSON.stringify({ events: [{ id: "new", reason: "new_session_event" }] })));
+    });
+    expect(screen.getByText("new_session_event")).toBeInTheDocument();
+    expect(screen.queryByText("old_session_event")).toBeNull();
+});
+
+test("an old queue response cannot replace the new API session's robot state", async () => {
+    const waiting: Array<{ url: string; resolve: (response: Response) => void }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => url.endsWith("/queue")
+        ? new Promise<Response>(resolve => waiting.push({ url, resolve }))
+        : Promise.resolve(new Response('{"events":[]}'))));
+    const view = render(<App apiBase="http://old-session"/>);
+    view.rerender(<App apiBase="http://new-session"/>);
+    await act(async () => {
+        waiting.find(r => r.url === "http://new-session/queue")!.resolve(new Response(JSON.stringify({ ...queue, robot: null })));
+    });
+    expect(screen.getByText("No robot configured")).toBeInTheDocument();
+    await act(async () => {
+        waiting.find(r => r.url === "http://old-session/queue")!.resolve(new Response(JSON.stringify(queue)));
+    });
+    expect(screen.getByText("No robot configured")).toBeInTheDocument();
+    expect(screen.queryByText("SIMULATED ROBOT")).toBeNull();
 });

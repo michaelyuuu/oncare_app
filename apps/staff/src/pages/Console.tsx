@@ -16,24 +16,55 @@ export function Console({ api, apiBase, token }: {
     const [pending, setPending] = useState<string[]>([]);
     const inFlight = useRef(new Set<string>());
     const [revision, setRevision] = useState(0);
-    const sequence = useRef(0);
     const alive = useRef(true);
-    const refresh = useCallback(async () => {
-        const seq = ++sequence.current;
-        try {
-            const next = await api.get<QueueData>("/queue");
-            if (alive.current && seq === sequence.current) {
-                setQueue(next);
-                setRefreshError(false);
+    const refreshQueue = useRef<() => void>(() => {});
+    const refreshAll = useCallback(() => {
+        refreshQueue.current();
+        setRevision(v => v + 1);
+    }, []);
+    useEffect(() => {
+        let current = true;
+        let fetching = false;
+        let refreshAgain = false;
+        alive.current = true;
+        setQueue(null);
+        setRefreshError(false);
+        async function refresh() {
+            if (!current) return;
+            if (fetching) {
+                refreshAgain = true;
+                return;
+            }
+            fetching = true;
+            try {
+                const next = await api.get<QueueData>("/queue");
+                if (current) {
+                    setQueue(next);
+                    setRefreshError(false);
+                }
+            } catch {
+                if (current) setRefreshError(true);
+            } finally {
+                fetching = false;
+                // Accept the completed response before running one follow-up for
+                // all polls/events received while this request was pending.
+                if (current && refreshAgain) {
+                    refreshAgain = false;
+                    void refresh();
+                }
             }
         }
-        catch {
-            if (alive.current && seq === sequence.current)
-                setRefreshError(true);
-        }
-    }, [api]);
-    const refreshAll = useCallback(() => { void refresh(); setRevision(v => v + 1); }, [refresh]);
-    useEffect(() => { alive.current = true; refreshAll(); const timer = setInterval(refreshAll, 3000); const events = connectEvents(apiBase, token, refreshAll); return () => { alive.current = false; ++sequence.current; clearInterval(timer); events.close(); }; }, [apiBase, token, refreshAll]);
+        refreshQueue.current = () => { void refresh(); };
+        refreshAll();
+        const timer = setInterval(refreshAll, 3000);
+        const events = connectEvents(apiBase, token, refreshAll);
+        return () => {
+            current = false;
+            alive.current = false;
+            clearInterval(timer);
+            events.close();
+        };
+    }, [api, apiBase, token, refreshAll]);
     async function action(path: string, body?: unknown) {
         const key = path.substring(0, path.lastIndexOf("/")) + (path.endsWith("/stop") ? "/stop" : "");
         if (inFlight.current.has(key))
