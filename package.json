@@ -1,7 +1,7 @@
 {
   "name": "oncare",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "AGI Carehouse family-to-robot care platform (prototype)",
   "workspaces": [
     "packages/*",
