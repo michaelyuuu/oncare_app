@@ -10,6 +10,8 @@ coverage/
 *.db-shm
 *.db-wal
 *.db-journal
+e2e/test-results/
+e2e/playwright-report/
 robot_gateway/.venv/
 __pycache__/
 .pytest_cache/

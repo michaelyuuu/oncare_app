@@ -13,7 +13,8 @@
     "typecheck": "tsc -b",
     "dev": "concurrently -n api,resident,family,staff \"npm run dev -w @oncare/api\" \"npm run dev -w @oncare/resident\" \"npm run dev -w @oncare/family\" \"npm run dev -w @oncare/staff\"",
     "demo:check": "node scripts/demo-check.mjs",
-    "bench:visit": "node scripts/bench-visit.mjs"
+    "bench:visit": "node scripts/bench-visit.mjs",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "devDependencies": {
     "vite": "^6.0.0",
@@ -24,6 +25,7 @@
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.0",
+    "@playwright/test": "^1.48.0",
     "@types/node": "^24.0.0",
     "jsdom": "^25.0.0",
     "tsx": "^4.19.0",
