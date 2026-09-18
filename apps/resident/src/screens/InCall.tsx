@@ -13,9 +13,11 @@ export function InCall({ api, visitId, callerName, active, onConnected, onLost, 
   const stage = useRef<HTMLDivElement>(null);
   const handleRef = useRef<CallHandle | null>(null);
   const reportLostRef = useRef<() => void>(() => {});
+  const endingRef = useRef(false);
   const latest = useRef({ onConnected, onLost, onEnd, onLocalState });
   latest.current = { onConnected, onLost, onEnd, onLocalState };
   const [volume, setVolume] = useState(70);
+  const [ending, setEnding] = useState(false);
 
   useEffect(() => {
     let live = true, connectedReported = false, lostReported = false;
@@ -69,6 +71,9 @@ export function InCall({ api, visitId, callerName, active, onConnected, onLost, 
     return next;
   });
   const end = async () => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    setEnding(true);
     const handle = handleRef.current; handleRef.current = null;
     try { await handle?.leave(); latest.current.onEnd(); }
     catch { reportLostRef.current(); }
@@ -81,6 +86,6 @@ export function InCall({ api, visitId, callerName, active, onConnected, onLost, 
       <span className="volume" aria-live="polite">{t("resident.incall.volume", { volume })}</span>
       <button type="button" className="quiet-button" onClick={() => changeVolume(10)}>{t("resident.incall.louder")}</button>
     </div>
-    <BigButton tone="danger" disabled={disabled} onClick={() => void end()}>{t("resident.incall.end")}</BigButton>
+    <BigButton tone="danger" disabled={disabled || ending} onClick={() => void end()}>{t("resident.incall.end")}</BigButton>
   </section>;
 }

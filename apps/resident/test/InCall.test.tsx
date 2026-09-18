@@ -70,6 +70,24 @@ test("joins the visit, scopes remote media, reports state, changes volume, and l
   expect(input.onEnd).toHaveBeenCalledTimes(1);
 });
 
+test("End stays single and disabled until leaving finishes", async () => {
+  let finishLeave!: () => void;
+  handle.leave = vi.fn(() => new Promise<void>((resolve) => { finishLeave = resolve; }));
+  const input = props();
+  render(<InCall {...input}/>);
+  await waitFor(() => expect(mocks.createCall).toHaveBeenCalled());
+
+  const end = screen.getByRole("button", { name: "End" });
+  await userEvent.click(end);
+  expect(end).toBeDisabled();
+  await userEvent.click(end);
+  expect(handle.leave).toHaveBeenCalledTimes(1);
+  expect(input.onEnd).not.toHaveBeenCalled();
+
+  await act(async () => finishLeave());
+  expect(input.onEnd).toHaveBeenCalledTimes(1);
+});
+
 test("reports connection loss once and ignores SDK callbacks after cleanup", async () => {
   const input = props();
   const view = render(<InCall {...input}/>);
