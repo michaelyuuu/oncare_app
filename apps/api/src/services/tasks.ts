@@ -123,9 +123,6 @@ export function createTaskService(
     )).all().map((row) => row.residentId);
     const verdict = evaluateProposal(validated.proposal, { catalogue: cat, authorizedRecipients });
     if (!verdict.allowed) {
-      // Preserve the established task state machine: rejection is reachable
-      // only after the confirmation gate, never directly from parsed.
-      apply(taskId, "awaiting_user_confirmation");
       apply(taskId, "rejected", verdict.code);
       return {
         ok: true as const,

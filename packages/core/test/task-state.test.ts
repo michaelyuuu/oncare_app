@@ -58,7 +58,8 @@ describe("physical task state machine", () => {
     expect(isTaskTransitionAllowed("queued", "clarification_required")).toBe(false);
   });
 
-  test("rejected is reachable from confirmation and policy stages only", () => {
+  test("rejected is reachable from parsed, confirmation and policy stages only", () => {
+    expect(isTaskTransitionAllowed("parsed", "rejected")).toBe(true);
     expect(isTaskTransitionAllowed("awaiting_user_confirmation", "rejected")).toBe(true);
     expect(isTaskTransitionAllowed("awaiting_policy_or_staff", "rejected")).toBe(true);
     expect(isTaskTransitionAllowed("grasping", "rejected")).toBe(false);

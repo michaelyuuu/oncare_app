@@ -50,7 +50,7 @@ const PHYSICAL_EXITS = ["operator_required", ...UNIVERSAL_EXITS] as const;
 
 export const TASK_TRANSITIONS: TransitionTable<TaskState> = {
   draft: ["parsed", ...UNIVERSAL_EXITS],
-  parsed: ["awaiting_user_confirmation", "clarification_required", ...UNIVERSAL_EXITS],
+  parsed: ["awaiting_user_confirmation", "clarification_required", "rejected", ...UNIVERSAL_EXITS],
   awaiting_user_confirmation: ["awaiting_policy_or_staff", "clarification_required", "rejected", ...UNIVERSAL_EXITS],
   awaiting_policy_or_staff: ["queued", "rejected", ...UNIVERSAL_EXITS],
   queued: ["navigating_to_pickup", ...UNIVERSAL_EXITS],

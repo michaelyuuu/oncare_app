@@ -48,7 +48,9 @@ describe("POST /tasks", () => {
     const { app, db, tokens } = await makeTestApp();
     const res = await post(app, tokens.family, { residentId: SEED_IDS.resident, text: "bring her medication" });
     expect(res.json()).toMatchObject({ kind: "rejected", code: "prohibited_item", task: { state: "rejected" } });
-    const last = db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, res.json().task.id)).all().at(-1);
+    const trail = db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, res.json().task.id)).all();
+    expect(trail.map((event) => event.toState)).toEqual(["parsed", "rejected"]);
+    const last = trail.at(-1);
     expect(last).toMatchObject({ toState: "rejected", reason: "prohibited_item" });
   });
 
