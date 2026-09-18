@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import { z } from "zod";
-import { VISIT_TERMINAL_STATES, makeTransitionEvent } from "@oncare/core";
+import { TASK_TERMINAL_STATES, VISIT_TERMINAL_STATES, makeTransitionEvent } from "@oncare/core";
 import { requireRole } from "../auth/plugin";
 import { verifySecret } from "../auth/password";
 import type { Db } from "../db/client";
@@ -40,14 +40,25 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
     const caller = visit
       ? db.select({ displayName: t.user.displayName }).from(t.user).where(eq(t.user.id, visit.requesterId)).get() ?? null
       : null;
+    const task = db.select().from(t.taskRequest)
+      .where(and(
+        eq(t.taskRequest.residentId, principal.residentId),
+        notInArray(t.taskRequest.state, [...TASK_TERMINAL_STATES]),
+      ))
+      .orderBy(desc(t.taskRequest.createdAt))
+      .get() ?? null;
+    const itemId = task ? (task.proposal as { item: string }).item : null;
+    const item = itemId ? db.select().from(t.item).where(eq(t.item.id, itemId)).get() ?? null : null;
     const status = app.hub.status(principal.robotId);
+    const visitScreen = screenForVisitState(visit?.state ?? null);
+    const screen = visitScreen !== "home" ? visitScreen : task?.state === "placing" ? "delivery_arrived" : "home";
 
     return {
       resident: { id: resident.id, displayName: resident.displayName },
-      screen: screenForVisitState(visit?.state ?? null),
+      screen,
       visit,
       caller,
-      task: null,
+      task: task ? { id: task.id, state: task.state, item: { id: item?.id ?? "", label: item?.label ?? "" } } : null,
       robot: { adapter: status.lastHeartbeat?.adapter ?? null, connected: status.connected },
     };
   });

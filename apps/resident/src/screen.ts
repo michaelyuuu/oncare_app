@@ -4,7 +4,7 @@ export interface DeviceState {
   screen: "home" | "incoming" | "in_call" | "delivery_arrived";
   visit: { id: string; state: string } | null;
   caller: { displayName: string } | null;
-  task: unknown;
+  task: { id: string; state: string; item: { id: string; label: string } } | null;
   robot: { adapter: "mock" | "navweb" | null; connected: boolean };
 }
 export interface UiOverrides { caregiverCalledUntil: number | null; settingsOpen: boolean; apiReachable: boolean }

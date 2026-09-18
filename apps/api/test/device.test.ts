@@ -55,6 +55,61 @@ describe("GET /device/state", () => {
   });
 });
 
+describe("GET /device/state with tasks", () => {
+  async function taskIn(state: string) {
+    const ctx = await makeTestApp();
+    const id = (await ctx.app.inject({
+      method: "POST",
+      url: "/tasks",
+      headers: auth(ctx.tokens.family),
+      payload: { residentId: SEED_IDS.resident, text: "water bottle" },
+    })).json().task.id as string;
+    ctx.db.update(t.taskRequest).set({ state }).where(eq(t.taskRequest.id, id)).run();
+    return { ...ctx, id };
+  }
+
+  test("placing shows delivery_arrived with the item label", async () => {
+    const { app, tokens, id } = await taskIn("placing");
+    const res = await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) });
+    expect(res.json()).toMatchObject({
+      screen: "delivery_arrived",
+      task: { id, state: "placing", item: { id: "water_bottle", label: "water bottle" } },
+    });
+  });
+
+  test("an in-progress task that is not yet placing keeps the home screen", async () => {
+    const { app, tokens, id } = await taskIn("navigating_to_delivery");
+    expect((await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json()).toMatchObject({
+      screen: "home",
+      task: { id, state: "navigating_to_delivery" },
+    });
+  });
+
+  test("a call wins while retaining the delivery, then the notice appears after the call", async () => {
+    const { app, db, tokens, id } = await taskIn("placing");
+    const visitId = (await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit.id;
+    db.update(t.visitSession).set({ state: "active" }).where(eq(t.visitSession.id, visitId)).run();
+
+    const duringCall = (await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json();
+    expect(duringCall).toMatchObject({ screen: "in_call", task: { id, state: "placing" } });
+
+    db.update(t.visitSession).set({ state: "completed" }).where(eq(t.visitSession.id, visitId)).run();
+    expect((await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json()).toMatchObject({
+      screen: "delivery_arrived",
+      task: { id, state: "placing" },
+    });
+  });
+
+  test("device receipt advances to verification and keeps the task until standby", async () => {
+    const { app, tokens, id } = await taskIn("placing");
+    expect((await app.inject({ method: "POST", url: `/tasks/${id}/received`, headers: auth(tokens.device) })).json().task.state).toBe("verifying_delivery");
+    expect((await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json()).toMatchObject({
+      screen: "home",
+      task: { id, state: "verifying_delivery" },
+    });
+  });
+});
+
 describe("POST /device/call-caregiver and /device/unlock", () => {
   test("call-caregiver writes an audit row with reason call_caregiver", async () => {
     const { app, db, tokens } = await makeTestApp();

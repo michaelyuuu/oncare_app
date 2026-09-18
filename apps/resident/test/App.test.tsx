@@ -82,6 +82,22 @@ test("caregiver confirmation requires success; errors return home", async () => 
   failAction = false; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));
   expect(await screen.findByText("A caregiver has been notified")).toBeInTheDocument();
 });
+test("delivery arrived shows the item and receipt posts before refreshing", async () => {
+  state = { ...state, screen: "delivery_arrived", task: { id: "t1", state: "placing", item: { id: "water_bottle", label: "water bottle" } } };
+  render(<App apiBase="http://api"/>);
+  expect(await screen.findByText("Your water bottle is here")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "I have it" }));
+  await waitFor(() => expect(calls).toContain("/tasks/t1/received"));
+  await waitFor(() => expect(calls.filter((path) => path === "/device/state").length).toBeGreaterThan(1));
+});
+test("failed delivery receipt uses the kiosk error fallback", async () => {
+  state = { ...state, screen: "delivery_arrived", task: { id: "t1", state: "placing", item: { id: "water_bottle", label: "water bottle" } } };
+  failAction = true;
+  render(<App apiBase="http://api"/>);
+  fireEvent.click(await screen.findByRole("button", { name: "I have it" }));
+  expect(await screen.findByText("Please try again")).toBeInTheDocument();
+  expect(screen.getByText("Hello, Demo Resident")).toBeInTheDocument();
+});
 test("first setup skips PIN, saving exits settings and boots auth", async () => {
   localStorage.clear(); render(<App apiBase="http://api"/>);
   fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "device-demo-token" } });

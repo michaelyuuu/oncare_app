@@ -147,7 +147,6 @@ export function App({ apiBase }: { apiBase: string }) {
       if (epoch === generation.current) { setError(false); setDismissed(null); void refresh.current(); }
     } catch { if (epoch === generation.current) returnHome(true); }
   };
-  const itemLabel = server?.task && typeof server.task === "object" && "itemLabel" in server.task && typeof server.task.itemLabel === "string" ? server.task.itemLabel : t("resident.delivery.item");
   return <div className="kiosk" data-screen={screen}>
     <StatusBar cameraOn={inCall && local.camera} micOn={inCall && local.mic} simulated={server?.robot.adapter === "mock"} callerName={inCall && server?.visit?.state === "active" ? callerName : null}/>
     <main className="stage">
@@ -156,7 +155,7 @@ export function App({ apiBase }: { apiBase: string }) {
         {(screen === "home" || screen === "disconnected") && home}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
         {screen === "in_call" && server?.visit && <InCall api={api} visitId={server.visit.id} callerName={callerName} active={server.visit.state === "active"} onConnected={() => void reportCall(server.visit!.id, "connected")} onLost={() => void reportCall(server.visit!.id, "connection_lost")} onEnd={() => action("end")} onLocalState={setLocal} disabled={pending || server.visit.state !== "active"}/>}
-        {screen === "delivery_arrived" && <DeliveryArrived itemLabel={itemLabel} onReceived={() => void refresh.current()}/>}
+        {screen === "delivery_arrived" && server?.task && <DeliveryArrived itemLabel={server.task.item.label} onReceived={() => void perform(`/tasks/${encodeURIComponent(server.task!.id)}/received`)}/>}
         {screen === "caregiver_called" && <CaregiverCalled/>}
         {screen === "settings" && <Settings api={api} requirePin={deviceToken !== null} currentToken={deviceToken} pinGuard={pinGuard.current} onSaveToken={(token) => void saveToken(token)} onBack={() => { setDismissed(null); setError(false); setUi((value) => ({ ...value, settingsOpen: false })); }} onError={() => returnHome(true)}/>}
       </ScreenBoundary>
