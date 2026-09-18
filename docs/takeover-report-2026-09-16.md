@@ -101,3 +101,20 @@ Initialize git and create the npm workspace with `packages/core` only:
 - Tests for every invalid transition, every prohibited item, and confirmation enforcement.
 
 No UI, no network, no credentials. Reversible, and every later milestone builds on it.
+
+## Status as of 2026-09-18
+
+The repository now contains the planned synthetic vertical slice through Plan 7. The original eight handover sections map to the current evidence as follows:
+
+| Handover section | Current status / evidence |
+|---|---|
+| 1. Product and safety boundary | Approved platform spec, deterministic policy, explicit confirmation/approval, STOP and safety-stopped paths. |
+| 2. Users and surfaces | Resident kiosk, family app, staff console, shared i18n/API layers; browser e2e spec is present but not run here. |
+| 3. Visit and call | Visit state machine, gateway events, LiveKit adapter/fake provider, reconnect handling; real LiveKit/iPad rehearsal remains not run. |
+| 4. Request-to-intent | Keyword parser, schema validation, policy and clarification/rejection UI; parser corpus measured 20/20 clear and 21/21 ambiguous clarified. |
+| 5. Robot gateway | Python mock and guarded `nav_web` adapter/runbook; no Jetson command or physical rehearsal was run in this environment. |
+| 6. Task and staff operations | Tray task flow, staff approval/load/STOP, camera/locations/health/audit controls, benchmark persistence and staff CSV export. |
+| 7. Benchmark and rehearsal | `npm run bench:visit`, CSV schema, parser corpus, Playwright story, and demo-day checklist are committed. Visit load numbers, Playwright result, LiveKit result, and physical rehearsal numbers are pending genuine runs. |
+| 8. Delivery and handover | README, setup/runbooks, takeover status, and safety-labeled mock path are current; production auth, native signing, and real manipulation remain out of scope. |
+
+Measured evidence currently available: the focused parser corpus passed at 20/20 clear phrases and 21/21 ambiguity cases clarified; Task 1/2 benchmark code and CSV export tests pass, but no generated visit baseline is committed. The full browser suite was not run because Playwright/Chromium are unavailable offline, and no physical or Jetson action was authorized or executed.
