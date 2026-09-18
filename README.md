@@ -32,7 +32,7 @@ npm run bench:visit     # requires a running API and mock gateway; writes real d
 npm run e2e              # requires optional @playwright/test + Chromium; see e2e/README.md
 ```
 
-The visit benchmark targets notification median under 3 seconds and at least 95% successful completions. The parser corpus currently measures 20/20 clear phrases and 21/21 ambiguous phrases clarified. No visit baseline CSV or browser report is committed: the local API/gateway load run, Playwright run, LiveKit rehearsal, and physical Jetson rehearsal remain measurements to perform in their intended environments.
+The visit benchmark targets notification median under 3 seconds and at least 95% successful completions. The parser corpus currently measures 20/20 clear phrases and 21/21 ambiguous phrases clarified. On 2026-09-18 the Jetson with the mock gateway measured a 2207 ms notification median over 20/20 completed visits ([summary](docs/benchmarks/visit-2026-09-18.summary.json); roughly 2000 ms of that is the simulated travel time), and the Playwright demo story passed with the fake video provider. The LiveKit rehearsal and physical Jetson rehearsal remain measurements to perform in their intended environments.
 
 ## Repository map
 
