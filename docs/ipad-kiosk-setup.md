@@ -4,7 +4,7 @@
 
 Put the iPad and the development machine on the same LAN. Open the resident preview by using the development machine's LAN IP (for example, `http://192.168.1.25:4173`), never `localhost`: on the iPad, `localhost` means the iPad itself.
 
-The resident client uses same-origin `/api`; the Vite preview proxy sends that traffic from the development machine to the API. Do **not** build the current app with `VITE_API_BASE=http://<lan-ip>:3000`: that variable is not consumed by this client, and direct browser calls to the API need CORS configuration that the API intentionally does not provide.
+The resident client consumes `VITE_API_BASE`. For this same-origin `/api` recipe, leave it unset so the Vite preview proxy sends traffic from the development machine to the API. Do **not** set it to `http://<lan-ip>:3000` unless the API has CORS configured: direct browser calls are otherwise blocked, and the demo API intentionally does not provide CORS.
 
 ## Build and serve on the LAN
 

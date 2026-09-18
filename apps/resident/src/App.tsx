@@ -145,7 +145,7 @@ export function App({ apiBase }: { apiBase: string }) {
       <ScreenBoundary key={`${screen}:${key}`} fallback={home} onError={() => returnHome(true)}>
         {(screen === "home" || screen === "disconnected") && home}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
-        {screen === "in_call" && <InCall callerName={callerName} active={server?.visit?.state === "active"} onEnd={() => action("end")} disabled={pending}/>}
+        {screen === "in_call" && <InCall callerName={callerName} active={server?.visit?.state === "active"} onEnd={() => action("end")} disabled={pending || server?.visit?.state !== "active"}/>}
         {screen === "delivery_arrived" && <DeliveryArrived itemLabel={itemLabel} onReceived={() => void refresh.current()}/>}
         {screen === "caregiver_called" && <CaregiverCalled/>}
         {screen === "settings" && <Settings api={api} requirePin={deviceToken !== null} currentToken={deviceToken} pinGuard={pinGuard.current} onSaveToken={(token) => void saveToken(token)} onBack={() => { setDismissed(null); setError(false); setUi((value) => ({ ...value, settingsOpen: false })); }} onError={() => returnHome(true)}/>}

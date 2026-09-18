@@ -9,14 +9,16 @@ export function Visit({ api, apiBase, token, visitId, onBack }: { api: Api; apiB
   const [visit, setVisit] = useState<VisitView | null>(null);
   const [residentName, setResidentName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [connectingError, setConnectingError] = useState<string | null>(null);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [actioning, setActioning] = useState(false);
-  const sequence = useRef(0); const reportedConnected = useRef(false); const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sequence = useRef(0);
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
     try { const response = await api.get<{ visit: VisitView }>(`/visits/${visitId}`); if (request === sequence.current) { setVisit(response.visit); setError(null); } }
     catch { if (request === sequence.current) setError(t("family.error.progress")); }
   }, [api, visitId]);
-  useEffect(() => { void refresh(); const interval = setInterval(() => void refresh(), 3000); const events = connectEvents(apiBase, token, (event) => { if (event.entityId === visitId) void refresh(); }); return () => { sequence.current += 1; clearInterval(interval); events.close(); if (retryTimer.current) clearTimeout(retryTimer.current); }; }, [apiBase, refresh, token, visitId]);
+  useEffect(() => { void refresh(); const interval = setInterval(() => void refresh(), 3000); const events = connectEvents(apiBase, token, (event) => { if (event.entityId === visitId) void refresh(); }); return () => { sequence.current += 1; clearInterval(interval); events.close(); }; }, [apiBase, refresh, token, visitId]);
   useEffect(() => {
     if (!visit?.residentId) return;
     let active = true;
@@ -24,10 +26,23 @@ export function Visit({ api, apiBase, token, visitId, onBack }: { api: Api; apiB
     return () => { active = false; };
   }, [api, visit?.residentId]);
   useEffect(() => {
-    if (visit?.state !== "connecting" || reportedConnected.current) return;
-    reportedConnected.current = true;
-    void api.post(`/visits/${visitId}/connected`).then(() => void refresh()).catch(() => { setError(t("family.error.connecting")); retryTimer.current = setTimeout(() => { reportedConnected.current = false; void refresh(); }, 2000); });
-  }, [api, refresh, visit?.state, visitId]);
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    if (visit?.state !== "connecting") {
+      setConnectingError(null);
+      return;
+    }
+    void api.post(`/visits/${visitId}/connected`).then(() => {
+      if (cancelled) return;
+      setConnectingError(null);
+      void refresh();
+    }).catch(() => {
+      if (cancelled) return;
+      setConnectingError(t("family.error.connecting"));
+      retry = setTimeout(() => { if (!cancelled) setConnectionAttempt((attempt) => attempt + 1); }, 2000);
+    });
+    return () => { cancelled = true; clearTimeout(retry); };
+  }, [api, connectionAttempt, refresh, visit?.state, visitId]);
   async function act(action: "cancel" | "end") {
     if (actioning) return;
     setActioning(true); setError(null);
@@ -37,7 +52,8 @@ export function Visit({ api, apiBase, token, visitId, onBack }: { api: Api; apiB
   }
   if (!visit) return <main className="page page--visit"><p className="loading">{t("family.visit.loading")}</p>{error && <p role="alert" className="error">{error}</p>}</main>;
   const progress = visitProgress(visit.state); const canCancel = !progress.terminal && progress.currentIndex < 4;
-  return <main className="page page--visit"><button type="button" className="link back" onClick={onBack}>{t("family.visit.back")}</button><p className="wordmark">{t("family.wordmark")}</p><h1>{t("family.visit.title", { name: residentName })}</h1>{visit.simulated && <span className="badge-sim">{t("family.badge.simulated")}</span>}{error && <p role="alert" className="error">{error}</p>}
+  const feedback = connectingError ?? error;
+  return <main className="page page--visit"><button type="button" className="link back" onClick={onBack}>{t("family.visit.back")}</button><p className="wordmark">{t("family.wordmark")}</p><h1>{t("family.visit.title", { name: residentName })}</h1>{visit.simulated && <span className="badge-sim">{t("family.badge.simulated")}</span>}{feedback && <p role="alert" className="error">{feedback}</p>}
     <ol className="stepper">{VISIT_STEPS.map((step, index) => { const state = index < progress.currentIndex ? "done" : index === progress.currentIndex ? progress.failed ? "failed" : "current" : "todo"; return <li key={step} className={`step step--${state}`}><span className="step-marker" aria-hidden="true">{index < progress.currentIndex ? "✓" : ""}</span><div aria-current={index === progress.currentIndex ? "step" : undefined}>{t(STEP_KEY[step])}{index === progress.currentIndex && progress.failed && <p className="failed-reason">{t(`family.visit.failed.${progress.failed}`, { name: residentName })}</p>}</div></li>; })}</ol>
     <div className="actions">{canCancel && <button type="button" disabled={actioning} onClick={() => void act("cancel")}>{t("family.visit.cancel")}</button>}{visit.state === "active" && <button type="button" className="danger" disabled={actioning} onClick={() => void act("end")}>{t("family.visit.end")}</button>}<button type="button" className="primary" disabled title={t("family.visit.help_unavailable")}>{t("family.visit.ask_robot")}</button></div>
   </main>;

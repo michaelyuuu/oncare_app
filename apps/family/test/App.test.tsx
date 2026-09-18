@@ -1,7 +1,9 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { ApiError, type Api } from "@oncare/web-common";
 import { App } from "../src/App";
+import { Visit } from "../src/pages/Visit";
 
 type Handler = (path: string, init?: RequestInit) => { status: number; body: unknown };
 function installFetch(handler: Handler) {
@@ -16,7 +18,7 @@ function installFetch(handler: Handler) {
 }
 class NoopSocket { onopen: unknown; onmessage: unknown; onclose: unknown; constructor(_url: string) {} close() {} }
 beforeEach(() => { try { sessionStorage.clear(); } catch {} vi.stubGlobal("WebSocket", NoopSocket); });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const resident = { id: "resident_demo_01", displayName: "Mom", availability: "available", relationship: { label: "daughter", consentVideo: true, consentRobotVisit: true, consentItemDelivery: true } };
 
@@ -92,4 +94,37 @@ test("a known visit API error retains its localized message", async () => {
   render(<App apiBase="http://api" />);
   await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("The robot is not available");
+});
+
+test("a resident-unavailable visit error includes the resident's name", async () => {
+  try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
+  installFetch((path, init) => {
+    if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
+    if (path === "/visits" && init?.method === "POST") return { status: 409, body: { error: "resident_unavailable" } };
+    return { status: 404, body: {} };
+  });
+  render(<App apiBase="http://api" />);
+  await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Mom is not available right now");
+});
+
+test("retries a failed connection acknowledgement and keeps feedback until it recovers", async () => {
+  vi.useFakeTimers();
+  const get: Api["get"] = async <T,>(path: string): Promise<T> => (path === "/me/residents"
+    ? { residents: [resident] }
+    : { visit: { id: "v1", state: "connecting", residentId: resident.id } }) as T;
+  const post = vi.fn((..._args: unknown[]) => Promise.reject(new ApiError(503, "unavailable")));
+  const api: Api = {
+    get,
+    post: async <T,>(path: string, body?: unknown): Promise<T> => post(path, body) as Promise<T>,
+  };
+  const view = render(<Visit api={api} apiBase="http://api" token="jwt" visitId="v1" onBack={vi.fn()} />);
+  await act(async () => {});
+  expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
+  expect(post).toHaveBeenCalledTimes(1);
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(post).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
 });

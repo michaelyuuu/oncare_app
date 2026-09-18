@@ -31,6 +31,15 @@ test("incoming speaks once, shows simulated status, and answers with one tap", a
   expect(screen.getByText("SIMULATED ROBOT")).toBeInTheDocument();
   expect(screen.getByText("Microphone off")).toBeInTheDocument();
 });
+test("connecting calls disable End and never send the illegal end action", async () => {
+  state = { ...state, screen: "in_call", visit: { id: "v1", state: "connecting" }, caller: { displayName: "Amy" } };
+  render(<App apiBase="http://api"/>);
+  const end = await screen.findByRole("button", { name: "End" });
+  expect(end).toBeDisabled();
+  fireEvent.click(end);
+  await act(async () => {});
+  expect(calls).not.toContain("/visits/v1/end");
+});
 test("caregiver confirmation requires success; errors return home", async () => {
   render(<App apiBase="http://api"/>); await screen.findByText("Hello, Demo Resident");
   failAction = true; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));

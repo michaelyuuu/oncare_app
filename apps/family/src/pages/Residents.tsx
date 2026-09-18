@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, t, type Api } from "@oncare/web-common";
 
 interface ResidentCard { id: string; displayName: string; availability: string; relationship: { consentRobotVisit: boolean } }
-function errorMessage(error: unknown): string { const code = error instanceof ApiError ? error.code : "http_error"; const key = `family.visit.failed.${code}`; const translated = t(key); return translated === key ? code : translated; }
+function errorMessage(error: unknown, name: string): string { const code = error instanceof ApiError ? error.code : "http_error"; const key = `family.visit.failed.${code}`; const translated = t(key, { name }); return translated === key ? code : translated; }
 
 export function Residents({ api, displayName, onVisitCreated, onLogout }: { api: Api; displayName: string; onVisitCreated: (id: string) => void; onLogout: () => void }) {
   const [residents, setResidents] = useState<ResidentCard[]>([]);
@@ -18,7 +18,7 @@ export function Residents({ api, displayName, onVisitCreated, onLogout }: { api:
     if (requesting) return;
     setRequesting(residentId); setError(null);
     try { const response = await api.post<{ visit: { id: string } }>("/visits", { residentId }); onVisitCreated(response.visit.id); }
-    catch (caught) { setError(errorMessage(caught)); }
+    catch (caught) { setError(errorMessage(caught, residents.find((resident) => resident.id === residentId)?.displayName ?? "")); }
     finally { setRequesting(null); }
   }
   return <main className="page page--residents"><header className="masthead"><div><p className="wordmark">{t("family.wordmark")}</p><h1>{t("family.residents.title")}</h1></div><button type="button" className="link" onClick={onLogout}>{t("family.residents.logout", { name: displayName })}</button></header>
