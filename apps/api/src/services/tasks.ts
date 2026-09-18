@@ -169,13 +169,16 @@ export function createTaskService(
       return { ok: false as const, error: "illegal_transition" as const, detail: `${input.action} is not allowed from ${task.state}` };
     }
     try {
-      for (const to of spec.to) transitions.apply({ entityType: "task", entityId: task.id, to, actorType: role, actorId: input.principal.id, ...(spec.reason ? { reason: spec.reason } : {}) });
+      const approval = spec.approval ? { id: `appr_${randomUUID()}`, taskId: task.id, actorId: input.principal.id, decision: spec.approval, reason: input.reason ?? null, at: now().toISOString() } : undefined;
+      for (const [index, to] of spec.to.entries()) transitions.apply({
+        entityType: "task", entityId: task.id, to, actorType: role, actorId: input.principal.id,
+        ...(spec.reason ? { reason: spec.reason } : {}),
+        ...(index === 0 && approval ? { taskApproval: approval } : {}),
+      });
     } catch (error) {
       if (error instanceof TransitionError) return { ok: false as const, error: "illegal_transition" as const, detail: error.reason };
       throw error;
     }
-    if (spec.approval) db.insert(t.taskApproval).values({ id: `appr_${randomUUID()}`, taskId: task.id, actorId: input.principal.id, decision: spec.approval, reason: input.reason ?? null, at: now().toISOString() }).run();
-
     const command = db.select().from(t.robotCommand).where(eq(t.robotCommand.taskId, task.id)).get();
     if (command) {
       if (input.action === "loaded") hub?.send(command.robotId, { type: "staff_event", correlationId: command.correlationId, event: "staff_loaded" });

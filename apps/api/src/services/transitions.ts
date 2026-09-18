@@ -15,6 +15,7 @@ export class TransitionError extends Error {
 export type VisitPatch = Partial<Pick<typeof t.visitSession.$inferSelect, "connectedAt" | "endedAt" | "livekitRoom" | "robotId">>;
 /** Task columns that may be written in the same transaction as the state. */
 export type TaskPatch = Partial<Pick<typeof t.taskRequest.$inferSelect, "visitId" | "mode">>;
+export type TaskApprovalInsert = typeof t.taskApproval.$inferInsert;
 
 export interface TransitionInput {
   entityType: "visit" | "task";
@@ -25,6 +26,8 @@ export interface TransitionInput {
   reason?: string;
   /** Sibling columns written in the SAME transaction as the state change. */
   patch?: VisitPatch | TaskPatch;
+  /** Approval persisted atomically with a task state/audit transition. */
+  taskApproval?: TaskApprovalInsert;
 }
 
 export type Listener = (ev: AuditEvent) => void;
@@ -89,6 +92,12 @@ export function createTransitionService(db: Db, opts: CreateTransitionServiceOpt
 
     const ev = makeTransitionEvent({ ...base, ...(input.reason !== undefined ? { reason: input.reason } : {}) });
     db.transaction((tx) => {
+      if (input.taskApproval) {
+        if (input.entityType !== "task" || input.taskApproval.taskId !== input.entityId) {
+          throw new TypeError("task approval must belong to the transitioning task");
+        }
+        tx.insert(t.taskApproval).values(input.taskApproval).run();
+      }
       if (input.entityType === "visit") {
         const patch = (input.patch ?? {}) as VisitPatch;
         tx.update(t.visitSession).set({ state: input.to, ...patch }).where(eq(t.visitSession.id, input.entityId)).run();

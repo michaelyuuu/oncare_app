@@ -41,6 +41,22 @@ describe("task actions and dispatch", () => {
     expect(ctx.sent[0]).toMatchObject({ type: "intent", intent: "deliver_item", correlationId: ctx.task.correlationId, payload: { itemId: "water_bottle", pickupLocationId: SEED_IDS.pickupLocation, destinationLocationId: SEED_IDS.roomLocation, standbyLocationId: SEED_IDS.standbyLocation, mode: "tray" } });
   });
 
+  test("an approval insert failure rolls back queued state and cannot dispatch", async () => {
+    const ctx = await proposal();
+    await ctx.act("confirm", ctx.tokens.family);
+    const auditBefore = ctx.db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, ctx.task.id)).all().length;
+    (ctx.db as any).$client.exec(`CREATE TRIGGER fail_task_approval BEFORE INSERT ON task_approval BEGIN SELECT RAISE(ABORT, 'approval insert failed'); END`);
+
+    const response = await ctx.act("approve", ctx.tokens.staff);
+
+    expect(response.statusCode).toBe(500);
+    expect(ctx.state()).toBe("awaiting_policy_or_staff");
+    expect(ctx.db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, ctx.task.id)).all()).toHaveLength(auditBefore);
+    expect(ctx.db.select().from(t.taskApproval).where(eq(t.taskApproval.taskId, ctx.task.id)).all().map((row) => row.decision)).toEqual(["confirmed"]);
+    expect(ctx.db.select().from(t.robotCommand).where(eq(t.robotCommand.taskId, ctx.task.id)).all()).toHaveLength(0);
+    expect(ctx.sent).toHaveLength(0);
+  });
+
   test("records confirmation and approval actors", async () => {
     const ctx = await queued();
     expect(ctx.db.select().from(t.taskApproval).where(eq(t.taskApproval.taskId, ctx.task.id)).all().map((row) => [row.decision, row.actorId])).toEqual([["confirmed", SEED_IDS.familyUser], ["approved", SEED_IDS.staffUser]]);
