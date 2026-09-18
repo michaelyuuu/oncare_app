@@ -88,6 +88,7 @@
   "family.call.unmute": "Unmute",
   "family.call.camera_off": "Camera off",
   "family.call.camera_on": "Camera on",
+  "family.call.control_error": "Could not update the call controls. Try again.",
   "family.error.load": "Your family list could not be loaded",
   "family.error.request": "This visit could not be requested",
   "family.error.progress": "This visit could not be refreshed. Trying again.",

@@ -15,25 +15,22 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
   const localRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<CallHandle | null>(null);
   const callbacksRef = useRef({ onConnected, onLost });
-  const activeRef = useRef(false);
-  const connectedOnceRef = useRef(false);
-  const lostOnceRef = useRef(false);
-  const leftRef = useRef(false);
   const [present, setPresent] = useState(false);
   const [localState, setLocalState] = useState({ camera: false, mic: false });
+  const [controlError, setControlError] = useState<string | null>(null);
 
   callbacksRef.current = { onConnected, onLost };
 
   useEffect(() => {
     let cancelled = false;
-    activeRef.current = true;
-    connectedOnceRef.current = false;
-    lostOnceRef.current = false;
-    leftRef.current = false;
+    let generationHandle: CallHandle | null = null;
+    let connectedOnce = false;
+    let lostOnce = false;
+    let left = false;
 
-    const leaveOnce = (handle = handleRef.current) => {
-      if (!handle || leftRef.current) return;
-      leftRef.current = true;
+    const leaveOnce = (handle = generationHandle) => {
+      if (!handle || left) return;
+      left = true;
       void handle.leave();
     };
     const replaceMedia = (host: HTMLDivElement | null, element: HTMLMediaElement | null) => {
@@ -53,8 +50,8 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
       replaceMedia(localRef.current, element);
     };
     const reportLost = () => {
-      if (!activeRef.current || lostOnceRef.current) return;
-      lostOnceRef.current = true;
+      if (cancelled || lostOnce) return;
+      lostOnce = true;
       leaveOnce();
       callbacksRef.current.onLost();
     };
@@ -65,23 +62,23 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
         if (cancelled) return;
         const handle = await createCall(url, token, {
           onRemoteVideo: (element) => {
-            if (activeRef.current) replaceMedia(remoteRef.current, element);
+            if (!cancelled) replaceMedia(remoteRef.current, element);
           },
           onRemoteAudio: (element) => {
-            if (activeRef.current) replaceMedia(audioRef.current, element);
+            if (!cancelled) replaceMedia(audioRef.current, element);
           },
           onRemoteParticipant: (nextPresent) => {
-            if (!activeRef.current) return;
+            if (cancelled) return;
             setPresent(nextPresent);
-            if (nextPresent && !connectedOnceRef.current) {
-              connectedOnceRef.current = true;
+            if (nextPresent && !connectedOnce) {
+              connectedOnce = true;
               callbacksRef.current.onConnected();
             }
           },
           onLocalState: (nextState) => {
-            if (!activeRef.current) return;
+            if (cancelled) return;
             setLocalState(nextState);
-            if (handleRef.current) attachLocalPreview(handleRef.current);
+            if (generationHandle) attachLocalPreview(generationHandle);
           },
           onLost: reportLost,
         }, { publish: true });
@@ -89,6 +86,7 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
           await handle.leave();
           return;
         }
+        generationHandle = handle;
         handleRef.current = handle;
         attachLocalPreview(handle);
       } catch (error) {
@@ -98,11 +96,21 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
 
     return () => {
       cancelled = true;
-      activeRef.current = false;
       leaveOnce();
-      handleRef.current = null;
+      if (handleRef.current === generationHandle) handleRef.current = null;
     };
   }, [api, visitId]);
+
+  async function updateControl(operation: (handle: CallHandle) => Promise<void>) {
+    const handle = handleRef.current;
+    if (!handle) return;
+    setControlError(null);
+    try {
+      await operation(handle);
+    } catch {
+      setControlError(t("family.call.control_error"));
+    }
+  }
 
   const status = present ? t("family.call.connected") : t("family.call.waiting", { name: residentName });
   return <section className="call-panel" aria-label={t("family.call.region")}>
@@ -110,9 +118,10 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
     <div ref={localRef} className="call-local" aria-hidden="true" />
     <div ref={audioRef} className="call-media-audio" aria-hidden="true" />
     <p className="call-status" aria-live="polite">{status}</p>
+    {controlError && <p className="error" role="alert">{controlError}</p>}
     <div className="call-controls">
-      <button type="button" onClick={() => void handleRef.current?.setMic(!localState.mic)}>{t(localState.mic ? "family.call.mute" : "family.call.unmute")}</button>
-      <button type="button" onClick={() => void handleRef.current?.setCamera(!localState.camera)}>{t(localState.camera ? "family.call.camera_off" : "family.call.camera_on")}</button>
+      <button type="button" onClick={() => void updateControl((handle) => handle.setMic(!localState.mic))}>{t(localState.mic ? "family.call.mute" : "family.call.unmute")}</button>
+      <button type="button" onClick={() => void updateControl((handle) => handle.setCamera(!localState.camera))}>{t(localState.camera ? "family.call.camera_off" : "family.call.camera_on")}</button>
     </div>
   </section>;
 }

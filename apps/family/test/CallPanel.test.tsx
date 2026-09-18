@@ -118,6 +118,57 @@ test("uses the latest lifecycle callbacks without rejoining", async () => {
   expect(callMock.createCall).toHaveBeenCalledTimes(1);
 });
 
+test("ignores callbacks from a replaced call generation without leaving the new handle", async () => {
+  const oldConnected = vi.fn();
+  const oldLost = vi.fn();
+  const newConnected = vi.fn();
+  const newLost = vi.fn();
+  const oldHandle = handle;
+  const newHandle: CallHandle = {
+    setVolume: vi.fn(), setMic: vi.fn(async () => {}), setCamera: vi.fn(async () => {}),
+    localVideoElement: vi.fn(() => document.createElement("video")), leave: vi.fn(async () => {}),
+  };
+  callMock.createCall
+    .mockImplementationOnce(async (_url, _token, callbacks) => { callbacks.onLocalState({ camera: true, mic: true }); return oldHandle; })
+    .mockImplementationOnce(async (_url, _token, callbacks) => { callbacks.onLocalState({ camera: true, mic: true }); return newHandle; });
+  const firstApi = apiWithToken();
+  const secondApi = apiWithToken();
+  const view = render(<CallPanel api={firstApi} visitId="v1" residentName="Mom" onConnected={oldConnected} onLost={oldLost} />);
+  await waitFor(() => expect(callMock.createCall).toHaveBeenCalledTimes(1));
+  const oldCallbacks = callMock.createCall.mock.calls[0]![2];
+
+  view.rerender(<CallPanel api={secondApi} visitId="v2" residentName="Dad" onConnected={newConnected} onLost={newLost} />);
+  await waitFor(() => expect(callMock.createCall).toHaveBeenCalledTimes(2));
+  const newCallbacks = callMock.createCall.mock.calls[1]![2];
+  expect(oldHandle.leave).toHaveBeenCalledTimes(1);
+
+  act(() => {
+    oldCallbacks.onRemoteParticipant(true);
+    oldCallbacks.onLost();
+  });
+  expect(oldConnected).not.toHaveBeenCalled();
+  expect(oldLost).not.toHaveBeenCalled();
+  expect(newConnected).not.toHaveBeenCalled();
+  expect(newLost).not.toHaveBeenCalled();
+  expect(newHandle.leave).not.toHaveBeenCalled();
+
+  act(() => newCallbacks.onRemoteParticipant(true));
+  expect(newConnected).toHaveBeenCalledTimes(1);
+});
+
+test("shows recoverable feedback when microphone or camera controls fail", async () => {
+  handle.setMic = vi.fn(async () => { throw new Error("mic denied"); });
+  handle.setCamera = vi.fn(async () => { throw new Error("camera denied"); });
+  render(<CallPanel api={apiWithToken()} visitId="v1" residentName="Mom" onConnected={vi.fn()} onLost={vi.fn()} />);
+  await waitFor(() => expect(callMock.callbacks).toBeDefined());
+
+  await userEvent.click(screen.getByRole("button", { name: "Mute" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not update the call controls. Try again.");
+  act(() => callMock.callbacks.onLocalState({ camera: true, mic: true }));
+  await userEvent.click(screen.getByRole("button", { name: "Camera off" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not update the call controls. Try again.");
+});
+
 test("leaves a handle that resolves after unmount", async () => {
   let resolveHandle!: (value: CallHandle) => void;
   callMock.createCall.mockImplementation(() => new Promise<CallHandle>((resolve) => { resolveHandle = resolve; }));

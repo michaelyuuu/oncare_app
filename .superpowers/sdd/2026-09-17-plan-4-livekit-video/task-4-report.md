@@ -85,3 +85,56 @@ The initial idea risked becoming a generic rounded video card. The revision avoi
 
 - The real LiveKit/network/camera/microphone rehearsal is explicitly prohibited for this task and remains pending. No timing was invented. The demo guide records the expected 5-second two-way-media and 10-second remote-absence bounds.
 - Production build passes with the existing Vite large-chunk advisory; code splitting is outside this task's scope.
+
+## Fix round 1 — stale generations and control failures
+
+Reviewer findings addressed:
+
+1. Lifecycle validity, connected/lost once guards, and leave ownership are now local to each effect generation. A replaced call's callbacks remain cancelled even after the next generation starts, and its loss closure can only leave its own handle.
+2. Microphone and camera operations now await and catch rejected promises and show the localized recoverable alert: “Could not update the call controls. Try again.”
+
+### RED
+
+Command:
+
+```text
+npx vitest run apps/family/test/CallPanel.test.tsx
+```
+
+Observed: exit 1; 2 of 7 tests failed. The replacement-generation test showed the stale callback invoking the new `onConnected`, and the control test could not find a `role="alert"` after rejected mic/camera operations. The other 5 tests passed.
+
+### GREEN
+
+Same focused command after the fix: exit 0; 1 file passed, 7 tests passed.
+
+Integration command:
+
+```text
+npx vitest run apps/family/test/App.test.tsx
+```
+
+Exit 0; 1 file passed, 8 tests passed.
+
+The first compiler run identified only strict indexing in the new test (`mock.calls[0]` and `[1]` possibly undefined). The test now uses non-null assertions after explicit call-count waits; the final compiler result is recorded by the fresh verification below.
+
+### Fix self-review
+
+- Every callback checks its own captured `cancelled` flag; no subsequent effect can reactivate it.
+- `generationHandle` is captured by that generation's loss/cleanup functions, preventing cross-call leave.
+- `handleRef` remains only the current UI-control target and is cleared only if cleanup still owns it.
+- Pending setup still leaves a late handle directly when its generation was cancelled.
+- Both control branches share the same awaited error boundary and localized alert; no rejected promise is discarded.
+
+Fresh final verification:
+
+```text
+npx vitest run apps/family packages/web-common
+```
+
+Exit 0: 7 files passed, 42 tests passed.
+
+```text
+npx tsc -b
+```
+
+Exit 0, no diagnostics.
