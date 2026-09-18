@@ -16,12 +16,29 @@ export interface CallHandle {
   leave(): Promise<void>;
 }
 
+/** Must match FakeVideoProvider.url in apps/api/src/services/video.ts. */
+export const FAKE_CALL_URL = "wss://fake.livekit.local";
+
+/** No LiveKit configured: report the other side present so visit states advance, with no media. */
+function createFakeCall(cb: CallCallbacks): CallHandle {
+  cb.onLocalState({ camera: false, mic: false });
+  cb.onRemoteParticipant(true);
+  return {
+    setVolume() {},
+    async setMic() {},
+    async setCamera() {},
+    localVideoElement: () => null,
+    async leave() {},
+  };
+}
+
 export async function createCall(
   url: string,
   token: string,
   cb: CallCallbacks,
   opts: { publish: boolean; RoomImpl?: typeof Room } = { publish: true },
 ): Promise<CallHandle> {
+  if (url === FAKE_CALL_URL) return createFakeCall(cb);
   const RoomCtor = opts.RoomImpl ?? Room;
   const room = new RoomCtor({ adaptiveStream: true, dynacast: true });
   const audioTracks = new Set<RemoteTrack>();

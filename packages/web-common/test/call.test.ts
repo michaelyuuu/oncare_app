@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createCall } from "../src/call";
+import { createCall, FAKE_CALL_URL } from "../src/call";
 
 const livekit = vi.hoisted(() => {
   class FakeTrack {
@@ -152,6 +152,20 @@ describe("createCall", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  test("the fake provider URL opens no room and reports the other side present without media", async () => {
+    const cb = callbacks();
+    const before = FakeRoom.last;
+    const handle = await createCall(FAKE_CALL_URL, "fake.room.id.pub", cb, { publish: true, RoomImpl: FakeRoom as never });
+
+    expect(FakeRoom.last).toBe(before);
+    expect(cb.onLocalState).toHaveBeenLastCalledWith({ camera: false, mic: false });
+    expect(cb.onRemoteParticipant).toHaveBeenCalledWith(true);
+    expect(cb.onRemoteVideo).not.toHaveBeenCalled();
+    expect(handle.localVideoElement()).toBeNull();
+    await handle.leave();
+    expect(cb.onLost).not.toHaveBeenCalled();
   });
 
   test("connects, publishes when asked, and reports initial presence", async () => {
