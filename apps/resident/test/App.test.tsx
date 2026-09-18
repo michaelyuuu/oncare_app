@@ -40,6 +40,7 @@ test("incoming speaks once, shows simulated status, and answers with one tap", a
   render(<App apiBase="http://api"/>);
   fireEvent.click(await screen.findByRole("button", { name: "Answer" }));
   await waitFor(() => expect(calls).toContain("/visits/v1/answer"));
+  expect(calls).toContain("/device/screen-shown");
   expect(screen.getByText("Amy is calling")).toBeInTheDocument();
   expect(speechSynthesis.speak).toHaveBeenCalledTimes(1);
   expect(screen.getByText("SIMULATED ROBOT")).toBeInTheDocument();

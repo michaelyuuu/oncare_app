@@ -39,6 +39,7 @@ export function App({ apiBase }: { apiBase: string }) {
   const generation = useRef(0);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const spoken = useRef(new Set<string>());
+  const screenShown = useRef(new Set<string>());
   const pinGuard = useRef<PinGuard>({ failures: 0, lockedUntil: 0 });
   const api = useMemo(() => createApi(apiBase, () => jwt), [apiBase, jwt]);
   const key = stateKey(server);
@@ -104,6 +105,14 @@ export function App({ apiBase }: { apiBase: string }) {
       speak(t("resident.incoming.spoken", { name: server.caller?.displayName ?? "" }));
     }
   }, [screen, server]);
+  useEffect(() => {
+    const entityId = server?.visit?.id ?? server?.task?.id;
+    if ((screen !== "incoming" && screen !== "delivery_arrived") || !entityId || !jwt || !ui.apiReachable) return;
+    const key = `${screen}:${entityId}`;
+    if (screenShown.current.has(key)) return;
+    screenShown.current.add(key);
+    void api.post("/device/screen-shown", { screen, entityId }).catch(() => { screenShown.current.delete(key); });
+  }, [api, jwt, screen, server, ui.apiReachable]);
 
   const perform = async (path: string, caregiver = false) => {
     if (busy.current || !jwt || !ui.apiReachable) return;

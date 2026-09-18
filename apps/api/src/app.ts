@@ -19,6 +19,8 @@ import { createTransitionService } from "./services/transitions";
 import { createTaskService, type TaskService } from "./services/tasks";
 import { createVisitService, type TransitionService, type VisitService } from "./services/visits";
 import { videoProviderFromEnv, type VideoProvider } from "./services/video";
+import { createBenchmarkService } from "./services/benchmark";
+import { benchmarkRoutes } from "./routes/benchmark";
 
 export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider }
 
@@ -28,6 +30,7 @@ declare module "fastify" {
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
     tasks: TaskService;
     video: VideoProvider;
+    benchmark: ReturnType<typeof createBenchmarkService>;
   }
 }
 
@@ -41,6 +44,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("hub", hub);
   app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}, hub));
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
+  app.decorate("benchmark", createBenchmarkService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
   app.decorate("visits", createVisitService(opts.db, transitions, video, {
     ...(opts.now ? { now: opts.now } : {}),
     onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
@@ -58,6 +62,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(robotRoutes, { db: opts.db });
   app.register(staffRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(taskRoutes);
+  app.register(benchmarkRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(eventsRoutes, { db: opts.db });
   app.get("/health", async () => ({ ok: true }));
   return app;
