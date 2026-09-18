@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { connectEvents, t, type Api } from "@oncare/web-common";
 import { VISIT_STEPS, visitProgress } from "../progress";
 import { CallPanel } from "../components/CallPanel";
+import { AskRobot } from "../components/AskRobot";
 
 interface VisitView { id: string; state: string; residentId: string; simulated?: boolean }
 const STEP_KEY: Record<(typeof VISIT_STEPS)[number], string> = { requested: "family.visit.step.requested", approval: "family.visit.step.approval", robot: "family.visit.step.robot", ringing: "family.visit.step.ringing", connecting: "family.visit.step.connecting", active: "family.visit.step.active", completed: "family.visit.step.completed" };
@@ -12,6 +13,7 @@ export function Visit({ api, apiBase, token, visitId, onBack }: { api: Api; apiB
   const [error, setError] = useState<string | null>(null);
   const [connectingError, setConnectingError] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
+  const [showAskRobot, setShowAskRobot] = useState(false);
   const sequence = useRef(0);
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
@@ -42,10 +44,12 @@ export function Visit({ api, apiBase, token, visitId, onBack }: { api: Api; apiB
   }
   if (!visit) return <main className="page page--visit"><p className="loading">{t("family.visit.loading")}</p>{error && <p role="alert" className="error">{error}</p>}</main>;
   const progress = visitProgress(visit.state); const canCancel = !progress.terminal && progress.currentIndex < 4;
+  const canAskRobot = visit.state === "connecting" || visit.state === "active" || visit.state === "completed";
   const feedback = connectingError ?? error;
   return <main className="page page--visit"><button type="button" className="link back" onClick={onBack}>{t("family.visit.back")}</button><p className="wordmark">{t("family.wordmark")}</p><h1>{t("family.visit.title", { name: residentName })}</h1>{visit.simulated && <span className="badge-sim">{t("family.badge.simulated")}</span>}{feedback && <p role="alert" className="error">{feedback}</p>}
     {(visit.state === "connecting" || visit.state === "active") && <CallPanel api={api} visitId={visitId} residentName={residentName} onConnected={() => reportCallState("connected")} onLost={() => reportCallState("connection_lost")} />}
+    {showAskRobot && canAskRobot && <div className="ask-panel"><AskRobot api={api} apiBase={apiBase} token={token} residentId={visit.residentId} visitId={visitId} residentName={residentName} /></div>}
     <ol className="stepper">{VISIT_STEPS.map((step, index) => { const state = index < progress.currentIndex ? "done" : index === progress.currentIndex ? progress.failed ? "failed" : "current" : "todo"; return <li key={step} className={`step step--${state}`}><span className="step-marker" aria-hidden="true">{index < progress.currentIndex ? "✓" : ""}</span><div aria-current={index === progress.currentIndex ? "step" : undefined}>{t(STEP_KEY[step])}{index === progress.currentIndex && progress.failed && <p className="failed-reason">{t(`family.visit.failed.${progress.failed}`, { name: residentName })}</p>}</div></li>; })}</ol>
-    <div className="actions">{canCancel && <button type="button" disabled={actioning} onClick={() => void act("cancel")}>{t("family.visit.cancel")}</button>}{visit.state === "active" && <button type="button" className="danger" disabled={actioning} onClick={() => void act("end")}>{t("family.visit.end")}</button>}<button type="button" className="primary" disabled title={t("family.visit.help_unavailable")}>{t("family.visit.ask_robot")}</button></div>
+    <div className="actions">{canCancel && <button type="button" disabled={actioning} onClick={() => void act("cancel")}>{t("family.visit.cancel")}</button>}{visit.state === "active" && <button type="button" className="danger" disabled={actioning} onClick={() => void act("end")}>{t("family.visit.end")}</button>}{canAskRobot && <button type="button" className="primary" aria-expanded={showAskRobot} onClick={() => setShowAskRobot((shown) => !shown)}>{showAskRobot ? t("family.visit.hide_robot") : t("family.visit.ask_robot")}</button>}</div>
   </main>;
 }
