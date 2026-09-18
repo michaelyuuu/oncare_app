@@ -5,7 +5,9 @@ import { resolve } from "node:path";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const gateway = resolve(root, "robot_gateway");
-const python = resolve(gateway, ".venv", "Scripts", "python.exe");
+const python = process.platform === "win32"
+  ? resolve(gateway, ".venv", "Scripts", "python.exe")
+  : resolve(gateway, ".venv", "bin", "python");
 const child = spawn(python, ["-m", "gateway"], {
   cwd: gateway,
   env: { ...process.env, ONCARE_API_URL: "ws://127.0.0.1:3000", ONCARE_ROBOT_TOKEN: "robot-demo-token", ROBOT_ADAPTER: "mock" },

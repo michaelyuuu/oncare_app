@@ -38,20 +38,21 @@ test("handover section 8: visit, call, item request, tray delivery", async ({ br
     await family.getByRole("button", { name: "Ask the robot for help" }).click();
     await family.getByPlaceholder(/Type what you need/).fill("Could you bring Mom the water bottle?");
     await family.getByRole("button", { name: "Send" }).click();
-    await expect(family.getByText("Send the robot with the water bottle to Mom's bedside table?")).toBeVisible();
+    await expect(family.getByText("Send the robot with the water bottle to Demo Resident's bedside table?")).toBeVisible();
     await family.getByRole("button", { name: "Yes, send the robot" }).click();
     await expect(family.getByText("Care home approval")).toHaveAttribute("aria-current", "step");
 
     await staff.getByRole("button", { name: "Approve" }).first().click();
     await expect(staff.getByRole("button", { name: "Loaded on tray" })).toBeVisible({ timeout: 20_000 });
     await staff.getByRole("button", { name: "Loaded on tray" }).click();
+    // docs/demo-task-flow.md: the delivery notice appears only after the call screen ends.
+    await family.getByRole("button", { name: "End call" }).click();
     await expect(resident.getByText("Your water bottle is here")).toBeVisible({ timeout: 20_000 });
     await resident.getByRole("button", { name: "I have it" }).click();
     await expect(family.getByText("Done")).toHaveAttribute("aria-current", "step", { timeout: 20_000 });
 
     await staff.getByLabel("Resident id").fill("resident_demo_01");
     await expect(staff.locator("table tbody tr").filter({ hasText: "completed" }).first()).toBeVisible();
-    await family.getByRole("button", { name: "End call" }).click();
   } finally {
     await family.context().close();
     await resident.context().close();
