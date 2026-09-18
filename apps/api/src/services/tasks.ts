@@ -14,6 +14,8 @@ import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import type { TransitionService } from "./visits";
+import type { GatewayHub } from "./gateway-hub";
+import { TransitionError } from "./transitions";
 
 export type TaskRow = typeof t.taskRequest.$inferSelect;
 export type CreateOutcome =
@@ -21,6 +23,19 @@ export type CreateOutcome =
   | { kind: "rejected"; task: TaskRow; code: PolicyCode; reason: string }
   | { kind: "proposal"; task: TaskRow };
 export type CreateError = "no_relationship" | "consent_missing" | "visit_mismatch";
+export type TaskAction = "confirm" | "cancel" | "approve" | "deny" | "loaded" | "received" | "stop";
+type ActionRole = "family" | "staff" | "device";
+
+const ACTIONS: Record<TaskAction, { roles: ActionRole[]; from: TaskState[]; to: TaskState[]; reason?: string; approval?: "confirmed" | "approved" | "denied" | "cancelled" }> = {
+  confirm: { roles: ["family"], from: ["awaiting_user_confirmation"], to: ["awaiting_policy_or_staff"], approval: "confirmed" },
+  cancel: { roles: ["family", "staff"], from: [], to: ["cancelled"], approval: "cancelled" },
+  approve: { roles: ["staff"], from: ["awaiting_policy_or_staff"], to: ["queued"], approval: "approved" },
+  deny: { roles: ["staff"], from: ["awaiting_policy_or_staff"], to: ["rejected"], reason: "staff_denied", approval: "denied" },
+  loaded: { roles: ["staff"], from: ["locating_item"], to: ["grasping", "verifying_grasp", "navigating_to_delivery"], reason: "tray_mode" },
+  received: { roles: ["device", "staff"], from: ["placing"], to: ["verifying_delivery"], reason: "tray_mode" },
+  stop: { roles: ["staff"], from: ["queued", "navigating_to_pickup", "locating_item", "grasping", "verifying_grasp", "navigating_to_delivery", "placing", "verifying_delivery"], to: ["safety_stopped"], reason: "staff_stop" },
+};
+export const TASK_ACTIONS = Object.keys(ACTIONS) as TaskAction[];
 
 export interface TaskService {
   create(input: { requesterId: string; residentId: string; text: string; visitId?: string }):
@@ -28,12 +43,16 @@ export interface TaskService {
     | { ok: false; error: CreateError };
   get(id: string): TaskRow | undefined;
   canView(principal: Principal, task: TaskRow): boolean;
+  act(input: { taskId: string; action: TaskAction; principal: Principal; reason?: string }):
+    | { ok: true; task: TaskRow }
+    | { ok: false; error: "not_found" | "forbidden" | "illegal_transition"; detail?: string };
 }
 
 export function createTaskService(
   db: Db,
   transitions: TransitionService,
   opts: { now?: () => Date; id?: () => string; parser?: IntentParser } = {},
+  hub?: GatewayHub,
 ): TaskService {
   const now = opts.now ?? (() => new Date());
   const id = opts.id ?? (() => `task_${randomUUID()}`);
@@ -140,5 +159,31 @@ export function createTaskService(
     return principal.id === task.requesterId;
   }
 
-  return { create, get, canView };
+  function act(input: { taskId: string; action: TaskAction; principal: Principal; reason?: string }) {
+    const task = get(input.taskId);
+    if (!task) return { ok: false as const, error: "not_found" as const };
+    const spec = ACTIONS[input.action];
+    const role: ActionRole = input.principal.kind === "device" ? "device" : input.principal.role;
+    if (!spec.roles.includes(role) || !canView(input.principal, task)) return { ok: false as const, error: "forbidden" as const };
+    if (input.action !== "cancel" && !spec.from.includes(task.state as TaskState)) {
+      return { ok: false as const, error: "illegal_transition" as const, detail: `${input.action} is not allowed from ${task.state}` };
+    }
+    try {
+      for (const to of spec.to) transitions.apply({ entityType: "task", entityId: task.id, to, actorType: role, actorId: input.principal.id, ...(spec.reason ? { reason: spec.reason } : {}) });
+    } catch (error) {
+      if (error instanceof TransitionError) return { ok: false as const, error: "illegal_transition" as const, detail: error.reason };
+      throw error;
+    }
+    if (spec.approval) db.insert(t.taskApproval).values({ id: `appr_${randomUUID()}`, taskId: task.id, actorId: input.principal.id, decision: spec.approval, reason: input.reason ?? null, at: now().toISOString() }).run();
+
+    const command = db.select().from(t.robotCommand).where(eq(t.robotCommand.taskId, task.id)).get();
+    if (command) {
+      if (input.action === "loaded") hub?.send(command.robotId, { type: "staff_event", correlationId: command.correlationId, event: "staff_loaded" });
+      if (input.action === "received") hub?.send(command.robotId, { type: "staff_event", correlationId: command.correlationId, event: "received" });
+      if (input.action === "stop") hub?.send(command.robotId, { type: "stop", reason: "staff_stop" });
+    }
+    return { ok: true as const, task: get(task.id)! };
+  }
+
+  return { create, get, canView, act };
 }

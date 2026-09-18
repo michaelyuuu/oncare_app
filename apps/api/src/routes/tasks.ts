@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireRole } from "../auth/plugin";
+import { TASK_ACTIONS, type TaskAction } from "../services/tasks";
 
 export async function taskRoutes(app: FastifyInstance) {
   app.post("/tasks", { preHandler: requireRole("family") }, async (req, reply) => {
@@ -28,5 +29,16 @@ export async function taskRoutes(app: FastifyInstance) {
     if (!task) return reply.code(404).send({ error: "not_found" });
     if (!app.tasks.canView(req.principal, task)) return reply.code(403).send({ error: "forbidden" });
     return { task };
+  });
+
+  app.post("/tasks/:id/:action", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+    const { id, action } = req.params as { id: string; action: string };
+    if (!TASK_ACTIONS.includes(action as TaskAction)) return reply.code(404).send({ error: "not_found" });
+    const result = app.tasks.act({ taskId: id, action: action as TaskAction, principal: req.principal });
+    if (!result.ok) {
+      const status = result.error === "not_found" ? 404 : result.error === "forbidden" ? 403 : 409;
+      return reply.code(status).send({ error: result.error, ...(result.detail ? { detail: result.detail } : {}) });
+    }
+    return { task: result.task };
   });
 }

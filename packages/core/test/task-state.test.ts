@@ -102,6 +102,11 @@ describe("physical task state machine", () => {
     expect(isTaskTransitionAllowed("draft", "operator_required")).toBe(false);
   });
 
+  test("queued ack failures and standby navigation failures have explicit exits", () => {
+    expect(isTaskTransitionAllowed("queued", "operator_required")).toBe(true);
+    expect(isTaskTransitionAllowed("verifying_delivery", "navigation_failed")).toBe(true);
+  });
+
   test("transitionTask reports illegal transitions with both state names", () => {
     const result = transitionTask("parsed", "grasping");
     expect(result.ok).toBe(false);

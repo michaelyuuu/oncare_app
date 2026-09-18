@@ -63,6 +63,7 @@ export const taskApproval = sqliteTable("task_approval", {
 export const robotCommand = sqliteTable("robot_command", {
   id: text("id").primaryKey(), robotId: text("robot_id").notNull().references(() => robot.id),
   taskId: text("task_id").references(() => taskRequest.id), visitId: text("visit_id").references(() => visitSession.id),
+  correlationId: text("correlation_id").notNull(),
   intent: text("intent", { mode: "json" }).$type<Intent>().notNull(), issuedAt: text("issued_at").notNull(), expiresAt: text("expires_at").notNull(),
   ackedAt: text("acked_at"), result: text("result"),
 });

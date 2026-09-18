@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import type { GatewayUp, Intent } from "@oncare/contracts";
-import { REASON_CODE, VISIT_TERMINAL_STATES, makeTransitionEvent, type ActorType, type AuditEvent, type VisitState } from "@oncare/core";
+import { REASON_CODE, TASK_TERMINAL_STATES, VISIT_TERMINAL_STATES, makeTransitionEvent, type ActorType, type AuditEvent, type TaskState, type VisitState } from "@oncare/core";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import type { GatewayHub } from "./gateway-hub";
@@ -15,6 +15,15 @@ const STATE_EVENT_TO_VISIT: Partial<Record<string, VisitState>> = {
   cancelled: "cancelled",
   expired: "robot_unavailable",
 };
+const STATE_EVENT_TO_TASK: Partial<Record<string, TaskState>> = {
+  arrived_pickup: "locating_item",
+  arrived_delivery: "placing",
+  navigation_failed: "navigation_failed",
+  safety_stopped: "safety_stopped",
+  cancelled: "cancelled",
+  expired: "operator_required",
+  completed_leg: "completed",
+};
 
 export function createDispatchService(db: Db, transitions: TransitionService, hub: GatewayHub,
   opts: { now?: () => Date; id?: () => string; intentTtlMs?: number } = {}) {
@@ -22,10 +31,10 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   const id = opts.id ?? (() => `cmd_${randomUUID()}`);
   const ttl = opts.intentTtlMs ?? 120_000;
 
-  function applyQuietly(input: { visitId: string; to: VisitState; actorType: ActorType; actorId: string; reason?: string }) {
+  function applyQuietly(input: { entityType: "visit" | "task"; entityId: string; to: VisitState | TaskState; actorType: ActorType; actorId: string; reason?: string }) {
     try {
       transitions.apply({
-        entityType: "visit", entityId: input.visitId, to: input.to, actorType: input.actorType, actorId: input.actorId,
+        entityType: input.entityType, entityId: input.entityId, to: input.to, actorType: input.actorType, actorId: input.actorId,
         ...(input.reason ? { reason: input.reason } : {}),
       });
     } catch (e) {
@@ -33,8 +42,8 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     }
   }
 
-  function robotApply(robotId: string, visitId: string, to: VisitState, reason?: string) {
-    applyQuietly({ visitId, to, actorType: "robot", actorId: robotId, ...(reason ? { reason } : {}) });
+  function robotApply(robotId: string, entityType: "visit" | "task", entityId: string, to: VisitState | TaskState, reason?: string) {
+    applyQuietly({ entityType, entityId, to, actorType: "robot", actorId: robotId, ...(reason ? { reason } : {}) });
   }
 
   function onVisitAccepted(ev: AuditEvent) {
@@ -53,20 +62,42 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     // expires. No heartbeat at all means "never seen": store and send as usual,
     // the robot itself will reject what it cannot do.
     if (hub.status(visit.robotId).lastHeartbeat?.robotReady === false) {
-      db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: "robot_not_ready" }).run();
-      applyQuietly({ visitId: visit.id, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "robot_not_ready" });
+      db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, correlationId: visit.id, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: "robot_not_ready" }).run();
+      applyQuietly({ entityType: "visit", entityId: visit.id, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "robot_not_ready" });
       return;
     }
-    db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: null }).run();
+    db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, correlationId: visit.id, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: null }).run();
     hub.send(visit.robotId, intent);
   }
 
-  function onVisitCancelled(ev: AuditEvent) {
+  function onTaskQueued(ev: AuditEvent) {
+    const task = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, ev.entityId)).get();
+    const robot = db.select().from(t.robot).get();
+    const resident = task && db.select().from(t.resident).where(eq(t.resident.id, task.residentId)).get();
+    const pickup = db.select().from(t.location).where(and(eq(t.location.kind, "pickup_station"), eq(t.location.approved, true))).get();
+    const standby = db.select().from(t.location).where(and(eq(t.location.kind, "standby"), eq(t.location.approved, true))).get();
+    if (!task || !robot || !resident || !pickup || !standby) return;
+    const issuedAt = now();
+    const intent: Intent = { type: "intent", intent: "deliver_item", correlationId: task.correlationId, expiresAt: new Date(issuedAt.getTime() + ttl).toISOString(), payload: { itemId: task.proposal.item, pickupLocationId: pickup.id, destinationLocationId: resident.roomLocationId, standbyLocationId: standby.id, mode: task.mode } };
+    if (hub.status(robot.id).lastHeartbeat?.robotReady === false) {
+      db.insert(t.robotCommand).values({ id: id(), robotId: robot.id, visitId: null, taskId: task.id, correlationId: task.correlationId, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: "robot_not_ready" }).run();
+      applyQuietly({ entityType: "task", entityId: task.id, to: "operator_required", actorType: "system", actorId: "api", reason: "robot_not_ready" });
+      return;
+    }
+    db.insert(t.robotCommand).values({ id: id(), robotId: robot.id, visitId: null, taskId: task.id, correlationId: task.correlationId, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: null }).run();
+    hub.send(robot.id, intent);
+  }
+
+  function onCancelled(ev: AuditEvent) {
     // The robot told us it cancelled: it does not need to be told back.
     if (ev.actorType === "robot") return;
-    const cmd = db.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, ev.entityId)).get();
-    if (!cmd || cmd.result === "expired" || cmd.result === "rejected" || cmd.result === "busy") return;
-    if (hub.send(cmd.robotId, { type: "cancel", correlationId: ev.entityId })) return;
+    const correlationId = ev.entityType === "task"
+      ? db.select().from(t.taskRequest).where(eq(t.taskRequest.id, ev.entityId)).get()?.correlationId
+      : ev.entityId;
+    if (!correlationId) return;
+    const cmd = db.select().from(t.robotCommand).where(eq(t.robotCommand.correlationId, correlationId)).get();
+    if (!cmd || ["expired", "rejected", "busy", "stale", "cancelled"].includes(cmd.result ?? "")) return;
+    if (hub.send(cmd.robotId, { type: "cancel", correlationId })) return;
     // The robot is offline, so it never learned about this visit or its
     // cancellation. Settle the row here: an unsettled row would be flushed
     // to the robot the moment it reconnects, sending it to a resident whose
@@ -77,9 +108,9 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   }
 
   const unsubTransitions = transitions.subscribe((ev) => {
-    if (ev.entityType !== "visit") return;
-    if (ev.toState === "accepted") onVisitAccepted(ev);
-    if (ev.toState === "cancelled") onVisitCancelled(ev);
+    if (ev.entityType === "visit" && ev.toState === "accepted") onVisitAccepted(ev);
+    if (ev.entityType === "task" && ev.toState === "queued") onTaskQueued(ev);
+    if ((ev.entityType === "visit" || ev.entityType === "task") && ev.toState === "cancelled") onCancelled(ev);
   });
 
   /** The robot's own diagnostic code, kept only when it is a real reason code. */
@@ -121,13 +152,18 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
    * The visit command this robot is actually driving: acked `accepted`, with a
    * visit that has not reached a terminal state. The newest such row wins.
    */
-  function activeVisitCommand(robotId: string): { commandId: string; visitId: string } | undefined {
+  function activeCommand(robotId: string): { entityType: "visit" | "task"; entityId: string; correlationId: string } | undefined {
     const rows = db.select().from(t.robotCommand)
       .where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.result, "accepted"))).all()
-      .filter((c) => c.ackedAt !== null && c.visitId !== null);
+      .filter((c) => c.ackedAt !== null);
     for (const c of [...rows].reverse()) {
-      const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId!)).get();
-      if (visit && !(VISIT_TERMINAL_STATES as readonly string[]).includes(visit.state)) return { commandId: c.id, visitId: visit.id };
+      if (c.taskId) {
+        const task = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, c.taskId)).get();
+        if (task && !(TASK_TERMINAL_STATES as readonly string[]).includes(task.state)) return { entityType: "task", entityId: task.id, correlationId: c.correlationId };
+      } else if (c.visitId) {
+        const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
+        if (visit && !(VISIT_TERMINAL_STATES as readonly string[]).includes(visit.state)) return { entityType: "visit", entityId: visit.id, correlationId: c.correlationId };
+      }
     }
     return undefined;
   }
@@ -140,9 +176,9 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
    */
   function sendStop(robotId: string, actorId: string): boolean {
     const delivered = hub.send(robotId, { type: "stop", reason: "staff_stop" });
-    const active = activeVisitCommand(robotId);
-    if (active) applyQuietly({ visitId: active.visitId, to: "safety_stopped", actorType: "staff", actorId, reason: "staff_stop" });
-    auditRobotEvent({ robotId, actorType: "staff", actorId, reason: "staff_stop", ...(active ? { correlationId: active.visitId } : {}) });
+    const active = activeCommand(robotId);
+    if (active) applyQuietly({ entityType: active.entityType, entityId: active.entityId, to: "safety_stopped", actorType: "staff", actorId, reason: "staff_stop" });
+    auditRobotEvent({ robotId, actorType: "staff", actorId, reason: "staff_stop", ...(active ? { correlationId: active.correlationId } : {}) });
     return delivered;
   }
 
@@ -155,24 +191,40 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
 
   function onUp(robotId: string, msg: GatewayUp) {
     if (msg.type === "heartbeat") return;
-    const cmd = db.select().from(t.robotCommand).where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.visitId, msg.correlationId))).get();
+    const cmd = db.select().from(t.robotCommand).where(and(eq(t.robotCommand.robotId, robotId), eq(t.robotCommand.correlationId, msg.correlationId))).get();
     if (!cmd) { auditUnknownCorrelation(robotId, msg.correlationId); return; }
-    if (!cmd.visitId) return;   // Plan 5 adds the task analogue
     if (msg.type === "ack") {
       // The first ack settles the command. A later one (a duplicate the robot
       // sends after a re-flush, or a stray retry) must never overwrite the
       // recorded outcome, nor drive a second visit transition off it.
       if (cmd.result !== null) return;
       db.update(t.robotCommand).set({ ackedAt: now().toISOString(), result: msg.result }).where(eq(t.robotCommand.id, cmd.id)).run();
-      if (msg.result === "accepted") robotApply(robotId, cmd.visitId, "robot_en_route");
-      else if (msg.result !== "duplicate") robotApply(robotId, cmd.visitId, "robot_unavailable", reasonCode(msg.reason) ?? msg.result);
+      if (cmd.taskId) {
+        if (msg.result === "accepted") robotApply(robotId, "task", cmd.taskId, "navigating_to_pickup");
+        else if (msg.result !== "duplicate") robotApply(robotId, "task", cmd.taskId, "operator_required", reasonCode(msg.reason) ?? msg.result);
+      } else if (cmd.visitId) {
+        if (msg.result === "accepted") robotApply(robotId, "visit", cmd.visitId, "robot_en_route");
+        else if (msg.result !== "duplicate") robotApply(robotId, "visit", cmd.visitId, "robot_unavailable", reasonCode(msg.reason) ?? msg.result);
+      }
       return;
     }
+    if (cmd.taskId) {
+      const to = STATE_EVENT_TO_TASK[msg.event];
+      if (!to) return;
+      const task = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, cmd.taskId)).get();
+      if (to === "cancelled" && task?.state === "cancelled") return;
+      robotApply(robotId, "task", cmd.taskId, to, reasonCode(msg.detail?.["reason"]) ?? msg.event);
+      if (msg.event === "completed_leg" && task?.state === "verifying_delivery") {
+        db.update(t.robotCommand).set({ result: "completed" }).where(eq(t.robotCommand.id, cmd.id)).run();
+      }
+      return;
+    }
+    if (!cmd.visitId) return;
     const to = STATE_EVENT_TO_VISIT[msg.event];
     if (!to) return;
     const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, cmd.visitId)).get();
     if (to === "cancelled" && visit?.state === "cancelled") return;
-    robotApply(robotId, cmd.visitId, to, reasonCode(msg.detail?.["reason"]) ?? msg.event);
+    robotApply(robotId, "visit", cmd.visitId, to, reasonCode(msg.detail?.["reason"]) ?? msg.event);
   }
   const unsubHub = hub.onUp(onUp);
 
@@ -192,9 +244,10 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       .filter((c) => c.expiresAt > nowIso);
     let n = 0;
     for (const c of pending) {
-      if (!c.visitId) continue;   // Plan 5 adds the task analogue
-      const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
-      if (visit?.state !== "accepted") {
+      const dispatchable = c.taskId
+        ? db.select().from(t.taskRequest).where(eq(t.taskRequest.id, c.taskId)).get()?.state === "queued"
+        : c.visitId ? db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get()?.state === "accepted" : false;
+      if (!dispatchable) {
         db.update(t.robotCommand).set({ result: "stale" }).where(eq(t.robotCommand.id, c.id)).run();
         continue;
       }
@@ -217,11 +270,13 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       .filter((c) => c.expiresAt <= nowIso);
     let n = 0;
     for (const c of due) {
-      if (!c.visitId) continue;   // Plan 5 adds the task analogue
-      const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get();
-      if (visit?.state !== "accepted") continue;
+      const dispatchable = c.taskId
+        ? db.select().from(t.taskRequest).where(eq(t.taskRequest.id, c.taskId)).get()?.state === "queued"
+        : c.visitId ? db.select().from(t.visitSession).where(eq(t.visitSession.id, c.visitId)).get()?.state === "accepted" : false;
+      if (!dispatchable) continue;
       db.update(t.robotCommand).set({ result: "expired" }).where(eq(t.robotCommand.id, c.id)).run();
-      applyQuietly({ visitId: c.visitId, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "expired" });
+      if (c.taskId) applyQuietly({ entityType: "task", entityId: c.taskId, to: "operator_required", actorType: "system", actorId: "api", reason: "expired" });
+      else if (c.visitId) applyQuietly({ entityType: "visit", entityId: c.visitId, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "expired" });
       n++;
     }
     return n;

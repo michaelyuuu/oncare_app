@@ -35,9 +35,9 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
-  app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
   const hub = new GatewayHub();
   app.decorate("hub", hub);
+  app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}, hub));
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
   app.decorate("visits", createVisitService(opts.db, transitions, video, {
     ...(opts.now ? { now: opts.now } : {}),
