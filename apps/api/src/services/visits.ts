@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import type { ActorType, VisitState } from "@oncare/core";
+import { VISIT_TERMINAL_STATES, type ActorType, type VisitState } from "@oncare/core";
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import { TransitionError, type createTransitionService } from "./transitions";
+import type { VideoProvider } from "./video";
 
 export type TransitionService = ReturnType<typeof createTransitionService>;
 export type VisitRow = typeof t.visitSession.$inferSelect;
 export type CreateVisitError = "no_relationship" | "consent_missing" | "resident_unavailable";
-export type VisitAction = "approve" | "deny" | "answer" | "decline" | "connected" | "end" | "cancel";
+export type VisitAction = "approve" | "deny" | "answer" | "decline" | "connected" | "connection_lost" | "end" | "cancel";
 export type ActError = "not_found" | "forbidden" | "illegal_transition";
 
 const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">; to: VisitState[] }> = {
@@ -18,6 +19,7 @@ const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">
   answer:    { roles: ["device"],                    to: ["connecting"] },
   decline:   { roles: ["device"],                    to: ["resident_unavailable"] },
   connected: { roles: ["family", "device"],          to: ["active"] },
+  connection_lost: { roles: ["family", "device"],   to: ["connection_failed"] },
   end:       { roles: ["family", "device", "staff"], to: ["ending", "completed"] },
   cancel:    { roles: ["family", "staff"],           to: ["cancelled"] },
 };
@@ -34,7 +36,12 @@ export interface VisitService {
   act(input: { visitId: string; action: VisitAction; principal: Principal }): { ok: true; visit: VisitRow } | { ok: false; error: ActError; detail?: string };
 }
 
-export function createVisitService(db: Db, transitions: TransitionService, opts: { now?: () => Date; id?: () => string } = {}): VisitService {
+export function createVisitService(
+  db: Db,
+  transitions: TransitionService,
+  video: VideoProvider,
+  opts: { now?: () => Date; id?: () => string; onVideoCloseError?: (visitId: string) => void } = {},
+): VisitService {
   const now = opts.now ?? (() => new Date());
   const id = opts.id ?? (() => `visit_${randomUUID()}`);
 
@@ -98,7 +105,15 @@ export function createVisitService(db: Db, transitions: TransitionService, opts:
       if (e instanceof TransitionError) return { ok: false as const, error: "illegal_transition" as const, detail: e.reason };
       throw e;
     }
-    return { ok: true as const, visit: get(visit.id)! };
+    const updated = get(visit.id)!;
+    const tokenEligibleBefore = ["awaiting_resident_consent", "connecting", "active", "ending"].includes(visit.state)
+      || visit.connectedAt !== null;
+    const newlyEndingOrTerminal = updated.state !== visit.state
+      && (updated.state === "ending" || (VISIT_TERMINAL_STATES as readonly string[]).includes(updated.state));
+    if (tokenEligibleBefore && newlyEndingOrTerminal) {
+      void video.closeRoom(visit.id).catch(() => opts.onVideoCloseError?.(visit.id));
+    }
+    return { ok: true as const, visit: updated };
   }
 
   return { create, get, canView, act };

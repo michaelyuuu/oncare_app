@@ -9,34 +9,43 @@ import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
 import { robotRoutes } from "./routes/robots";
 import { visitRoutes } from "./routes/visits";
+import { videoRoutes } from "./routes/video";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createTransitionService } from "./services/transitions";
 import { createVisitService, type TransitionService, type VisitService } from "./services/visits";
+import { videoProviderFromEnv, type VideoProvider } from "./services/video";
 
-export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date }
+export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider }
 
 declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
+    video: VideoProvider;
   }
 }
 
 export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
   const transitions = createTransitionService(opts.db, opts.now ? { now: opts.now } : {});
+  const video = opts.video ?? videoProviderFromEnv(process.env);
+  app.decorate("video", video);
   app.decorate("transitions", transitions);
   const hub = new GatewayHub();
   app.decorate("hub", hub);
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
-  app.decorate("visits", createVisitService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
+  app.decorate("visits", createVisitService(opts.db, transitions, video, {
+    ...(opts.now ? { now: opts.now } : {}),
+    onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
+  }));
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
   app.register(deviceRoutes, { db: opts.db });
   app.register(meRoutes, { db: opts.db });
   app.register(visitRoutes);
+  app.register(videoRoutes, { db: opts.db });
   app.register(gatewayRoutes, { db: opts.db });
   app.register(robotRoutes, { db: opts.db });
   app.register(eventsRoutes, { db: opts.db });
