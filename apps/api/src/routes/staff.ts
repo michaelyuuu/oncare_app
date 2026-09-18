@@ -32,7 +32,10 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       tasksAwaitingLoad: tasks.filter(k => k.state === "locating_item"),
       tasksAwaitingHandoff: tasks.filter(k => k.state === "placing"),
       activeVisits,
-      caregiverCalls: db.select().from(t.auditEvent).where(and(eq(t.auditEvent.reason, "call_caregiver"), gte(t.auditEvent.at, new Date(now().getTime() - 30 * 60_000).toISOString()))).orderBy(desc(t.auditEvent.at)).all(),
+      caregiverCalls: db.select().from(t.auditEvent).where(and(eq(t.auditEvent.reason, "call_caregiver"), gte(t.auditEvent.at, new Date(now().getTime() - 30 * 60_000).toISOString()))).orderBy(desc(t.auditEvent.at)).all().map(event => ({
+        ...event,
+        residentId: event.actorType === "device" ? db.select().from(t.robotDevice).where(eq(t.robotDevice.id, event.actorId)).get()?.residentId ?? null : null,
+      })),
       robot: robot ? { robotId: robot.id, ...app.hub.status(robot.id) } : null,
     };
   });

@@ -1,0 +1,5 @@
+{
+  "name": "@oncare/staff", "version": "0.0.1", "private": true, "type": "module",
+  "scripts": { "dev": "vite --host --port 5175", "build": "vite build", "preview": "vite preview --host" },
+  "dependencies": { "@oncare/core": "*", "@oncare/web-common": "*", "react": "^19.0.0", "react-dom": "^19.0.0" }
+}

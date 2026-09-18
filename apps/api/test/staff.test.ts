@@ -7,6 +7,18 @@ import { AuditEventSchema } from "@oncare/core";
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 describe("staff operations", () => {
+  test("caregiver queue resolves resident from device actor and preserves historical audit IDs", async () => {
+    const { app, db, tokens } = await makeTestApp();
+    await app.inject({ method: "POST", url: "/device/call-caregiver", headers: auth(tokens.device) });
+    const original = db.select().from(t.auditEvent).get()!;
+    db.insert(t.auditEvent).values({ ...original, id: "historical", actorId: "deleted_device", correlationId: "deleted_device" }).run();
+    const result = (await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) })).json();
+    expect(result.caregiverCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: original.id, residentId: SEED_IDS.resident, correlationId: SEED_IDS.device }),
+      expect.objectContaining({ id: "historical", residentId: null, correlationId: "deleted_device" }),
+    ]));
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.id, original.id)).get()).toEqual(original);
+  });
   test("queue groups work, includes only recent caregiver calls using the injected clock", async () => {
     const { app, db, tokens } = await makeTestApp({ now: () => new Date("2030-01-01T12:00:00Z") });
     db.update(t.resident).set({ availability: "in_activity" }).run();
