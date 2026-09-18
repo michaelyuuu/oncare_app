@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@oncare/core": "*"
+    "@oncare/core": "*",
+    "livekit-client": "^2.5.0"
   }
 }
