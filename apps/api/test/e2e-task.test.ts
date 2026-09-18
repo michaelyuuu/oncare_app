@@ -22,6 +22,11 @@ async function waitFor<T>(condition: () => T | false | null | undefined, descrip
   throw new Error(`Timed out waiting for ${description}`);
 }
 
+async function expectNoIntentFor(messages: any[], observationMs = 100): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, observationMs));
+  expect(messages.filter((message) => message.type === "intent")).toEqual([]);
+}
+
 function closeSocket(ws: WebSocket): Promise<void> {
   return new Promise((resolve) => {
     if (ws.readyState === WebSocket.CLOSED) return resolve();
@@ -74,11 +79,11 @@ describe("end-to-end item delivery (handover section 8, steps 6-11, tray mode)",
     expect(created.json().kind).toBe("proposal");
     const id = created.json().task.id as string;
     const state = () => db.select().from(t.taskRequest).where(eq(t.taskRequest.id, id)).get()!.state;
-    expect(gatewayMessages.filter((message) => message.type === "intent")).toEqual([]);
+    await expectNoIntentFor(gatewayMessages);
 
     expect((await app.inject({ method: "POST", url: `/tasks/${id}/confirm`, headers: auth(tokens.family) })).json().task.state)
       .toBe("awaiting_policy_or_staff");
-    expect(gatewayMessages.filter((message) => message.type === "intent")).toEqual([]);
+    await expectNoIntentFor(gatewayMessages);
 
     expect((await app.inject({ method: "POST", url: `/tasks/${id}/approve`, headers: auth(tokens.staff) })).json().task.state)
       .toBe("queued");
@@ -133,7 +138,7 @@ describe("end-to-end item delivery (handover section 8, steps 6-11, tray mode)",
     })).json().task.id as string;
 
     expect((await app.inject({ method: "POST", url: `/tasks/${id}/approve`, headers: auth(tokens.staff) })).statusCode).toBe(409);
-    expect(gatewayMessages.filter((message) => message.type === "intent")).toEqual([]);
+    await expectNoIntentFor(gatewayMessages);
     expect(db.select().from(t.robotCommand).where(eq(t.robotCommand.taskId, id)).all()).toEqual([]);
   });
 });
