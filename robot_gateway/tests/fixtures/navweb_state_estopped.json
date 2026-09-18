@@ -1,0 +1,72 @@
+{
+  "_synthetic": true,
+  "_source": "nav_web.py:1492-1521 state_json; values hand-authored, no robot capture",
+  "pose": [
+    -0.5,
+    -0.5,
+    0
+  ],
+  "scan": [],
+  "path": [
+    [
+      -0.5,
+      -0.5
+    ],
+    [
+      -0.5,
+      0.5
+    ]
+  ],
+  "rates": {
+    "wheel": 20
+  },
+  "wheel_ok": true,
+  "map": {
+    "version": 7,
+    "w": 20,
+    "h": 20,
+    "res": 0.1
+  },
+  "nav": {
+    "state": "canceled",
+    "dist": null,
+    "goal": [
+      -0.5,
+      0.5,
+      0
+    ],
+    "auto": "",
+    "queue": []
+  },
+  "estop": true,
+  "joy_active": false,
+  "joy_block": "",
+  "base_server": true,
+  "nvblox": {
+    "running": false,
+    "ours": false
+  },
+  "can_save": false,
+  "lift": {
+    "available": false,
+    "height_cm": null,
+    "confidence": "unknown",
+    "moving": false,
+    "busy": "",
+    "last": "",
+    "min_cm": null,
+    "max_cm": null,
+    "presets": {}
+  },
+  "stack": {
+    "console": true,
+    "running": true,
+    "mode": "nav",
+    "owner": "console",
+    "elapsed": 30,
+    "exit_code": null,
+    "tail": [],
+    "error": "",
+    "modes": []
+  }
+}

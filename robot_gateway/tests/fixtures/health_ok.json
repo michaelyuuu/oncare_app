@@ -1,0 +1,28 @@
+{
+  "_synthetic": true,
+  "_source": "health_web.py:1199-1201 tile, 1569-1587 base_rpc, 2196-2237 build; readiness-focused subset, no robot capture",
+  "clock": "12:00:00",
+  "profile": "nav",
+  "ros": true,
+  "nodes": [
+    "nav_web",
+    "bt_navigator",
+    "cmd_vel_bridge"
+  ],
+  "verdict": "ALL GOOD",
+  "verdict_state": "ok",
+  "conflicts": [],
+  "problems": [],
+  "warnings": [],
+  "tiles": [
+    {
+      "key": "base_rpc",
+      "group": "Base & drive",
+      "label": "base RPC :50000",
+      "value": "up",
+      "state": "ok",
+      "detail": "base_server.py (tidybot2 env)",
+      "hint": ""
+    }
+  ]
+}
