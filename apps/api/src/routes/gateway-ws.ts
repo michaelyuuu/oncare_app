@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
 import { GatewayUpSchema, type GatewayDown } from "@oncare/contracts";
 import { verifySecret } from "../auth/password";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
+import { approvedLocations } from "./locations";
 
 export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
   const { db } = opts;
@@ -66,8 +66,7 @@ export async function gatewayRoutes(app: FastifyInstance, opts: { db: Db }) {
     attachedLink = link;
     app.hub.attach(robotId, link);
     // The gateway only accepts location IDs it has been told about: send the approved table first, then any pending intents.
-    const locations = db.select().from(t.location).where(eq(t.location.approved, true)).all()
-      .map((l) => ({ id: l.id, name: l.name, kind: l.kind, x: l.x, y: l.y, yaw: l.yaw, approved: l.approved }));
+    const locations = approvedLocations(db);
     link.send({ type: "locations", locations });
     app.dispatch.flushPending(robotId);
 

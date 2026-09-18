@@ -3,6 +3,7 @@ this module feeds it inbound messages, ticks it on a timer, sends whatever it
 produces, and manages the WebSocket connection lifecycle (heartbeat, offline
 safe-stop ticking, reconnect with backoff, queuing while disconnected)."""
 import asyncio, json, logging, random
+from typing import Callable
 import websockets
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, WebSocketException
 from .core import GatewayCore
@@ -12,7 +13,8 @@ log = logging.getLogger("gateway")
 
 class GatewayRunner:
     def __init__(self, core: GatewayCore, api_url: str, robot_token: str, heartbeat_ms: int = 1000, tick_ms: int = 250,
-                 reconnect_min_s: float = 1.0, reconnect_max_s: float = 10.0):
+                 reconnect_min_s: float = 1.0, reconnect_max_s: float = 10.0,
+                 health_emit: Callable[[dict], None] | None = None):
         self.core = core
         self.url = f"{api_url.rstrip('/')}/gateway?token={robot_token}"
         self.heartbeat_s = heartbeat_ms / 1000
@@ -21,6 +23,13 @@ class GatewayRunner:
         self.reconnect_max_s = reconnect_max_s
         self.current_backoff = reconnect_min_s
         self._queue: list[dict] = []
+        self.health_emit = health_emit
+
+    async def _heartbeat(self, ws):
+        hb = self.core.heartbeat()
+        if self.health_emit is not None:
+            self.health_emit(hb)
+        await ws.send(json.dumps(hb))
 
     @property
     def _scrubbed_url(self) -> str:
@@ -39,7 +48,7 @@ class GatewayRunner:
                     # the first inbound message (the API sends locations first).
                     log.info("transport connected to %s", self._scrubbed_url)
                     await self._flush(ws)
-                    await ws.send(json.dumps(self.core.heartbeat()))
+                    await self._heartbeat(ws)
                     await self._session(ws, stop)
             except ConnectionClosedOK:
                 log.info("connection closed: %s", self._scrubbed_url)
@@ -78,7 +87,7 @@ class GatewayRunner:
         async def heartbeat():
             while True:
                 await asyncio.sleep(self.heartbeat_s)
-                await ws.send(json.dumps(self.core.heartbeat()))
+                await self._heartbeat(ws)
         async def stopper():
             await stop.wait()
             await ws.close()

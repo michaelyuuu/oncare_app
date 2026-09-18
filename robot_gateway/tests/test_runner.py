@@ -71,6 +71,20 @@ async def test_connects_heartbeats_and_executes_an_intent(api):
     assert kinds == [("ack", "accepted"), ("state_event", "robot_en_route"), ("state_event", "arrived")]
     stop.set(); await task
 
+
+async def test_local_emitter_receives_same_initial_and_periodic_cloud_heartbeat(api):
+    core, runner = make_runner(api)
+    seen = []
+    runner = GatewayRunner(core, f"ws://127.0.0.1:{api.port}", "test", heartbeat_ms=30, health_emit=seen.append)
+    stop = asyncio.Event()
+    task = asyncio.create_task(runner.run(stop))
+    try:
+        assert await wait_for(lambda: len(api.received) >= 3)
+        assert seen[:3] == api.received[:3]
+    finally:
+        stop.set()
+        await task
+
 async def test_reconnects_after_drop_and_flushes_queued_messages(api):
     # reconnect slower than the 300 ms grace so the offline tick fires the safety stop before the link comes back
     core, runner = make_runner(api, travel_ms=5000, reconnect_min_s=0.5, reconnect_max_s=0.6)

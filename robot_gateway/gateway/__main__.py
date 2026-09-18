@@ -5,6 +5,7 @@ from .robot.mock import MockRobotAdapter
 from .robot.navweb import NavWebAdapter
 from .runner import GatewayRunner
 from . import __version__
+from .health_emit import emit
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -16,7 +17,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         adapter = NavWebAdapter(cfg.navweb_base_url, cfg.health_base_url, goal_timeout_s=cfg.goal_timeout_s)
     core = GatewayCore(adapter, now_ms=lambda: int(time.monotonic() * 1000), version=__version__)
-    runner = GatewayRunner(core, cfg.api_url, cfg.robot_token, cfg.heartbeat_ms, cfg.tick_ms)
+    runner = GatewayRunner(core, cfg.api_url, cfg.robot_token, cfg.heartbeat_ms, cfg.tick_ms,
+                           health_emit=emit if cfg.adapter == "navweb" else None)
     stop = asyncio.Event()
     async def _run():
         loop = asyncio.get_running_loop()

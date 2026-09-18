@@ -5,6 +5,7 @@ import { Queue } from "../components/Queue";
 import { RobotPanel } from "../components/RobotPanel";
 import { Streaming } from "../components/Streaming";
 import { AuditTable } from "../components/AuditTable";
+import { Locations } from "../components/Locations";
 export function Console({ api, apiBase, token }: {
     api: Api;
     apiBase: string;
@@ -108,7 +109,9 @@ export function Console({ api, apiBase, token }: {
     <div className="notices">{refreshError && <p role="alert">{t("staff.error.refresh")}</p>}{Object.entries(errors).map(([key, error]) => <p role="alert" key={key}>{error}</p>)}</div>
     {!queue ? <p role="status">{t("staff.loading")}</p> : <>
       <section className="column queue-column"><h2>{t("staff.queue.title")}</h2><Queue queue={queue} onAction={action} pending={pending}/></section>
-      <section className="column robot-column"><h2>{t("staff.robot.title")}</h2><RobotPanel robot={queue.robot} stale={refreshError} knownBusy={queue.activeVisits.length > 0 || queue.tasksAwaitingLoad.length > 0 || queue.tasksAwaitingHandoff.length > 0} onAction={action} pending={pending}/></section>
+      <section className="column robot-column"><h2>{t("staff.robot.title")}</h2><RobotPanel robot={queue.robot} stale={refreshError} knownBusy={queue.activeVisits.length > 0 || queue.tasksAwaitingLoad.length > 0 || queue.tasksAwaitingHandoff.length > 0} onAction={action} pending={pending}/>
+        <Locations api={api} pose={!refreshError && queue.robot?.connected ? queue.robot.lastHeartbeat?.pose ?? null : null}/>
+      </section>
       <section className="column"><h2>{t("staff.streaming.title")}</h2><Streaming visits={queue.activeVisits} onAction={action} pending={pending}/></section>
     </>}
     <footer className="audit"><h2>{t("staff.audit.title")}</h2><AuditTable api={api} revision={revision}/></footer>

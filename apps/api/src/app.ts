@@ -7,6 +7,7 @@ import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
 import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
+import { locationRoutes } from "./routes/locations";
 import { robotRoutes } from "./routes/robots";
 import { staffRoutes } from "./routes/staff";
 import { taskRoutes } from "./routes/tasks";
@@ -50,6 +51,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(authRoutes, { db: opts.db });
   app.register(deviceRoutes, { db: opts.db });
   app.register(meRoutes, { db: opts.db });
+  app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);
   app.register(videoRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(gatewayRoutes, { db: opts.db });

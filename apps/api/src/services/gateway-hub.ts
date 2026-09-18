@@ -44,6 +44,18 @@ export class GatewayHub {
     return true;
   }
 
+  broadcast(msg: GatewayDown): void {
+    for (const [robotId, link] of this.links) {
+      try { link.send(msg); }
+      catch {
+        // A failed link must neither hide a committed edit nor block peers.
+        // Its next connection receives the complete current approved table.
+        this.detach(robotId, link);
+        try { link.close?.(1011, "send_failed"); } catch { /* already broken */ }
+      }
+    }
+  }
+
   recordHeartbeat(robotId: string, hb: Heartbeat, at: string): void { this.heartbeats.set(robotId, { hb, at }); }
 
   status(robotId: string): RobotStatus {

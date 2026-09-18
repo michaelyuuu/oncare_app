@@ -125,7 +125,7 @@ class GatewayCore:
             return [ack("rejected", "robot_not_ready")]
         self._remember(corr)
         self.adapter.start_goto(loc, self.now_ms())
-        self._active = {"correlationId": corr, "kind": "visit", "leg": "goto", "payload": payload}
+        self._active = {"correlationId": corr, "kind": "visit", "leg": "goto", "payload": payload, "location": dict(loc)}
         return [ack("accepted"), self._state_event(corr, "robot_en_route")]
 
     def _remember(self, corr: str) -> None:
@@ -157,6 +157,8 @@ class GatewayCore:
         active = self._active
         if active["kind"] == "visit":
             self._active = None
+            if result.outcome == "arrived":
+                self._rest_at_standby(active["location"])
             detail = {"reason": result.reason} if result.reason else None
             return [self._state_event(active["correlationId"], result.outcome, detail)]
         if result.outcome != "arrived":
@@ -169,7 +171,22 @@ class GatewayCore:
             active["leg"] = "await_received"
             return [self._delivery_event(active, "arrived_delivery")]
         self._active = None
+        self._rest_at_standby(active["payload"]["standby"])
         return [self._delivery_event(active, "completed_leg")]
+
+    def _rest_at_standby(self, target: dict) -> None:
+        current = self.locations.get(target["id"])
+        if (self._active is not None or self._stopped or not current
+                or current != target or current.get("kind") != "standby"
+                or current.get("approved") is not True):
+            return
+        state = self.adapter.state()
+        if (state["ready"] and not state["estop"]
+                and state["navState"] in ("idle", "succeeded", "arrived")):
+            # Optional backend capability; True acknowledges queuing only.
+            rest = getattr(self.adapter, "lift_rest", None)
+            if rest is not None:
+                rest()
 
     def heartbeat(self) -> dict:
         s = self.adapter.state()

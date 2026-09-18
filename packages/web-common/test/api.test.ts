@@ -9,6 +9,12 @@ function fakeFetch(status: number, body: unknown) {
 }
 
 describe("createApi", () => {
+  test("PATCH uses authenticated JSON and preserves errors", async () => {
+    const f = fakeFetch(400, { error: "bad_request" });
+    const api = createApi("http://api", () => "staff-token", f);
+    await expect(api.patch("/locations/standby", { x: 2 })).rejects.toMatchObject({ code: "bad_request" });
+    expect(f).toHaveBeenCalledWith("http://api/locations/standby", expect.objectContaining({ method: "PATCH", body: '{"x":2}', headers: expect.objectContaining({ authorization: "Bearer staff-token" }) }));
+  });
   test("adds the bearer token and parses JSON", async () => {
     const f = fakeFetch(200, { visit: { id: "v1" } });
     const api = createApi("http://api", () => "tok", f);

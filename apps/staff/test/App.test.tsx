@@ -41,6 +41,7 @@ beforeEach(() => {
             return new Response(JSON.stringify(response.body), { status: response.status });
         }
         gets.push(path);
+        if (path === "/locations") return new Response('{"locations":[]}');
         return new Response(JSON.stringify(path === "/queue" ? queue : { events: [{ id: "a1", at: "2026-09-17T00:00:00Z", actorType: "staff", actorId: "s1", entityType: "visit", entityId: "v2", fromState: null, toState: null, reason: 'a,"b"\nnext', correlationId: "v2" }] }));
     }));
 });

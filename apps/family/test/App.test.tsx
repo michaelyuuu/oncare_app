@@ -137,6 +137,7 @@ test("shows connection feedback when the real-presence acknowledgement fails wit
     : Promise.reject(new ApiError(503, "unavailable")));
   const api: Api = {
     get,
+    patch: vi.fn(),
     post: async <T,>(path: string, body?: unknown): Promise<T> => post(path, body) as Promise<T>,
   };
   const view = render(<Visit api={api} apiBase="http://api" token="jwt" visitId="v1" onBack={vi.fn()} />);
@@ -161,7 +162,7 @@ test("early loss leaves the late call handle even when reporting loss fails and 
   const post = vi.fn((path: string, _body?: unknown) => path.endsWith("/token")
     ? Promise.resolve({ url: "wss://video.example", token: "token", room: "v1" })
     : Promise.reject(new ApiError(503, "unavailable")));
-  const api: Api = { get, post: (path, body) => post(path, body) as any };
+  const api: Api = { get, post: (path, body) => post(path, body) as any, patch: vi.fn() };
   render(<Visit api={api} apiBase="http://api" token="jwt" visitId="v1" onBack={vi.fn()} />);
   await waitFor(() => expect(callMock.callbacks).toBeDefined());
 
