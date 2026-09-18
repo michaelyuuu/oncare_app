@@ -29,6 +29,7 @@ export interface AuditRow {
 export interface Robot {
     robotId: string;
     connected: boolean;
+    lastSeenAt?: string | null;
     lastHeartbeat?: {
         robotReady?: boolean;
         adapter?: string;

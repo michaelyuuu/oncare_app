@@ -305,3 +305,39 @@ test("an old queue response cannot replace the new API session's robot state", a
     expect(screen.getByText("No robot configured")).toBeInTheDocument();
     expect(screen.queryByText("SIMULATED ROBOT")).toBeNull();
 });
+
+test("pose capture expires independently of pending queue refresh and rejects stale or invalid heartbeat times", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-09-18T00:00:00Z");
+    vi.setSystemTime(now);
+    let seen: string | null = new Date(now.getTime() - 7000).toISOString();
+    let hold = false;
+    let finish!: (response: Response) => void;
+    const snapshot = () => ({ ...queue, robot: { ...queue.robot, lastSeenAt: seen } });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+        if (url.endsWith("/queue")) return hold ? new Promise<Response>(resolve => { finish = resolve; }) : new Response(JSON.stringify(snapshot()));
+        if (url.endsWith("/locations")) return new Response(JSON.stringify({ locations: [{ id: "standby", name: "Standby", x: 0, y: 0, yaw: 0, approved: true }] }));
+        return new Response('{"events":[]}');
+    }));
+    render(<App apiBase="http://api"/>);
+    await act(async () => {});
+    const capture = () => screen.getByRole("button", { name: "Use robot's position here" });
+    expect(capture()).toBeDisabled();
+    for (const timestamp of [null, "invalid", new Date(now.getTime() + 10000).toISOString()]) {
+        seen = timestamp;
+        await act(async () => Socket.current.onmessage?.({ data: '{"id":"fresh-queue"}' }));
+        expect(capture()).toBeDisabled();
+    }
+    seen = now.toISOString();
+    await act(async () => Socket.current.onmessage?.({ data: '{"id":"fresh-heartbeat"}' }));
+    expect(capture()).toBeEnabled();
+    hold = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5999); });
+    expect(capture()).toBeEnabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(capture()).toBeDisabled();
+    hold = false;
+    seen = new Date(Date.now()).toISOString();
+    await act(async () => finish(new Response(JSON.stringify(snapshot()))));
+    expect(capture()).toBeEnabled();
+});

@@ -172,3 +172,30 @@ def test_visit_intent_still_works_and_is_busy_during_delivery(core):
     visit = {"type": "intent", "intent": "request_visit", "correlationId": "visit_9",
              "expiresAt": "2099-01-01T00:00:00.000Z", "payload": {"locationId": "room_demo_01"}}
     assert core.handle(visit)[0]["result"] == "busy"
+
+
+@pytest.mark.parametrize("leg,event", [("delivery", "staff_loaded"), ("standby", "received")])
+@pytest.mark.parametrize("change", ["removed", "unapproved", "moved", "rotated"])
+def test_waiting_leg_never_uses_revoked_or_edited_location(core, clock, leg, event, change):
+    core.handle(deliver())
+    clock.advance(1000)
+    core.tick()
+    if leg == "standby":
+        core.handle(staff("task_1", "staff_loaded"))
+        clock.advance(1000)
+        core.tick()
+    target = "room_demo_01" if leg == "delivery" else "standby_demo"
+    rows = [dict(row) for row in LOCS["locations"]]
+    if change == "removed":
+        rows = [row for row in rows if row["id"] != target]
+    else:
+        row = next(row for row in rows if row["id"] == target)
+        row.update({"approved": False} if change == "unapproved" else {"x": 50} if change == "moved" else {"yaw": 1.5})
+    core.handle({"type": "locations", "locations": rows})
+    out = core.handle(staff("task_1", event))
+    assert len(out) == 1
+    assert_delivery_event(out[0], "navigation_failed", leg, "location_changed")
+    assert core.active_correlation_id is None
+    assert core.adapter.state()["navState"] == "idle"
+    clock.advance(1000)
+    assert core.tick() == []

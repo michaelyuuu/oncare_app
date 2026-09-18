@@ -6,12 +6,26 @@ import { RobotPanel } from "../components/RobotPanel";
 import { Streaming } from "../components/Streaming";
 import { AuditTable } from "../components/AuditTable";
 import { Locations } from "../components/Locations";
+// Matches the source heartbeat bus STALE_SEC; scoped to pose capture only.
+const POSE_CAPTURE_MAX_AGE_MS = 6000;
 export function Console({ api, apiBase, token }: {
     api: Api;
     apiBase: string;
     token: string;
 }) {
     const [queue, setQueue] = useState<QueueData | null>(null);
+    const [freshPoseAt, setFreshPoseAt] = useState<string | null>(null);
+    const lastSeenAt = queue?.robot?.lastSeenAt;
+    useEffect(() => {
+        setFreshPoseAt(null);
+        if (!lastSeenAt) return;
+        const observed = Date.parse(lastSeenAt);
+        const age = Date.now() - observed;
+        if (!Number.isFinite(observed) || age < 0 || age >= POSE_CAPTURE_MAX_AGE_MS) return;
+        setFreshPoseAt(lastSeenAt);
+        const timer = setTimeout(() => setFreshPoseAt(null), POSE_CAPTURE_MAX_AGE_MS - age);
+        return () => clearTimeout(timer);
+    }, [lastSeenAt, api, token]);
     const [refreshError, setRefreshError] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [pending, setPending] = useState<string[]>([]);
@@ -110,7 +124,10 @@ export function Console({ api, apiBase, token }: {
     {!queue ? <p role="status">{t("staff.loading")}</p> : <>
       <section className="column queue-column"><h2>{t("staff.queue.title")}</h2><Queue queue={queue} onAction={action} pending={pending}/></section>
       <section className="column robot-column"><h2>{t("staff.robot.title")}</h2><RobotPanel robot={queue.robot} stale={refreshError} knownBusy={queue.activeVisits.length > 0 || queue.tasksAwaitingLoad.length > 0 || queue.tasksAwaitingHandoff.length > 0} onAction={action} pending={pending}/>
-        <Locations api={api} pose={!refreshError && queue.robot?.connected ? queue.robot.lastHeartbeat?.pose ?? null : null}/>
+        <Locations api={api} pose={!refreshError && queue.robot?.connected && freshPoseAt !== null
+            && freshPoseAt === lastSeenAt && Date.now() >= Date.parse(freshPoseAt)
+            && Date.now() - Date.parse(freshPoseAt) < POSE_CAPTURE_MAX_AGE_MS
+            ? queue.robot.lastHeartbeat?.pose ?? null : null}/>
       </section>
       <section className="column"><h2>{t("staff.streaming.title")}</h2><Streaming visits={queue.activeVisits} onAction={action} pending={pending}/></section>
     </>}

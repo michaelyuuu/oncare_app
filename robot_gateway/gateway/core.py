@@ -79,14 +79,22 @@ class GatewayCore:
             active = self._active
             if active is None or active["kind"] != "deliver" or active["correlationId"] != msg["correlationId"]:
                 return []
-            payload = active["payload"]
             if msg["event"] == "staff_loaded" and active["leg"] == "await_loaded":
-                self.adapter.start_goto(payload["delivery"], self.now_ms())
-                active["leg"] = "delivery"
+                return self._start_delivery_leg(active, "delivery")
             elif msg["event"] == "received" and active["leg"] == "await_received":
-                self.adapter.start_goto(payload["standby"], self.now_ms())
-                active["leg"] = "standby"
+                return self._start_delivery_leg(active, "standby")
             return []
+        return []
+
+    def _start_delivery_leg(self, active: dict, leg: str) -> list[dict]:
+        target = active["payload"][leg]
+        current = self.locations.get(target["id"])
+        active["leg"] = leg
+        if (not current or current.get("approved") is not True
+                or any(current.get(key) != target.get(key) for key in ("id", "kind", "x", "y", "yaw"))):
+            self._active = None
+            return [self._delivery_event(active, "navigation_failed", "location_changed")]
+        self.adapter.start_goto(current, self.now_ms())
         return []
 
     def _handle_intent(self, msg: dict) -> list[dict]:
