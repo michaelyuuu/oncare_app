@@ -8,7 +8,7 @@ if (!Number.isInteger(N) || N < 1) throw new Error("N must be a positive integer
 const j = async (path, opts = {}, token) => {
   const response = await fetch(`${API}${path}`, {
     ...opts,
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: { ...(opts.body !== undefined ? { "content-type": "application/json" } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
   });
   if (!response.ok) throw new Error(`${path} ${response.status} ${await response.text()}`);
   return response.headers.get("content-type")?.includes("json") ? response.json() : response.text();
