@@ -33,7 +33,10 @@ p { margin: 0; line-height: 1.35; }
 .big-button--secondary { color: var(--green); background: var(--quiet); border-color: var(--green); }
 .big-button--danger { color: #4e251d; background: var(--coral); }
 .quiet-button { min-height: 68px; padding: 12px 24px; border: 2px solid #728879; border-radius: 14px; background: transparent; }
-.video-stage { width: 100%; min-height: 240px; flex: 1; display: grid; place-items: center; padding: 24px; background: #dce7dd; border-radius: 24px; }
+.video-stage { position: relative; width: 100%; min-height: 320px; aspect-ratio: 16 / 9; flex: 1; display: grid; place-items: center; overflow: hidden; background: #314b42; border-radius: 24px; }
+.video-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.video-caption { z-index: 1; align-self: end; width: 100%; padding: 14px 24px; color: #fffdf7; background: rgb(36 60 52 / 88%); }
+.volume { min-width: 4.5ch; font-variant-numeric: tabular-nums; }
 .call-controls { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 24px; }
 .screen--caregiver, .screen--delivery { min-height: 470px; justify-content: center; }
 .confirmation { width: 140px; height: 140px; fill: var(--quiet); stroke: var(--green); stroke-width: 5px; }

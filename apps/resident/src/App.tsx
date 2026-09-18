@@ -34,6 +34,7 @@ export function App({ apiBase }: { apiBase: string }) {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
+  const [local, setLocal] = useState({ camera: false, mic: false });
   const busy = useRef(false);
   const generation = useRef(0);
   const refresh = useRef<() => Promise<void>>(async () => {});
@@ -136,16 +137,25 @@ export function App({ apiBase }: { apiBase: string }) {
   const callerName = server?.caller?.displayName ?? "";
   const home = <Home name={server?.resident.displayName ?? ""} now={now} onCallCaregiver={() => void perform("/device/call-caregiver", true)} disabled={pending || !jwt || !ui.apiReachable}/>;
   const inCall = screen === "in_call";
+  useEffect(() => { if (!inCall) setLocal({ camera: false, mic: false }); }, [inCall]);
   const action = (actionName: string) => { if (server?.visit) void perform(`/visits/${encodeURIComponent(server.visit.id)}/${actionName}`); };
+  const reportCall = async (visitId: string, actionName: "connected" | "connection_lost") => {
+    if (!jwt || !ui.apiReachable) { returnHome(true); return; }
+    const epoch = generation.current;
+    try {
+      await api.post(`/visits/${encodeURIComponent(visitId)}/${actionName}`);
+      if (epoch === generation.current) { setError(false); setDismissed(null); void refresh.current(); }
+    } catch { if (epoch === generation.current) returnHome(true); }
+  };
   const itemLabel = server?.task && typeof server.task === "object" && "itemLabel" in server.task && typeof server.task.itemLabel === "string" ? server.task.itemLabel : t("resident.delivery.item");
   return <div className="kiosk" data-screen={screen}>
-    <StatusBar cameraOn={inCall} micOn={inCall} simulated={server?.robot.adapter === "mock"} callerName={inCall && server?.visit?.state === "active" ? callerName : null}/>
+    <StatusBar cameraOn={inCall && local.camera} micOn={inCall && local.mic} simulated={server?.robot.adapter === "mock"} callerName={inCall && server?.visit?.state === "active" ? callerName : null}/>
     <main className="stage">
       {(screen === "disconnected" || error) && <p className="feedback" role="status">{t(error ? "resident.error.retry" : "resident.error.reconnecting")}</p>}
-      <ScreenBoundary key={`${screen}:${key}`} fallback={home} onError={() => returnHome(true)}>
+      <ScreenBoundary key={`${screen}:${server?.visit?.id ?? ""}`} fallback={home} onError={() => returnHome(true)}>
         {(screen === "home" || screen === "disconnected") && home}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
-        {screen === "in_call" && <InCall callerName={callerName} active={server?.visit?.state === "active"} onEnd={() => action("end")} disabled={pending || server?.visit?.state !== "active"}/>}
+        {screen === "in_call" && server?.visit && <InCall api={api} visitId={server.visit.id} callerName={callerName} active={server.visit.state === "active"} onConnected={() => void reportCall(server.visit!.id, "connected")} onLost={() => void reportCall(server.visit!.id, "connection_lost")} onEnd={() => action("end")} onLocalState={setLocal} disabled={pending || server.visit.state !== "active"}/>}
         {screen === "delivery_arrived" && <DeliveryArrived itemLabel={itemLabel} onReceived={() => void refresh.current()}/>}
         {screen === "caregiver_called" && <CaregiverCalled/>}
         {screen === "settings" && <Settings api={api} requirePin={deviceToken !== null} currentToken={deviceToken} pinGuard={pinGuard.current} onSaveToken={(token) => void saveToken(token)} onBack={() => { setDismissed(null); setError(false); setUi((value) => ({ ...value, settingsOpen: false })); }} onError={() => returnHome(true)}/>}
