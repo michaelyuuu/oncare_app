@@ -62,7 +62,8 @@ test("request failure gives translated staff-notified feedback and retry", async
   render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
   await userEvent.type(screen.getByPlaceholderText(/Type what you need/), "water");
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't send your request. Staff have been notified. Try again.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't send your request. Check your connection and try again.");
+  expect(screen.getByRole("alert")).not.toHaveTextContent("Staff have been notified");
   expect(screen.queryByText(/secret backend detail/)).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("Send the robot with the water bottle to Mom's bedside table?")).toBeInTheDocument();
@@ -78,8 +79,23 @@ test("confirmation cancellation waits for success and reports a translated failu
   await userEvent.type(screen.getByPlaceholderText(/Type what you need/), "water");
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
   await userEvent.click(await screen.findByRole("button", { name: "No" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't cancel the request. Staff have been notified. Try again.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't cancel the request. Check your connection and try again.");
+  expect(screen.getByRole("alert")).not.toHaveTextContent("Staff have been notified");
   expect(screen.getByText(/Send the robot with/)).toBeInTheDocument();
+});
+
+test("confirmation failure gives truthful translated retry guidance", async () => {
+  const api = apiWith((path) => {
+    if (path === "/tasks") return { kind: "proposal", task: proposalTask() };
+    if (path === "/tasks/t1/confirm") throw new Error("raw confirm failure");
+    throw new Error(path);
+  });
+  render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  await userEvent.type(screen.getByPlaceholderText(/Type what you need/), "water");
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Yes, send the robot" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't confirm the request. Check your connection and try again.");
+  expect(screen.getByRole("alert")).not.toHaveTextContent("Staff have been notified");
 });
 
 test("policy rejection shows the translated reason and offers another request", async () => {
@@ -107,6 +123,7 @@ test("hold-to-talk submits speech only to POST /tasks and stops recognition on r
   expect(recognitions[0].start).toHaveBeenCalledTimes(1);
   expect(recognitions[0]).toMatchObject({ lang: "en-US", interimResults: false, maxAlternatives: 1 });
   act(() => recognitions[0].onresult({ results: [[{ transcript: "bring water" }]] }));
+  expect(api.post).not.toHaveBeenCalled();
   fireEvent.pointerUp(speak);
   expect(recognitions[0].stop).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(api.post).toHaveBeenCalledWith("/tasks", { residentId: "r", text: "bring water", visitId: "v1" }));
@@ -115,6 +132,61 @@ test("hold-to-talk submits speech only to POST /tasks and stops recognition on r
   view.rerender(<AskRobot api={apiWith(() => ({}))} apiBase="http://api" token="jwt" residentId="r" visitId="v2" residentName="Mom" />);
   view.unmount();
   expect(recognitions[0].stop).toHaveBeenCalled();
+});
+
+test("a final speech result after release submits once", async () => {
+  let recognition: any;
+  class Recognition {
+    lang = ""; interimResults = true; maxAlternatives = 0; onresult: any; onend: any; onerror: any;
+    start = vi.fn(); stop = vi.fn();
+    constructor() { recognition = this; }
+  }
+  vi.stubGlobal("SpeechRecognition", Recognition);
+  const api = apiWith((path) => path === "/tasks" ? { kind: "proposal", task: proposalTask() } : {});
+  render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  const speak = screen.getByRole("button", { name: "Hold to speak" });
+  fireEvent.pointerDown(speak);
+  fireEvent.pointerUp(speak);
+  act(() => recognition.onresult({ results: [[{ transcript: "bring tissues" }]] }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/tasks", { residentId: "r", text: "bring tissues", visitId: "v1" }));
+  expect(api.post).toHaveBeenCalledTimes(1);
+});
+
+test("a transcript that ends while held waits for release before submitting", async () => {
+  let recognition: any;
+  class Recognition {
+    lang = ""; interimResults = true; maxAlternatives = 0; onresult: any; onend: any; onerror: any;
+    start = vi.fn(); stop = vi.fn();
+    constructor() { recognition = this; }
+  }
+  vi.stubGlobal("SpeechRecognition", Recognition);
+  const api = apiWith((path) => path === "/tasks" ? { kind: "proposal", task: proposalTask() } : {});
+  render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  const speak = screen.getByRole("button", { name: "Hold to speak" });
+  fireEvent.pointerDown(speak);
+  act(() => {
+    recognition.onresult({ results: [[{ transcript: "bring tissues" }]] });
+    recognition.onend();
+  });
+  expect(api.post).not.toHaveBeenCalled();
+  fireEvent.pointerUp(speak);
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/tasks", { residentId: "r", text: "bring tissues", visitId: "v1" }));
+});
+
+test("a final speech result after unmount cannot submit a request", () => {
+  let recognition: any;
+  class Recognition {
+    lang = ""; interimResults = true; maxAlternatives = 0; onresult: any; onend: any; onerror: any;
+    start = vi.fn(); stop = vi.fn();
+    constructor() { recognition = this; }
+  }
+  vi.stubGlobal("SpeechRecognition", Recognition);
+  const api = apiWith(() => ({ kind: "proposal", task: proposalTask() }));
+  const view = render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Hold to speak" }));
+  view.unmount();
+  act(() => recognition.onresult({ results: [[{ transcript: "bring water" }]] }));
+  expect(api.post).not.toHaveBeenCalled();
 });
 
 test("a task event refreshes tracking to the server's latest state", async () => {
@@ -134,7 +206,7 @@ test("a task event refreshes tracking to the server's latest state", async () =>
   expect(await screen.findByText("Robot to the station")).toHaveAttribute("aria-current", "step");
 });
 
-test("a tracking refresh failure is translated and explains that staff were notified", async () => {
+test("a tracking refresh failure gives truthful translated retry guidance", async () => {
   const api = {
     post: vi.fn(async (path: string) => path === "/tasks" ? { kind: "proposal", task: proposalTask() } : { task: proposalTask("awaiting_policy_or_staff") }),
     get: vi.fn(async () => { throw new Error("private transport failure"); }),
@@ -144,7 +216,8 @@ test("a tracking refresh failure is translated and explains that staff were noti
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
   await userEvent.click(await screen.findByRole("button", { name: "Yes, send the robot" }));
   act(() => (sockets.at(-1)!.onmessage as any)({ data: JSON.stringify({ entityId: "t1", type: "task_transition" }) }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't refresh the robot's progress. Staff have been notified. Trying again.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't refresh the robot's progress. Check your connection; we'll keep trying.");
+  expect(screen.getByRole("alert")).not.toHaveTextContent("Staff have been notified");
   expect(screen.queryByText(/private transport failure/)).toBeNull();
 });
 

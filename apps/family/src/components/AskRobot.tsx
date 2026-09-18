@@ -62,6 +62,8 @@ export function AskRobot({ api, apiBase, token, residentId, visitId, residentNam
   const [retryAction, setRetryAction] = useState<RetryAction>(null);
   const requestSequence = useRef(0);
   const dictation = useRef<{ stop(): void } | null>(null);
+  const mounted = useRef(true);
+  const speechSession = useRef<{ transcript: string; released: boolean; submitted: boolean; ended: boolean } | null>(null);
 
   const clearError = () => { setErrorKey(null); setRetryAction(null); };
 
@@ -127,23 +129,51 @@ export function AskRobot({ api, apiBase, token, residentId, visitId, residentNam
   };
 
   const stopListening = useCallback(() => {
+    const session = speechSession.current;
+    if (session) {
+      session.released = true;
+      if (!session.submitted && session.transcript && mounted.current) {
+        session.submitted = true;
+        void submit(session.transcript);
+      }
+      if (session.ended) speechSession.current = null;
+    }
     dictation.current?.stop();
     dictation.current = null;
     setListening(false);
-  }, []);
+  }, [submit]);
   const startListening = () => {
     if (dictation.current || busy) return;
-    const handle = startDictation("en-US", (spoken) => { setText(spoken); void submit(spoken); }, () => {
+    const session = { transcript: "", released: false, submitted: false, ended: false };
+    speechSession.current = session;
+    const handle = startDictation("en-US", (spoken) => {
+      if (!mounted.current || speechSession.current !== session) return;
+      session.transcript = spoken;
+      setText(spoken);
+      if (session.released && !session.submitted) {
+        session.submitted = true;
+        void submit(spoken);
+      }
+    }, () => {
+      if (!mounted.current || speechSession.current !== session) return;
+      session.ended = true;
       dictation.current = null;
+      if (session.released) speechSession.current = null;
       setListening(false);
     });
     if (handle) { dictation.current = handle; setListening(true); }
+    else speechSession.current = null;
   };
 
-  useEffect(() => () => {
-    requestSequence.current += 1;
-    dictation.current?.stop();
-    dictation.current = null;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestSequence.current += 1;
+      speechSession.current = null;
+      dictation.current?.stop();
+      dictation.current = null;
+    };
   }, []);
 
   useEffect(() => {
