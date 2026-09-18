@@ -13,19 +13,79 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
   const { db } = opts;
   const now = opts.now ?? (() => new Date());
   const staffOnly = { preHandler: requireRole("staff") };
+  type Observation = {
+    pending?: Promise<QueueVisit["cameraState"]>;
+    result?: QueueVisit["cameraState"];
+    observedAt: number;
+    version: number;
+  };
+  const cameraLookups = new Map<string, Observation>();
+  const unsubscribe = app.transitions.subscribe(event => {
+    if (event.entityType !== "visit") return;
+    // A camera action or lifecycle transition invalidates any older sample,
+    // including an observation still in flight when the transition happened.
+    for (const [key, observation] of cameraLookups) {
+      if (key.startsWith(`${event.entityId}:`)) {
+        observation.version += 1;
+        delete observation.result;
+      }
+    }
+  });
+  app.addHook("onClose", async () => { unsubscribe(); cameraLookups.clear(); });
+  async function observeCamera(visitId: string, deviceId: string): Promise<QueueVisit["cameraState"]> {
+    const key = `${visitId}:${deviceId}`;
+    let observation = cameraLookups.get(key);
+    if (!observation) {
+      observation = { observedAt: 0, version: 0 };
+      cameraLookups.set(key, observation);
+    }
+    const entry = observation;
+    if (!entry.pending) {
+      const version = entry.version;
+      entry.pending = Promise.resolve().then(() => app.video.cameraState(visitId, deviceId))
+        .catch(() => "unknown" as const)
+        .then(result => {
+          if (cameraLookups.get(key) !== entry || entry.version !== version) return "unknown" as const;
+          entry.result = result;
+          entry.observedAt = Date.now();
+          return result;
+        })
+        .finally(() => { delete entry.pending; });
+    }
+    // Media must not hold up physical controls. Keep the underlying lookup
+    // shared until it settles, even after our observation budget expires.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([entry.pending, new Promise<QueueVisit["cameraState"]>(resolve => {
+        // Let a slow completed sample reach the next poll, but never represent
+        // a stale cached sample as the current camera state indefinitely.
+        timer = setTimeout(() => resolve(Date.now() - entry.observedAt <= 6000 ? entry.result ?? "unknown" : "unknown"), 100);
+      })]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   app.get("/queue", staffOnly, async () => {
     const robot = db.select().from(t.robot).get();
     const visits = db.select().from(t.visitSession).all();
     const tasks = db.select().from(t.taskRequest).all();
+    const observedKeys = new Set<string>();
     const activeVisits: QueueVisit[] = await Promise.all(visits.filter(v => ["connecting", "active", "ending"].includes(v.state)).map(async v => {
       const device = v.robotId && db.select().from(t.robotDevice).where(and(eq(t.robotDevice.robotId, v.robotId), eq(t.robotDevice.residentId, v.residentId))).get();
       let cameraState: QueueVisit["cameraState"] = "unavailable";
       if (device && v.state !== "ending") {
-        try { cameraState = await app.video.cameraState(v.id, device.id); }
-        catch { cameraState = "unknown"; }
+        observedKeys.add(`${v.id}:${device.id}`);
+        cameraState = await observeCamera(v.id, device.id);
       }
       return { ...v, streaming: v.state === "connecting" || v.state === "active", cameraState };
     }));
+    for (const [key, observation] of cameraLookups) {
+      if (!observedKeys.has(key)) {
+        observation.version += 1;
+        delete observation.result;
+        if (!observation.pending) cameraLookups.delete(key);
+      }
+    }
     return {
       visitsAwaitingApproval: visits.filter(v => v.state === "awaiting_policy_or_staff"),
       tasksAwaitingApproval: tasks.filter(k => k.state === "awaiting_policy_or_staff"),

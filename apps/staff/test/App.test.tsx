@@ -111,6 +111,56 @@ test("camera refusal is actionable and delivered false is never success", async 
     expect(await screen.findByText(/not delivered/)).toBeInTheDocument();
     expect(screen.getByText(/remote-unmute/)).toBeInTheDocument();
 });
+
+test("End call takes priority over pending camera control and stays locked through stale queue refreshes", async () => {
+    const original = fetch;
+    const waiting = new Map<string, (response: Response) => void>();
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/visits/v2/camera") || url.endsWith("/visits/v2/end")) {
+            const path = url.replace("http://api", "");
+            posts.push({ path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+            return new Promise<Response>(resolve => waiting.set(path, resolve));
+        }
+        return original(url, init);
+    }));
+    render(<App apiBase="http://api"/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
+    const end = screen.getByRole("button", { name: "End call" });
+    expect(end).toBeEnabled();
+    await userEvent.dblClick(end);
+    expect(posts.map(p => p.path)).toEqual(["/visits/v2/camera", "/visits/v2/end"]);
+    expect(end).toBeDisabled();
+    await act(async () => waiting.get("/visits/v2/camera")!(new Response('{"ok":true}')));
+    expect(screen.getByRole("button", { name: "Pause camera" })).toBeDisabled();
+    // Even an old active queue response after end succeeds must not reopen controls.
+    await act(async () => waiting.get("/visits/v2/end")!(new Response('{"ok":true}')));
+    expect(end).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pause camera" })).toBeDisabled();
+    await userEvent.click(end);
+    expect(posts).toHaveLength(2);
+});
+
+test("a failed end can retry while camera is pending, and late old-session actions cannot lock the new session", async () => {
+    const original = fetch;
+    let finish!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => url === "http://api/visits/v2/camera"
+        ? new Promise<Response>(resolve => { finish = resolve; })
+        : original(url.replace("http://new-session", "http://api"), init)));
+    const view = render(<App apiBase="http://api"/>);
+    await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
+    response = { status: 503, body: { error: "request" } };
+    await userEvent.click(screen.getByRole("button", { name: "End call" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "End call" })).toBeEnabled();
+    response = { status: 200, body: { ok: true } };
+    await userEvent.click(screen.getByRole("button", { name: "End call" }));
+    expect(posts.filter(p => p.path === "/visits/v2/end")).toHaveLength(2);
+    view.rerender(<App apiBase="http://new-session"/>);
+    expect(await screen.findByRole("button", { name: "End call" })).toBeEnabled();
+    await act(async () => finish(new Response('{"error":"camera_control_failed"}', { status: 503 })));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Pause camera" })).toBeEnabled();
+});
 test("CSV export preserves commas, quotes and newlines and reports export failures", async () => {
     let blob: Blob | undefined;
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn((value: Blob) => { blob = value; return "blob:audit"; }), revokeObjectURL: vi.fn() }));
@@ -182,6 +232,7 @@ test("audit filters are encoded and audit refreshes on events and polling", asyn
 
 test("slow queue and audit responses complete despite repeated polling and event refreshes", async () => {
     vi.useFakeTimers();
+    queue.activeVisits[0]!.cameraState = "unknown";
     const waiting: Array<{ path: string; resolve: (response: Response) => void }> = [];
     vi.stubGlobal("fetch", vi.fn((url: string) => new Promise<Response>(resolve => {
         waiting.push({ path: url.replace("http://api", ""), resolve });

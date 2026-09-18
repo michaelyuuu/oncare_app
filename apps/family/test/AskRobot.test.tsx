@@ -225,3 +225,65 @@ test("Speak is hidden when speech recognition is unavailable", () => {
   render(<AskRobot api={apiWith(() => ({}))} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
   expect(screen.queryByRole("button", { name: /speak/i })).toBeNull();
 });
+
+test.each(["completed", "safety_stopped", "navigation_failed"])("slow progress responses survive polls/events and reveal terminal %s", async (state) => {
+  vi.useFakeTimers();
+  const waiting: Array<(value: unknown) => void> = [];
+  const api = apiWith(path => path === "/tasks" ? { kind: "proposal", task: proposalTask() }
+    : path.endsWith("/confirm") ? { task: proposalTask("awaiting_policy_or_staff") }
+    : new Promise(resolve => waiting.push(resolve)));
+  const view = render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  fireEvent.change(screen.getByPlaceholderText(/Type what you need/), { target: { value: "water" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Send" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Yes, send the robot" })));
+  const event = () => (sockets.at(-1)!.onmessage as any)({ data: '{"entityId":"t1"}' });
+  act(event);
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000); event(); event(); });
+  await act(async () => waiting[0]!({ task: proposalTask("navigating_to_delivery") }));
+  expect(screen.getByText("On the way to Mom")).toHaveAttribute("aria-current", "step");
+  expect(waiting).toHaveLength(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000); event(); });
+  await act(async () => waiting[1]!({ task: proposalTask(state) }));
+  expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  if (state === "completed") expect(screen.getByText("Done")).toHaveAttribute("aria-current", "step");
+  else expect(screen.getByText(state === "safety_stopped" ? /stopped for safety/ : /could not reach/)).toBeInTheDocument();
+  const count = waiting.length;
+  view.unmount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000); event(); });
+  expect(waiting).toHaveLength(count);
+});
+
+test("late progress cannot enter a new visit session", async () => {
+  let finish!: (value: unknown) => void;
+  const api = apiWith(path => path === "/tasks" ? { kind: "proposal", task: proposalTask() }
+    : path.endsWith("/confirm") ? { task: proposalTask("awaiting_policy_or_staff") }
+    : new Promise(resolve => { finish = resolve; }));
+  const view = render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  await userEvent.type(screen.getByPlaceholderText(/Type what you need/), "water");
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Yes, send the robot" }));
+  act(() => (sockets.at(-1)!.onmessage as any)({ data: '{"entityId":"t1"}' }));
+  view.rerender(<AskRobot api={api} apiBase="http://api" token="new-jwt" residentId="other" visitId="v2" residentName="Dad" />);
+  await act(async () => finish({ task: proposalTask("completed") }));
+  expect(screen.queryByText("Done")).toBeNull();
+  expect(screen.getByPlaceholderText(/Type what you need/)).toHaveValue("");
+});
+
+test("cancelling a pending clarification choice releases busy and ignores its late proposal", async () => {
+  let finish!: (value: unknown) => void;
+  const api = apiWith((_path, body: any) => body.text === "something"
+    ? { kind: "clarification", options: ["water_bottle"] }
+    : body.text === "water bottle" ? new Promise(resolve => { finish = resolve; })
+    : { kind: "proposal", task: { ...proposalTask(), proposal: { ...proposalTask().proposal, item: "tissue_box" } } });
+  render(<AskRobot api={api} apiBase="http://api" token="jwt" residentId="r" visitId="v1" residentName="Mom" />);
+  await userEvent.type(screen.getByPlaceholderText(/Type what you need/), "something");
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await userEvent.click(await screen.findByRole("button", { name: "water bottle" }));
+  await userEvent.click(screen.getByRole("button", { name: "No" }));
+  await act(async () => finish({ kind: "proposal", task: proposalTask() }));
+  expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  await userEvent.clear(screen.getByPlaceholderText(/Type what you need/));
+  await userEvent.type(screen.getByPlaceholderText(/Type what you need/), "tissues");
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Send the robot with the tissue box to Mom's bedside table?")).toBeInTheDocument();
+});

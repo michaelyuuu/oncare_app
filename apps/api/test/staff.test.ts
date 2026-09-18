@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { makeTestApp } from "./helpers";
 import * as t from "../src/db/schema";
@@ -7,6 +7,48 @@ import { AuditEventSchema } from "@oncare/core";
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 describe("staff operations", () => {
+  test("queue returns robot controls promptly during a hung camera lookup without overlapping provider calls", async () => {
+    const { app, db, video, tokens } = await makeTestApp();
+    const visit = (await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit;
+    db.update(t.visitSession).set({ state: "active" }).where(eq(t.visitSession.id, visit.id)).run();
+    let finish!: (state: "on") => void;
+    const lookup = vi.spyOn(video, "cameraState").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const getQueue = () => app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) }).then(res => res.json());
+    try {
+      // Independent upper bound: controls must arrive before the media provider resolves.
+      const first = await Promise.race([getQueue(), new Promise<null>(resolve => setTimeout(() => resolve(null), 500))]);
+      expect(first).toMatchObject({ robot: { robotId: SEED_IDS.robot }, activeVisits: [expect.objectContaining({ cameraState: "unknown" })] });
+      const next = await Promise.all([getQueue(), getQueue()]);
+      expect(next.every(result => result.robot.robotId === SEED_IDS.robot)).toBe(true);
+      expect(lookup).toHaveBeenCalledTimes(1);
+      finish("on");
+      await new Promise(resolve => setTimeout(resolve, 0));
+      // The next observation is also slow: the completed first observation
+      // still needs to reach the UI instead of being thrown away at timeout.
+      expect((await getQueue()).activeVisits[0].cameraState).toBe("on");
+      expect(lookup).toHaveBeenCalledTimes(2);
+      const later = Date.now() + 7000;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(later);
+      try { expect((await getQueue()).activeVisits[0].cameraState).toBe("unknown"); }
+      finally { clock.mockRestore(); }
+      video.cameras.set(`${visit.id}:${SEED_IDS.device}`, "on");
+      await app.inject({ method: "POST", url: `/visits/${visit.id}/camera`, headers: auth(tokens.staff), payload: { paused: true } });
+      expect((await getQueue()).activeVisits[0].cameraState).toBe("unknown");
+      // The pre-pause sample must not reintroduce "on" after the action.
+      finish("on");
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect((await getQueue()).activeVisits[0].cameraState).toBe("unknown");
+      expect(lookup).toHaveBeenCalledTimes(3);
+      db.update(t.visitSession).set({ state: "ending" }).where(eq(t.visitSession.id, visit.id)).run();
+      expect((await getQueue()).activeVisits[0].cameraState).toBe("unavailable");
+      finish("on");
+      expect((await getQueue()).activeVisits[0].cameraState).toBe("unavailable");
+      expect(lookup).toHaveBeenCalledTimes(3);
+    } finally {
+      finish?.("on");
+      await app.close();
+    }
+  });
   test("caregiver queue resolves resident from device actor and preserves historical audit IDs", async () => {
     const { app, db, tokens } = await makeTestApp();
     await app.inject({ method: "POST", url: "/device/call-caregiver", headers: auth(tokens.device) });

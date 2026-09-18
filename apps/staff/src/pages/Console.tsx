@@ -27,6 +27,9 @@ export function Console({ api, apiBase, token }: {
         let fetching = false;
         let refreshAgain = false;
         alive.current = true;
+        inFlight.current = new Set();
+        setPending([]);
+        setErrors({});
         setQueue(null);
         setRefreshError(false);
         async function refresh() {
@@ -66,29 +69,37 @@ export function Console({ api, apiBase, token }: {
         };
     }, [api, apiBase, token, refreshAll]);
     async function action(path: string, body?: unknown) {
-        const key = path.substring(0, path.lastIndexOf("/")) + (path.endsWith("/stop") ? "/stop" : "");
-        if (inFlight.current.has(key))
+        const actions = inFlight.current;
+        const base = path.substring(0, path.lastIndexOf("/"));
+        const isEnd = path.startsWith("/visits/") && path.endsWith("/end");
+        const isCamera = path.startsWith("/visits/") && path.endsWith("/camera");
+        const key = base + (path.endsWith("/stop") ? "/stop" : isEnd ? "/end" : isCamera ? "/camera" : "");
+        if (actions.has(key) || (isCamera && actions.has(`${base}/end`)))
             return;
-        inFlight.current.add(key);
-        setPending([...inFlight.current]);
+        actions.add(key);
+        setPending([...actions]);
         setErrors(old => { const next = { ...old }; delete next[key]; return next; });
+        let succeeded = false;
         try {
             const result = await api.post<{
                 delivered?: boolean;
             }>(path, body);
             if (result?.delivered === false)
                 throw new ApiError(503, "not_delivered");
+            succeeded = true;
         }
         catch (error) {
             const code = error instanceof ApiError ? error.code : "request";
             const supported = ["invalid_pin", "busy", "robot_unavailable", "not_delivered", "camera_control_failed", "camera_unavailable", "not_callable", "forbidden", "not_found"];
-            if (alive.current)
+            if (alive.current && inFlight.current === actions)
                 setErrors(old => ({ ...old, [key]: t(`staff.error.${supported.includes(code) ? code : "request"}`) }));
         }
         finally {
-            inFlight.current.delete(key);
-            if (alive.current) {
-                setPending([...inFlight.current]);
+            // A successful end is irreversible for this visit. Retain its lock
+            // so stale active queue responses cannot reopen media controls.
+            if (!isEnd || !succeeded) actions.delete(key);
+            if (alive.current && inFlight.current === actions) {
+                setPending([...actions]);
                 refreshAll();
             }
         }

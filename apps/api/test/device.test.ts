@@ -77,6 +77,21 @@ describe("GET /device/state with tasks", () => {
     });
   });
 
+  test.each(["awaiting_user_confirmation", "awaiting_policy_or_staff"])("older placing delivery stays receivable ahead of newer %s proposal and still yields to calls", async (state) => {
+    const { app, db, tokens, id } = await taskIn("placing");
+    db.update(t.taskRequest).set({ createdAt: "2026-01-01T00:00:00Z" }).where(eq(t.taskRequest.id, id)).run();
+    const newer = (await app.inject({ method: "POST", url: "/tasks", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident, text: "tissues" } })).json().task;
+    db.update(t.taskRequest).set({ state, createdAt: "2026-01-02T00:00:00Z" }).where(eq(t.taskRequest.id, newer.id)).run();
+    const get = async () => (await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json();
+    expect(await get()).toMatchObject({ screen: "delivery_arrived", task: { id, state: "placing", item: { id: "water_bottle" } } });
+    const visitId = (await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit.id;
+    for (const [callState, screen] of [["awaiting_resident_consent", "incoming"], ["active", "in_call"], ["completed", "delivery_arrived"]]) {
+      db.update(t.visitSession).set({ state: callState }).where(eq(t.visitSession.id, visitId)).run();
+      expect(await get()).toMatchObject({ screen, task: { id, state: "placing" } });
+    }
+    expect((await app.inject({ method: "POST", url: `/tasks/${id}/received`, headers: auth(tokens.device) })).json().task.state).toBe("verifying_delivery");
+  });
+
   test("an in-progress task that is not yet placing keeps the home screen", async () => {
     const { app, tokens, id } = await taskIn("navigating_to_delivery");
     expect((await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json()).toMatchObject({

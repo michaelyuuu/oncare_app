@@ -45,7 +45,9 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
         eq(t.taskRequest.residentId, principal.residentId),
         notInArray(t.taskRequest.state, [...TASK_TERMINAL_STATES]),
       ))
-      .orderBy(desc(t.taskRequest.createdAt))
+      // A tray awaiting receipt must remain actionable even when a newer
+      // proposal exists. Call-screen precedence is applied separately below.
+      .orderBy(desc(eq(t.taskRequest.state, "placing")), desc(t.taskRequest.createdAt))
       .get() ?? null;
     const itemId = task ? (task.proposal as { item: string }).item : null;
     const item = itemId ? db.select().from(t.item).where(eq(t.item.id, itemId)).get() ?? null : null;

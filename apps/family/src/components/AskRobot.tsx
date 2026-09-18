@@ -167,6 +167,11 @@ export function AskRobot({ api, apiBase, token, residentId, visitId, residentNam
 
   useEffect(() => {
     mounted.current = true;
+    setPhase({ kind: "idle" });
+    setText("");
+    setBusy(false);
+    setListening(false);
+    clearError();
     return () => {
       mounted.current = false;
       requestSequence.current += 1;
@@ -174,29 +179,40 @@ export function AskRobot({ api, apiBase, token, residentId, visitId, residentNam
       dictation.current?.stop();
       dictation.current = null;
     };
-  }, []);
+  }, [api, apiBase, token, residentId, visitId]);
 
   useEffect(() => {
-    if (phase.kind !== "tracking") return;
+    if (phase.kind !== "tracking" || taskProgress(phase.task.state).terminal) return;
     const taskId = phase.task.id;
-    let refreshSequence = 0;
     let active = true;
+    let fetching = false;
+    let refreshAgain = false;
+    let finished = false;
     const refresh = async () => {
-      const request = ++refreshSequence;
+      if (!active || finished) return;
+      if (fetching) { refreshAgain = true; return; }
+      fetching = true;
       try {
         const response = await api.get<{ task: Task }>(`/tasks/${taskId}`);
-        if (active && request === refreshSequence) {
+        if (active) {
+          finished = taskProgress(response.task.state).terminal;
           setPhase((current) => current.kind === "tracking" && current.task.id === taskId ? { kind: "tracking", task: response.task } : current);
           setErrorKey(null);
         }
       } catch {
-        if (active && request === refreshSequence) setErrorKey("family.task.error.progress");
+        if (active) setErrorKey("family.task.error.progress");
+      } finally {
+        fetching = false;
+        if (active && !finished && refreshAgain) {
+          refreshAgain = false;
+          void refresh();
+        }
       }
     };
     const interval = setInterval(() => void refresh(), 3000);
     const events = connectEvents(apiBase, token, (event) => { if (event.entityId === taskId) void refresh(); });
-    return () => { active = false; refreshSequence += 1; clearInterval(interval); events.close(); };
-  }, [api, apiBase, phase.kind === "tracking" ? phase.task.id : null, token]);
+    return () => { active = false; clearInterval(interval); events.close(); };
+  }, [api, apiBase, phase.kind === "tracking" ? phase.task.id : null, phase.kind === "tracking" && taskProgress(phase.task.state).terminal, token, residentId, visitId]);
 
   const feedback = errorKey && <div className="ask-feedback"><p role="alert" className="error">{t(errorKey)}</p>{retryAction && <button type="button" onClick={retry} disabled={busy}>{t("family.ask.tryagain")}</button>}</div>;
 
@@ -217,7 +233,7 @@ export function AskRobot({ api, apiBase, token, residentId, visitId, residentNam
     <h3>{t("family.ask.clarify.title")}</h3>
     <p>{t("family.ask.clarify.question")}</p>
     <div className="chips">{phase.options.map((option) => <button key={option} type="button" disabled={busy} onClick={() => void submit(itemLabel(option))}>{itemLabel(option)}</button>)}</div>
-    <button type="button" className="link" onClick={() => { requestSequence.current += 1; clearError(); setPhase({ kind: "idle" }); }}>{t("family.ask.confirm.no")}</button>
+    <button type="button" className="link" onClick={() => { requestSequence.current += 1; setBusy(false); clearError(); setPhase({ kind: "idle" }); }}>{t("family.ask.confirm.no")}</button>
     {feedback}
   </section>;
 
