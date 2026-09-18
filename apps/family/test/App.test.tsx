@@ -81,3 +81,15 @@ test("an unknown visit API error displays its raw code", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("future_policy_code");
 });
+
+test("a known visit API error retains its localized message", async () => {
+  try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
+  installFetch((path, init) => {
+    if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
+    if (path === "/visits" && init?.method === "POST") return { status: 409, body: { error: "robot_unavailable" } };
+    return { status: 404, body: {} };
+  });
+  render(<App apiBase="http://api" />);
+  await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("The robot is not available");
+});
