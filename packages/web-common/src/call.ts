@@ -43,6 +43,7 @@ export async function createCall(
     if (!callbacksActive || lostReported) return;
     lostReported = true;
     clearAbsenceTimer();
+    cleanupMedia(true);
     callbacksActive = false;
     cb.onLost();
   };
@@ -113,7 +114,6 @@ export async function createCall(
   });
   room.on(RoomEvent.Disconnected, () => {
     if (leavePromise !== null || !callbacksActive) return;
-    cleanupMedia(true);
     reportLost();
   });
 

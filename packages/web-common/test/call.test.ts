@@ -212,6 +212,35 @@ describe("createCall", () => {
     await handle.leave();
   });
 
+  test("reconnect timeout removes attached media and reports terminal callbacks once", async () => {
+    const cb = callbacks();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const handle = await createCall("wss://x", "tok", cb, { publish: true, RoomImpl: FakeRoom as never });
+    const room = FakeRoom.last;
+    const video = new FakeTrack("video");
+    const audio = new FakeTrack("audio");
+    room.remoteParticipants.set("p1", {});
+    room.emit("participantConnected", {});
+    room.emit("trackSubscribed", video, {}, {});
+    room.emit("trackSubscribed", audio, {}, {});
+
+    room.emit("reconnecting");
+    vi.advanceTimersByTime(10_000);
+    room.emit("disconnected");
+    room.emit("trackUnsubscribed", video, {}, {});
+
+    expect(video.detach).toHaveBeenCalledTimes(1);
+    expect(audio.detach).toHaveBeenCalledTimes(1);
+    expect(video.el.remove).toHaveBeenCalledTimes(1);
+    expect(audio.el.remove).toHaveBeenCalledTimes(1);
+    expect(cb.onRemoteVideo).toHaveBeenLastCalledWith(null);
+    expect(cb.onRemoteVideo).toHaveBeenCalledTimes(2);
+    expect(cb.onRemoteAudio).toHaveBeenLastCalledWith(null);
+    expect(cb.onRemoteAudio).toHaveBeenCalledTimes(2);
+    expect(cb.onLost).toHaveBeenCalledTimes(1);
+    await handle.leave();
+  });
+
   test("unexpected disconnect reports loss once and suppresses later stale events", async () => {
     const cb = callbacks();
     vi.spyOn(console, "info").mockImplementation(() => {});

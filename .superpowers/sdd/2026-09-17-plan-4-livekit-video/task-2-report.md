@@ -110,3 +110,61 @@ Output (exit 0): no whitespace errors.
 - The wrapper deliberately leaves reconnection mechanics to the LiveKit SDK; its timer only reports the binding loss condition.
 - Per the ruling, real-token, real-network, and two-device/browser media rehearsals were not run. Browser autoplay/device-permission behavior remains pending integration rehearsal.
 - Tests use structural fakes for LiveKit because the task explicitly prohibits network/real LiveKit tests; TypeScript compilation verifies the production code against the installed real SDK types.
+
+## Fix round 1 — terminal timeout media cleanup
+
+Reviewer finding: a reconnect/absence timeout called `onLost` and disabled later event handlers without first detaching retained remote media. LiveKit may retain participant and track entries while reconnecting, so relying on a later unsubscribe, disconnect, or caller `leave()` could leave video/audio elements alive.
+
+### RED
+
+Command:
+
+```text
+npx vitest run packages/web-common/test/call.test.ts
+```
+
+Output (exit 1):
+
+```text
+❯ |web| packages/web-common/test/call.test.ts (12 tests | 1 failed) 27ms
+× createCall > reconnect timeout removes attached media and reports terminal callbacks once
+  → expected "spy" to be called 1 times, but got 0 times
+
+AssertionError: expected "spy" to be called 1 times, but got 0 times
+❯ packages/web-common/test/call.test.ts:232:26
+    expect(video.detach).toHaveBeenCalledTimes(1);
+
+Test Files  1 failed (1)
+Tests  1 failed | 11 passed (12)
+Duration  2.64s
+```
+
+### GREEN
+
+The terminal `reportLost` path now calls the existing media cleanup before callbacks are deactivated. The disconnected path delegates to that same terminal path, preventing duplicate cleanup/null notifications.
+
+Command:
+
+```text
+npx vitest run packages/web-common/test/call.test.ts
+```
+
+Output (exit 0):
+
+```text
+✓ |web| packages/web-common/test/call.test.ts (12 tests) 22ms
+
+Test Files  1 passed (1)
+Tests  12 passed (12)
+Duration  1.81s
+```
+
+Command:
+
+```text
+npx tsc -b
+```
+
+Output (exit 0): no diagnostics.
+
+Regression coverage attaches one video and one audio track, advances the reconnect timeout deterministically, then emits stale disconnect/unsubscribe events. It verifies one detach/remove per element, one terminal `null` per media callback, and one `onLost` call.
