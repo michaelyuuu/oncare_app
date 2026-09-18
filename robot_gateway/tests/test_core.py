@@ -65,11 +65,11 @@ def test_unknown_or_unapproved_location_is_rejected(core):
     assert core.handle(intent(loc="nowhere"))[0] == {"type": "ack", "correlationId": "visit_1", "result": "rejected", "reason": "unknown_location"}
     assert core.handle(intent("visit_2", loc="old_room"))[0]["reason"] == "unknown_location"
 
-def test_deliver_item_not_implemented_yet(core):
+def test_deliver_item_is_accepted(core):
     msg = {"type": "intent", "intent": "deliver_item", "correlationId": "task_1", "expiresAt": "2099-01-01T00:00:00.000Z",
            "payload": {"itemId": "water_bottle", "pickupLocationId": "room_demo_01", "destinationLocationId": "room_demo_01", "standbyLocationId": "room_demo_01", "mode": "tray"}}
     out = core.handle(msg)
-    assert out[0]["result"] == "rejected" and out[0]["reason"] == "not_implemented"
+    assert types(out) == [("ack", "accepted"), ("state_event", "robot_en_route")]
 
 def test_navigation_failure_is_reported(clock):
     adapter = MockRobotAdapter(travel_ms=100)

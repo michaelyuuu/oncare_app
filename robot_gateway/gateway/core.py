@@ -27,7 +27,7 @@ class GatewayCore:
         self.version = version
         self.disconnect_grace_ms = disconnect_grace_ms
         self.locations: dict[str, dict] = {}
-        self._active: dict | None = None            # {"correlationId": str}
+        self._active: dict | None = None
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._stopped = False
         self._disconnected_at: int | None = None
@@ -55,22 +55,38 @@ class GatewayCore:
             return self._handle_intent(msg)
         if t == "cancel":
             if self._active and self._active["correlationId"] == msg["correlationId"]:
+                if self._active["kind"] == "deliver" and self._active["leg"] in ("await_loaded", "await_received"):
+                    active = self._active
+                    self._active = None
+                    return [self._delivery_event(active, "cancelled")]
                 self.adapter.cancel()
             return []
         if t == "stop":
             self.adapter.safety_stop()
             self._stopped = True
             if self._active:
-                corr = self._active["correlationId"]
+                active = self._active
                 self._active = None
-                return [self._state_event(corr, "safety_stopped", {"reason": msg["reason"]})]
+                if active["kind"] == "deliver":
+                    return [self._delivery_event(active, "safety_stopped", msg["reason"])]
+                return [self._state_event(active["correlationId"], "safety_stopped", {"reason": msg["reason"]})]
             return []
         if t == "resume":
             self._stopped = False
             self.adapter.resume()
             return []
         if t == "staff_event":
-            return []   # Plan 5 (tray mode) consumes these
+            active = self._active
+            if active is None or active["kind"] != "deliver" or active["correlationId"] != msg["correlationId"]:
+                return []
+            payload = active["payload"]
+            if msg["event"] == "staff_loaded" and active["leg"] == "await_loaded":
+                self.adapter.start_goto(payload["delivery"], self.now_ms())
+                active["leg"] = "delivery"
+            elif msg["event"] == "received" and active["leg"] == "await_received":
+                self.adapter.start_goto(payload["standby"], self.now_ms())
+                active["leg"] = "standby"
+            return []
         return []
 
     def _handle_intent(self, msg: dict) -> list[dict]:
@@ -84,16 +100,32 @@ class GatewayCore:
             return [ack("busy")]
         if self._stopped:
             return [ack("rejected", "stopped")]
+        payload = msg["payload"]
         if msg["intent"] == "deliver_item":
-            return [ack("rejected", "not_implemented")]
-        loc = self.locations.get(msg["payload"]["locationId"])
+            if payload["mode"] != "tray":
+                return [ack("rejected", "unsupported_mode")]
+            legs = {
+                "pickup": self.locations.get(payload["pickupLocationId"]),
+                "delivery": self.locations.get(payload["destinationLocationId"]),
+                "standby": self.locations.get(payload["standbyLocationId"]),
+            }
+            if any(location is None for location in legs.values()):
+                return [ack("rejected", "unknown_location")]
+            if not self.adapter.state()["ready"]:
+                return [ack("rejected", "robot_not_ready")]
+            self._remember(corr)
+            self.adapter.start_goto(legs["pickup"], self.now_ms())
+            self._active = {"correlationId": corr, "kind": "deliver", "leg": "pickup",
+                            "payload": {**legs, "mode": payload["mode"]}}
+            return [ack("accepted"), self._delivery_event(self._active, "robot_en_route")]
+        loc = self.locations.get(payload["locationId"])
         if loc is None:
             return [ack("rejected", "unknown_location")]
         if not self.adapter.state()["ready"]:
             return [ack("rejected", "robot_not_ready")]
         self._remember(corr)
         self.adapter.start_goto(loc, self.now_ms())
-        self._active = {"correlationId": corr}
+        self._active = {"correlationId": corr, "kind": "visit", "leg": "goto", "payload": payload}
         return [ack("accepted"), self._state_event(corr, "robot_en_route")]
 
     def _remember(self, corr: str) -> None:
@@ -112,19 +144,33 @@ class GatewayCore:
                 self.adapter.cancel()
                 self.adapter.safety_stop()
                 self._stopped = True
-                corr = self._active["correlationId"]
+                active = self._active
                 self._active = None
-                return [self._state_event(corr, "safety_stopped", {"reason": "link_lost"})]
+                if active["kind"] == "deliver":
+                    return [self._delivery_event(active, "safety_stopped", "link_lost")]
+                return [self._state_event(active["correlationId"], "safety_stopped", {"reason": "link_lost"})]
             return []
         if self._active is None:
             return []
         result = self.adapter.poll(self.now_ms())
         if result is None:
             return []
-        corr = self._active["correlationId"]
+        active = self._active
+        if active["kind"] == "visit":
+            self._active = None
+            detail = {"reason": result.reason} if result.reason else None
+            return [self._state_event(active["correlationId"], result.outcome, detail)]
+        if result.outcome != "arrived":
+            self._active = None
+            return [self._delivery_event(active, result.outcome, result.reason)]
+        if active["leg"] == "pickup":
+            active["leg"] = "await_loaded"
+            return [self._delivery_event(active, "arrived_pickup")]
+        if active["leg"] == "delivery":
+            active["leg"] = "await_received"
+            return [self._delivery_event(active, "arrived_delivery")]
         self._active = None
-        detail = {"reason": result.reason} if result.reason else None
-        return [self._state_event(corr, result.outcome, detail)]
+        return [self._delivery_event(active, "completed_leg")]
 
     def heartbeat(self) -> dict:
         s = self.adapter.state()
@@ -137,3 +183,10 @@ class GatewayCore:
         if detail:
             m["detail"] = detail
         return m
+
+    def _delivery_event(self, active: dict, event: str, reason: str | None = None) -> dict:
+        leg = {"await_loaded": "pickup", "await_received": "delivery"}.get(active["leg"], active["leg"])
+        detail = {"leg": leg, "mode": active["payload"]["mode"]}
+        if reason:
+            detail["reason"] = reason
+        return self._state_event(active["correlationId"], event, detail)
