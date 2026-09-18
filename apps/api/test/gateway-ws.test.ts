@@ -47,20 +47,32 @@ function closed(ws: WebSocket): Promise<number> {
   return new Promise((resolve) => ws.once("close", (code) => resolve(code)));
 }
 
+async function waitFor<T>(condition: () => T | false | null | undefined | Promise<T | false | null | undefined>, description: string, timeoutMs = 3000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await condition();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${description}`);
+}
+
 describe("WS /gateway", () => {
   test("valid robot token attaches the robot and heartbeats show in staff status", async () => {
     const { app, tokens } = await makeTestApp();
     const srv = await listen(app); closers.push(srv.close);
     const ws = await open(`${srv.url.replace("http", "ws")}/gateway?token=${SEED_SECRETS.robotToken}`);
     ws.send(JSON.stringify({ type: "heartbeat", at: "2026-09-17T00:00:00.000Z", robotReady: true, adapter: "mock", pose: null, navState: "idle", estop: false, lift: "rest", battery: "unknown", activeCorrelationId: null, gatewayVersion: "0.0.1" }));
-    await new Promise((r) => setTimeout(r, 100));
-    const res = await app.inject({ method: "GET", url: `/robots/${SEED_IDS.robot}/status`, headers: auth(tokens.staff) });
+    const res = await waitFor(async () => {
+      const response = await app.inject({ method: "GET", url: `/robots/${SEED_IDS.robot}/status`, headers: auth(tokens.staff) });
+      return response.json().lastHeartbeat ? response : null;
+    }, "the robot heartbeat to reach status");
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ robotId: SEED_IDS.robot, connected: true, lastHeartbeat: { robotReady: true } });
     ws.close();
     await closed(ws);
-    await new Promise((r) => setTimeout(r, 100));
-    expect((await app.inject({ method: "GET", url: `/robots/${SEED_IDS.robot}/status`, headers: auth(tokens.staff) })).json().connected).toBe(false);
+    const detached = await waitFor(async () => !(await app.inject({ method: "GET", url: `/robots/${SEED_IDS.robot}/status`, headers: auth(tokens.staff) })).json().connected, "the robot to detach");
+    expect(detached).toBe(true);
   });
 
   test("wrong token is closed with 4401 and never attaches", async () => {
@@ -122,12 +134,10 @@ describe("WS /gateway", () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(app.hub.status(SEED_IDS.robot).connected).toBe(true);
     ws2.send(JSON.stringify({ type: "heartbeat", at: "2026-09-17T00:00:00.000Z", robotReady: true, adapter: "mock", pose: null, navState: "idle", estop: false, lift: "rest", battery: "unknown", activeCorrelationId: null, gatewayVersion: "0.0.1" }));
-    await new Promise((r) => setTimeout(r, 200));
-    expect(app.hub.status(SEED_IDS.robot).lastHeartbeat).toMatchObject({ robotReady: true });
+    expect(await waitFor(() => app.hub.status(SEED_IDS.robot).lastHeartbeat, "the replacement heartbeat")).toMatchObject({ robotReady: true });
     ws2.close();
     await closed(ws2);
-    await new Promise((r) => setTimeout(r, 200));
-    expect(app.hub.status(SEED_IDS.robot).connected).toBe(false);
+    expect(await waitFor(() => !app.hub.status(SEED_IDS.robot).connected, "the replacement robot link to detach")).toBe(true);
   });
 
   test("a superseded gateway socket is closed with 4409 and the new one stays attached", async () => {

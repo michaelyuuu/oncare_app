@@ -9,7 +9,15 @@ import { SEED_IDS, SEED_SECRETS } from "../src/db/seed";
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => { while (closers.length) await closers.pop()!(); });
-const settle = () => new Promise((r) => setTimeout(r, 80));
+async function waitFor<T>(condition: () => T | false | null | undefined, description: string, timeoutMs = 3000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = condition();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${description}`);
+}
 
 /** A gateway that behaves like GatewayCore + MockRobotAdapter, scripted in the test. */
 function scriptedGateway(url: string, token: string) {
@@ -41,16 +49,15 @@ describe("end-to-end visit (handover section 8, steps 1-5 without video)", () =>
     const created = await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } });
     const visitId = created.json().visit.id as string;
     // 2. robot goes to the resident
-    await settle(); await settle();
     const state = () => db.select().from(t.visitSession).where(eq(t.visitSession.id, visitId)).get()!.state;
-    expect(state()).toBe("awaiting_resident_consent");
+    expect(await waitFor(() => state() === "awaiting_resident_consent", "the scripted robot arrival")).toBe(true);
     // 3-4. iPad shows the incoming call; resident answers with one tap
     expect((await app.inject({ method: "GET", url: `/visits/${visitId}`, headers: auth(tokens.device) })).json().visit.state).toBe("awaiting_resident_consent");
     expect((await app.inject({ method: "POST", url: `/visits/${visitId}/answer`, headers: auth(tokens.device) })).json().visit.state).toBe("connecting");
     // 5. call connects (LiveKit in Plan 4; the client reports it here)
     expect((await app.inject({ method: "POST", url: `/visits/${visitId}/connected`, headers: auth(tokens.family) })).json().visit.state).toBe("active");
     expect((await app.inject({ method: "POST", url: `/visits/${visitId}/end`, headers: auth(tokens.family) })).json().visit.state).toBe("completed");
-    await settle();
+    await waitFor(() => familyEvents.filter((event) => event.type !== "hello").length === 8, "the final family audit event");
 
     const trail = db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, visitId)).all();
     expect(trail.map((e) => e.toState)).toEqual([
@@ -77,9 +84,9 @@ describe("end-to-end visit (handover section 8, steps 1-5 without video)", () =>
     });
     await new Promise((r) => ws.once("open", r));
     const visitId = (await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).json().visit.id;
-    await settle();
+    await waitFor(() => gwMessages.some((message) => message.type === "intent"), "the visit intent");
     expect((await app.inject({ method: "POST", url: `/visits/${visitId}/cancel`, headers: auth(tokens.family) })).json().visit.state).toBe("cancelled");
-    await settle();
+    await waitFor(() => gwMessages.some((message) => message.type === "cancel"), "the visit cancellation");
     expect(gwMessages.map((m) => m.type)).toEqual(["intent", "cancel"]);
     expect(db.select().from(t.visitSession).where(eq(t.visitSession.id, visitId)).get()?.state).toBe("cancelled");
     ws.close();

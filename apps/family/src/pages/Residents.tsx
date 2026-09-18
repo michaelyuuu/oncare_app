@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, t, type Api } from "@oncare/web-common";
 
 interface ResidentCard { id: string; displayName: string; availability: string; relationship: { consentRobotVisit: boolean } }
-function errorMessage(error: unknown): string { const code = error instanceof ApiError ? error.code : "http_error"; const key = `family.visit.failed.${code}`; const translated = t(key); return translated === key ? t("family.error.request") : translated; }
+function errorMessage(error: unknown): string { const code = error instanceof ApiError ? error.code : "http_error"; const key = `family.visit.failed.${code}`; const translated = t(key); return translated === key ? code : translated; }
 
 export function Residents({ api, displayName, onVisitCreated, onLogout }: { api: Api; displayName: string; onVisitCreated: (id: string) => void; onLogout: () => void }) {
   const [residents, setResidents] = useState<ResidentCard[]>([]);

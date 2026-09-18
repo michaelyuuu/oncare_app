@@ -69,3 +69,15 @@ test("resident not available disables the visit button", async () => {
   expect(await screen.findByRole("button", { name: "Send the robot to visit" })).toBeDisabled();
   expect(screen.getByText("Not available")).toBeInTheDocument();
 });
+
+test("an unknown visit API error displays its raw code", async () => {
+  try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
+  installFetch((path, init) => {
+    if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
+    if (path === "/visits" && init?.method === "POST") return { status: 409, body: { error: "future_policy_code" } };
+    return { status: 404, body: {} };
+  });
+  render(<App apiBase="http://api" />);
+  await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("future_policy_code");
+});
