@@ -61,7 +61,8 @@ def _parse_state(d: dict) -> ParsedState:
     status = states.get(nav.get("state"), "unknown") if isinstance(nav.get("state"), str) else "unknown"
     estop = d.get("estop") if type(d.get("estop")) is bool else True
     up = (stack.get("running") is True and stack.get("mode") in ("nav", "explore")
-          and pose is not None and status not in ("unknown", "failed")
+          # Aborted/rejected are historical goal outcomes, not stack outages.
+          and pose is not None and status != "unknown" and nav.get("state") != "unavailable"
           and type(d.get("estop")) is bool)
     distance = nav.get("dist")
     if not _finite(distance) or distance < 0:

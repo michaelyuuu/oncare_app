@@ -89,7 +89,10 @@ class FakeNavWeb:
                     outer.state["nav"] = {"state": "sending", "dist": None, "goal": [body[k] for k in ("x", "y", "yaw")], "auto": None, "queue": []}
                 elif self.path == "/cancel":
                     outer.state["estop"] = True
-                    outer.state["nav"]["state"] = "canceled"
+                    # Source cancel_nav has no handle after terminal results;
+                    # stopping/resuming does not erase the historical result.
+                    if outer.state["nav"]["state"] in ("sending", "navigating"):
+                        outer.state["nav"]["state"] = "canceled"
                 elif self.path == "/resume":
                     outer.state["estop"] = False
                 elif self.path != "/lift":

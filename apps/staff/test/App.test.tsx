@@ -52,6 +52,14 @@ test("approval, denial, tray actions, emergency stop and end call use their exac
         await userEvent.click(screen.getAllByRole("button", { name })[0]!);
     expect(posts.map(p => p.path)).toEqual(["/visits/v1/approve", "/visits/v1/deny", "/tasks/t1/loaded", "/tasks/t2/received", "/robots/robot1/stop", "/visits/v2/end"]);
 });
+test.each([["active", "Navigating"], ["succeeded", "Arrived"], ["canceled", "Canceled"]])(
+    "navweb heartbeat %s has a localized staff navigation status", async (status, label) => {
+        queue.robot!.lastHeartbeat.adapter = "navweb";
+        queue.robot!.lastHeartbeat.navState = status;
+        render(<App apiBase="http://api"/>);
+        expect(await screen.findByText(label)).toBeInTheDocument();
+    },
+);
 test("PIN is reentered each time and a control failure survives refresh", async () => {
     render(<App apiBase="http://api"/>);
     await userEvent.click(await screen.findByRole("button", { name: "Release stop" }));

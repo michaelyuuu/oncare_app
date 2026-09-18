@@ -63,6 +63,38 @@ def test_source_state_and_health_readiness(fake, adapter):
     assert not adapter.state()["ready"]
 
 
+@pytest.mark.parametrize("terminal", ["aborted", "rejected"])
+def test_terminal_failure_allows_explicit_recovery_and_next_approved_goal(fake, adapter, clock, terminal):
+    start(fake, adapter, clock)
+    fake.state["nav"]["state"] = terminal
+    assert result(adapter, clock).outcome == "navigation_failed"
+    adapter.safety_stop()
+    eventually(lambda: fake.state["estop"])
+    assert not adapter.state()["ready"]
+    adapter.resume()
+    eventually(lambda: any(path == "/resume" for path, _ in fake.posts))
+    assert fake.state["nav"]["state"] == terminal
+    eventually(lambda: adapter.state()["ready"])
+    adapter.start_goto(LOC, clock.now_ms())
+    eventually(lambda: sum(path == "/goal" for path, _ in fake.posts) == 2)
+    fake.state["nav"]["state"] = "succeeded"
+    assert result(adapter, clock).outcome == "arrived"
+
+
+@pytest.mark.parametrize("status", ["unavailable", "unknown", "unexpected"])
+def test_unavailable_or_unknown_navigation_stays_not_ready(fake, adapter, status):
+    fake.state["nav"]["state"] = status
+    eventually(lambda: not adapter.state()["ready"])
+
+
+@pytest.mark.parametrize("source,public", [("navigating", "active"), ("succeeded", "succeeded"), ("canceled", "canceled")])
+def test_navweb_status_reaches_staff_heartbeat(fake, adapter, clock, source, public):
+    fake.state["nav"]["state"] = source
+    core = GatewayCore(adapter, clock.now_ms)
+    eventually(lambda: core.heartbeat()["navState"] == public)
+    assert core.heartbeat()["adapter"] == "navweb"
+
+
 @pytest.mark.parametrize("key", ["pose", "nav", "stack", "estop"])
 def test_missing_source_fields_fail_closed(fake, adapter, key):
     del fake.state[key]

@@ -204,6 +204,7 @@
   "staff.nav.arrived": "Arrived",
   "staff.nav.failed": "Failed",
   "staff.nav.stopped": "Stopped",
+  "staff.nav.canceled": "Canceled",
   "staff.streaming.title": "Streaming now",
   "staff.streaming.end": "End call",
   "staff.streaming.none": "No robot is streaming",
