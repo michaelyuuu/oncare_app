@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
-    "dev": "concurrently -n api,resident,family \"npm run dev -w @oncare/api\" \"npm run dev -w @oncare/resident\" \"npm run dev -w @oncare/family\""
+    "dev": "concurrently -n api,resident,family \"npm run dev -w @oncare/api\" \"npm run dev -w @oncare/resident\" \"npm run dev -w @oncare/family\"",
+    "demo:check": "node scripts/demo-check.mjs"
   },
   "devDependencies": {
     "vite": "^6.0.0",
