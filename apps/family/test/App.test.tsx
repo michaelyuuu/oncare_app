@@ -2,6 +2,13 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ApiError, type Api } from "@oncare/web-common";
+
+const callMock = vi.hoisted(() => ({ createCall: vi.fn(), callbacks: undefined as any }));
+vi.mock("@oncare/web-common", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@oncare/web-common")>();
+  return { ...original, createCall: callMock.createCall };
+});
+
 import { App } from "../src/App";
 import { Visit } from "../src/pages/Visit";
 
@@ -17,18 +24,28 @@ function installFetch(handler: Handler) {
   return calls;
 }
 class NoopSocket { onopen: unknown; onmessage: unknown; onclose: unknown; constructor(_url: string) {} close() {} }
-beforeEach(() => { try { sessionStorage.clear(); } catch {} vi.stubGlobal("WebSocket", NoopSocket); });
+beforeEach(() => {
+  try { sessionStorage.clear(); } catch {}
+  vi.stubGlobal("WebSocket", NoopSocket);
+  callMock.callbacks = undefined;
+  callMock.createCall.mockReset().mockImplementation(async (_url, _token, callbacks) => {
+    callMock.callbacks = callbacks;
+    callbacks.onLocalState({ camera: true, mic: true });
+    return { setVolume: vi.fn(), setMic: vi.fn(async () => {}), setCamera: vi.fn(async () => {}), localVideoElement: () => document.createElement("video"), leave: vi.fn(async () => {}) };
+  });
+});
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const resident = { id: "resident_demo_01", displayName: "Mom", availability: "available", relationship: { label: "daughter", consentVideo: true, consentRobotVisit: true, consentItemDelivery: true } };
 
-test("login -> residents -> request a visit -> live stepper reaches the call and auto-reports connected", async () => {
+test("login -> residents -> request a visit -> remote presence advances the live stepper", async () => {
   let state = "accepted";
   const calls = installFetch((path, init) => {
     if (path === "/auth/login") return init?.body?.toString().includes("family-demo-pass") ? { status: 200, body: { token: "jwt", principal: { kind: "user", id: "family_demo_01", role: "family", displayName: "Demo Daughter" } } } : { status: 401, body: { error: "invalid_credentials" } };
     if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
     if (path === "/visits" && init?.method === "POST") return { status: 201, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
     if (path === "/visits/v1") return { status: 200, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
+    if (path === "/visits/v1/token") return { status: 200, body: { url: "wss://video.example", token: "token", room: "v1" } };
     if (path === "/visits/v1/connected") { state = "active"; return { status: 200, body: { visit: { id: "v1", state } } }; }
     return { status: 404, body: { error: "not_found" } };
   });
@@ -47,7 +64,10 @@ test("login -> residents -> request a visit -> live stepper reaches the call and
   expect(screen.getByText("SIMULATED ROBOT")).toBeInTheDocument();
   expect(screen.getByText("Robot is on its way")).toHaveAttribute("aria-current", "step");
   state = "connecting";
-  await waitFor(() => expect(calls.some((c) => c.path === "/visits/v1/connected" && c.method === "POST")).toBe(true), { timeout: 6000 });
+  await waitFor(() => expect(callMock.createCall).toHaveBeenCalled(), { timeout: 6000 });
+  expect(calls.some((c) => c.path === "/visits/v1/connected")).toBe(false);
+  act(() => callMock.callbacks.onRemoteParticipant(true));
+  await waitFor(() => expect(calls.some((c) => c.path === "/visits/v1/connected" && c.method === "POST")).toBe(true));
   expect(await screen.findByText("On the call")).toHaveAttribute("aria-current", "step");
 });
 
@@ -108,23 +128,38 @@ test("a resident-unavailable visit error includes the resident's name", async ()
   expect(await screen.findByRole("alert")).toHaveTextContent("Mom is not available right now");
 });
 
-test("retries a failed connection acknowledgement and keeps feedback until it recovers", async () => {
-  vi.useFakeTimers();
+test("shows connection feedback when the real-presence acknowledgement fails without retrying", async () => {
   const get: Api["get"] = async <T,>(path: string): Promise<T> => (path === "/me/residents"
     ? { residents: [resident] }
     : { visit: { id: "v1", state: "connecting", residentId: resident.id } }) as T;
-  const post = vi.fn((..._args: unknown[]) => Promise.reject(new ApiError(503, "unavailable")));
+  const post = vi.fn((path: string, _body?: unknown) => path.endsWith("/token")
+    ? Promise.resolve({ url: "wss://video.example", token: "token", room: "v1" })
+    : Promise.reject(new ApiError(503, "unavailable")));
   const api: Api = {
     get,
     post: async <T,>(path: string, body?: unknown): Promise<T> => post(path, body) as Promise<T>,
   };
   const view = render(<Visit api={api} apiBase="http://api" token="jwt" visitId="v1" onBack={vi.fn()} />);
-  await act(async () => {});
+  await waitFor(() => expect(callMock.callbacks).toBeDefined());
+  act(() => callMock.callbacks.onRemoteParticipant(true));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again."));
   expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
-  expect(post).toHaveBeenCalledTimes(1);
-  await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(post).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
   view.unmount();
-  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("posts terminal connection loss and keeps failure feedback when reporting it fails", async () => {
+  const get: Api["get"] = async <T,>(path: string): Promise<T> => (path === "/me/residents"
+    ? { residents: [resident] }
+    : { visit: { id: "v1", state: "active", residentId: resident.id } }) as T;
+  const post = vi.fn((path: string, _body?: unknown) => path.endsWith("/token")
+    ? Promise.resolve({ url: "wss://video.example", token: "token", room: "v1" })
+    : Promise.reject(new ApiError(503, "unavailable")));
+  const api: Api = { get, post: (path, body) => post(path, body) as any };
+  render(<Visit api={api} apiBase="http://api" token="jwt" visitId="v1" onBack={vi.fn()} />);
+  await waitFor(() => expect(callMock.callbacks).toBeDefined());
+
+  act(() => callMock.callbacks.onLost());
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/visits/v1/connection_lost", undefined));
+  expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
 });
