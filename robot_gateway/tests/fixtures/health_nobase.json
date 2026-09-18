@@ -1,0 +1,6 @@
+{
+  "_synthetic": true,
+  "_source": "health_web.py:1569-1587; synthetic base_rpc down branch",
+  "profile": "nav",
+  "tiles": [{"key": "base_rpc", "group": "Base & drive", "label": "base RPC :50000", "value": "down", "state": "down", "detail": "base_server.py (tidybot2 env)", "hint": ""}]
+}

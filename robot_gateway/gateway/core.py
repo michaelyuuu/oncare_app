@@ -141,7 +141,6 @@ class GatewayCore:
         # period. Progress is picked back up once on_connected() is called.
         if self._disconnected_at is not None:
             if self._active is not None and self.now_ms() - self._disconnected_at >= self.disconnect_grace_ms:
-                self.adapter.cancel()
                 self.adapter.safety_stop()
                 self._stopped = True
                 active = self._active

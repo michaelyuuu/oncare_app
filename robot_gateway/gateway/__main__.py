@@ -2,6 +2,7 @@ import asyncio, logging, signal, sys, time
 from .config import load_config
 from .core import GatewayCore
 from .robot.mock import MockRobotAdapter
+from .robot.navweb import NavWebAdapter
 from .runner import GatewayRunner
 from . import __version__
 
@@ -13,7 +14,7 @@ def main(argv: list[str] | None = None) -> int:
         adapter = MockRobotAdapter(travel_ms=cfg.mock_travel_ms)
         logging.getLogger("gateway").warning("SIMULATED ROBOT: adapter=mock")
     else:
-        raise SystemExit("navweb adapter arrives in Plan 6")
+        adapter = NavWebAdapter(cfg.navweb_base_url, cfg.health_base_url, goal_timeout_s=cfg.goal_timeout_s)
     core = GatewayCore(adapter, now_ms=lambda: int(time.monotonic() * 1000), version=__version__)
     runner = GatewayRunner(core, cfg.api_url, cfg.robot_token, cfg.heartbeat_ms, cfg.tick_ms)
     stop = asyncio.Event()
@@ -29,6 +30,10 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(_run())
     except KeyboardInterrupt:
         pass
+    finally:
+        close = getattr(adapter, "close", None)
+        if close is not None:
+            close()
     return 0
 
 if __name__ == "__main__":

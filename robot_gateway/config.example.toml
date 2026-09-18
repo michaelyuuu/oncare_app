@@ -5,3 +5,7 @@ adapter = "mock"          # "mock" on a dev machine, "navweb" on the Jetson (Pla
 heartbeat_ms = 1000
 tick_ms = 250
 mock_travel_ms = 2000
+# Fixed production loopback origins. Constructor overrides are for local tests only.
+navweb_base_url = "http://127.0.0.1:5804"
+health_base_url = "http://127.0.0.1:5808"
+goal_timeout_s = 120
