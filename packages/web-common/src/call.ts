@@ -43,12 +43,14 @@ export async function createCall(
     if (!callbacksActive || lostReported) return;
     lostReported = true;
     clearAbsenceTimer();
-    cleanupMedia(true);
     callbacksActive = false;
+    cleanupMedia(true);
+    leavePromise ??= room.disconnect();
+    void leavePromise.catch(() => {});
     cb.onLost();
   };
   const startAbsenceTimer = () => {
-    if (!hasHadRemoteParticipant || absenceTimer !== null || lostReported) return;
+    if (!callbacksActive || !hasHadRemoteParticipant || absenceTimer !== null || lostReported) return;
     absenceTimer = setTimeout(reportLost, 10_000);
   };
   const detach = (track: RemoteTrack) => {
@@ -119,10 +121,15 @@ export async function createCall(
 
   try {
     await room.connect(url, token);
+    if (!callbacksActive) throw new Error("Call ended during startup");
     if (opts.publish) {
       await room.localParticipant.setCameraEnabled(true);
+      if (!callbacksActive) throw new Error("Call ended during startup");
       local.camera = true;
+      cb.onLocalState({ ...local });
+      if (!callbacksActive) throw new Error("Call ended during startup");
       await room.localParticipant.setMicrophoneEnabled(true);
+      if (!callbacksActive) throw new Error("Call ended during startup");
       local.mic = true;
     }
     cb.onLocalState({ ...local });
@@ -131,7 +138,7 @@ export async function createCall(
     callbacksActive = false;
     clearAbsenceTimer();
     cleanupMedia(false);
-    await room.disconnect();
+    await (leavePromise ??= room.disconnect());
     throw error;
   }
 
@@ -145,16 +152,19 @@ export async function createCall(
     async setMic(on) {
       if (!opts.publish || !callbacksActive) return;
       await room.localParticipant.setMicrophoneEnabled(on);
+      if (!callbacksActive) return;
       local.mic = on;
       cb.onLocalState({ ...local });
     },
     async setCamera(on) {
       if (!opts.publish || !callbacksActive) return;
       await room.localParticipant.setCameraEnabled(on);
+      if (!callbacksActive) return;
       local.camera = on;
       cb.onLocalState({ ...local });
     },
     localVideoElement() {
+      if (!callbacksActive) return null;
       for (const publication of room.localParticipant.videoTrackPublications.values()) {
         if (publication.track) return publication.track.attach() as HTMLVideoElement;
       }

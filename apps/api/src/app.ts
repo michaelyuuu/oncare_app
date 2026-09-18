@@ -39,6 +39,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
     ...(opts.now ? { now: opts.now } : {}),
     onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
   }));
+  app.addHook("onClose", async () => app.visits.stop());
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });

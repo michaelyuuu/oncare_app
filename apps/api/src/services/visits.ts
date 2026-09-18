@@ -30,6 +30,7 @@ function roleOf(p: Principal): "family" | "staff" | "device" { return p.kind ===
 function actorTypeOf(p: Principal): ActorType { return p.kind === "device" ? "device" : p.role; }
 
 export interface VisitService {
+  stop(): void;
   create(input: { requesterId: string; residentId: string }): { ok: true; visit: VisitRow } | { ok: false; error: CreateVisitError };
   get(id: string): VisitRow | undefined;
   canView(principal: Principal, visit: VisitRow): boolean;
@@ -48,6 +49,24 @@ export function createVisitService(
   function get(visitId: string): VisitRow | undefined {
     return db.select().from(t.visitSession).where(eq(t.visitSession.id, visitId)).get();
   }
+
+  // Remember only rooms closed at ending until their terminal transition.
+  // All writers (including dispatch) share this successful-transition stream.
+  const closedAtEnding = new Set<string>();
+  const unsubscribe = transitions.subscribe((event) => {
+    if (event.entityType !== "visit") return;
+    const terminal = (VISIT_TERMINAL_STATES as readonly string[]).includes(event.toState ?? "");
+    if (event.toState !== "ending" && !terminal) return;
+    const alreadyClosed = closedAtEnding.has(event.entityId);
+    if (terminal) closedAtEnding.delete(event.entityId);
+    if (alreadyClosed) return;
+    const visit = get(event.entityId);
+    const tokenEligibleBefore = ["awaiting_resident_consent", "connecting", "active", "ending"].includes(event.fromState ?? "")
+      || visit?.connectedAt != null;
+    if (!tokenEligibleBefore) return;
+    if (event.toState === "ending") closedAtEnding.add(event.entityId);
+    void video.closeRoom(event.entityId).catch(() => opts.onVideoCloseError?.(event.entityId));
+  });
 
   function create(input: { requesterId: string; residentId: string }) {
     const rel = db.select().from(t.familyRelationship)
@@ -106,15 +125,8 @@ export function createVisitService(
       throw e;
     }
     const updated = get(visit.id)!;
-    const tokenEligibleBefore = ["awaiting_resident_consent", "connecting", "active", "ending"].includes(visit.state)
-      || visit.connectedAt !== null;
-    const newlyEndingOrTerminal = updated.state !== visit.state
-      && (updated.state === "ending" || (VISIT_TERMINAL_STATES as readonly string[]).includes(updated.state));
-    if (tokenEligibleBefore && newlyEndingOrTerminal) {
-      void video.closeRoom(visit.id).catch(() => opts.onVideoCloseError?.(visit.id));
-    }
     return { ok: true as const, visit: updated };
   }
 
-  return { create, get, canView, act };
+  return { create, get, canView, act, stop() { unsubscribe(); closedAtEnding.clear(); } };
 }

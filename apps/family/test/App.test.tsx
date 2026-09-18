@@ -142,13 +142,19 @@ test("shows connection feedback when the real-presence acknowledgement fails wit
   const view = render(<Visit api={api} apiBase="http://api" token="jwt" visitId="v1" onBack={vi.fn()} />);
   await waitFor(() => expect(callMock.callbacks).toBeDefined());
   act(() => callMock.callbacks.onRemoteParticipant(true));
-  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again."));
-  expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The call status could not be updated. Please reload the page."));
+  expect(screen.getByRole("alert")).toHaveTextContent("The call status could not be updated. Please reload the page.");
   expect(post).toHaveBeenCalledTimes(2);
   view.unmount();
 });
 
-test("posts terminal connection loss and keeps failure feedback when reporting it fails", async () => {
+test("early loss leaves the late call handle even when reporting loss fails and the panel stays mounted", async () => {
+  let resolveHandle!: (value: any) => void;
+  const handle = { setVolume: vi.fn(), setMic: vi.fn(async () => {}), setCamera: vi.fn(async () => {}), localVideoElement: vi.fn(() => document.createElement("video")), leave: vi.fn(async () => {}) };
+  callMock.createCall.mockImplementation((_url, _token, callbacks) => {
+    callMock.callbacks = callbacks;
+    return new Promise((resolve) => { resolveHandle = resolve; });
+  });
   const get: Api["get"] = async <T,>(path: string): Promise<T> => (path === "/me/residents"
     ? { residents: [resident] }
     : { visit: { id: "v1", state: "active", residentId: resident.id } }) as T;
@@ -161,5 +167,9 @@ test("posts terminal connection loss and keeps failure feedback when reporting i
 
   act(() => callMock.callbacks.onLost());
   await waitFor(() => expect(post).toHaveBeenCalledWith("/visits/v1/connection_lost", undefined));
-  expect(screen.getByRole("alert")).toHaveTextContent("The call could not connect. Trying again.");
+  expect(screen.getByRole("alert")).toHaveTextContent("The call status could not be updated. Please reload the page.");
+  await act(async () => resolveHandle(handle));
+  expect(screen.getByRole("region", { name: "Video call" })).toBeInTheDocument();
+  expect(handle.leave).toHaveBeenCalledTimes(1);
+  expect(handle.localVideoElement).not.toHaveBeenCalled();
 });

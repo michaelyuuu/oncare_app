@@ -84,6 +84,7 @@
   "family.call.region": "Video call",
   "family.call.waiting": "Waiting for {name} to join…",
   "family.call.connected": "Connected",
+  "family.call.resident_fallback": "your family member",
   "family.call.mute": "Mute",
   "family.call.unmute": "Unmute",
   "family.call.camera_off": "Camera off",
@@ -92,7 +93,7 @@
   "family.error.load": "Your family list could not be loaded",
   "family.error.request": "This visit could not be requested",
   "family.error.progress": "This visit could not be refreshed. Trying again.",
-  "family.error.connecting": "The call could not connect. Trying again.",
+  "family.error.connecting": "The call status could not be updated. Please reload the page.",
   "family.error.action": "That visit action could not be completed",
   "family.badge.simulated": "SIMULATED ROBOT"
 }

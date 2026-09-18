@@ -24,6 +24,13 @@ describe("grantsFor", () => {
 });
 
 describe("POST /visits/:id/token", () => {
+  test("missing visits return 404 and unrelated devices return 403 without issuing tokens", async () => {
+    const { app, video, tokens, token } = await visitIn("connecting");
+    expect((await app.inject({ method: "POST", url: "/visits/missing/token", headers: auth(tokens.family) })).statusCode).toBe(404);
+    const otherDevice = app.jwt.sign({ kind: "device", id: "other_device", residentId: "other_resident", robotId: SEED_IDS.robot });
+    expect((await token(otherDevice)).statusCode).toBe(403);
+    expect(video.issued).toEqual([]);
+  });
   test("device gets a publishing token while the call is ringing; family does not yet", async () => {
     const { video, tokens, id, token } = await visitIn("awaiting_resident_consent");
     const d = await token(tokens.device);
@@ -61,15 +68,13 @@ describe("room lifecycle", () => {
   test("ending the call closes the room exactly once", async () => {
     const { app, video, tokens, id } = await visitIn("active");
     await app.inject({ method: "POST", url: `/visits/${id}/end`, headers: auth(tokens.family) });
-    await new Promise((r) => setTimeout(r, 10));
     expect(video.closed).toEqual([id]);
   });
 
-  test("connection_lost from connecting or active moves the visit to connection_failed and closes the room", async () => {
-    const a = await visitIn("active");
+  test.each(["connecting", "active"])("connection_lost from %s moves the visit to connection_failed and closes the room", async (state) => {
+    const a = await visitIn(state);
     const res = await a.app.inject({ method: "POST", url: `/visits/${a.id}/connection_lost`, headers: auth(a.tokens.device) });
     expect(res.json().visit.state).toBe("connection_failed");
-    await new Promise((r) => setTimeout(r, 10));
     expect(a.video.closed).toEqual([a.id]);
     const b = await visitIn("robot_en_route");
     expect((await b.app.inject({ method: "POST", url: `/visits/${b.id}/connection_lost`, headers: auth(b.tokens.family) })).statusCode).toBe(409);
@@ -78,14 +83,12 @@ describe("room lifecycle", () => {
   test("cancelling before the call never touches the room", async () => {
     const { app, video, tokens, id } = await visitIn("accepted");
     await app.inject({ method: "POST", url: `/visits/${id}/cancel`, headers: auth(tokens.family) });
-    await new Promise((r) => setTimeout(r, 10));
     expect(video.closed).toEqual([]);
   });
 
   test("declining while the device could hold a prejoin token closes the room", async () => {
     const { app, video, tokens, id } = await visitIn("awaiting_resident_consent");
     await app.inject({ method: "POST", url: `/visits/${id}/decline`, headers: auth(tokens.device) });
-    await new Promise((r) => setTimeout(r, 10));
     expect(video.closed).toEqual([id]);
   });
 
@@ -93,7 +96,6 @@ describe("room lifecycle", () => {
     const { app, video, tokens, id } = await visitIn("active");
     expect((await app.inject({ method: "POST", url: `/visits/${id}/end`, headers: auth(tokens.family) })).statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: `/visits/${id}/end`, headers: auth(tokens.family) })).statusCode).toBe(409);
-    await new Promise((r) => setTimeout(r, 10));
     expect(video.closed).toEqual([id]);
   });
 
@@ -102,7 +104,37 @@ describe("room lifecycle", () => {
     vi.spyOn(video, "closeRoom").mockRejectedValueOnce(new Error("close failed"));
     const log = vi.spyOn(app.log, "error").mockImplementation(() => undefined);
     await app.inject({ method: "POST", url: `/visits/${id}/end`, headers: auth(tokens.family) });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(log).toHaveBeenCalledWith({ visitId: id }, "failed to close video room");
+    await vi.waitFor(() => expect(log).toHaveBeenCalledWith({ visitId: id }, "failed to close video room"));
+  });
+
+  test.each(["awaiting_resident_consent", "connecting", "active"])("staff stop closes a %s room once", async (state) => {
+    const { app, db, video, id } = await visitIn(state);
+    db.update(t.robotCommand).set({ result: "accepted", ackedAt: new Date().toISOString() }).where(eq(t.robotCommand.visitId, id)).run();
+    app.dispatch.sendStop(SEED_IDS.robot, SEED_IDS.staffUser);
+    expect(app.visits.get(id)?.state).toBe("safety_stopped");
+    app.dispatch.sendStop(SEED_IDS.robot, SEED_IDS.staffUser);
+    expect(video.closed).toEqual([id]);
+  });
+
+  test.each([
+    ["connecting", "safety_stopped"], ["active", "safety_stopped"],
+    ["connecting", "cancelled"], ["active", "cancelled"],
+  ] as const)("gateway %s -> %s closes the room once", async (state, event) => {
+    const { app, video, id } = await visitIn(state);
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: id, at: new Date().toISOString(), event });
+    expect(app.visits.get(id)?.state).toBe(event);
+    app.hub.receive(SEED_IDS.robot, { type: "state_event", correlationId: id, at: new Date().toISOString(), event });
+    expect(video.closed).toEqual([id]);
+  });
+
+  test("API close disposes the room transition subscription", async () => {
+    const { app, db, video, id } = await visitIn("active");
+    db.insert(t.visitSession).values({ ...app.visits.get(id)!, id: "visit_after_close" }).run();
+    app.transitions.apply({ entityType: "visit", entityId: id, to: "ending", actorType: "system", actorId: "api" });
+    expect(video.closed).toEqual([id]);
+    await app.close();
+    app.transitions.apply({ entityType: "visit", entityId: "visit_after_close", to: "ending", actorType: "system", actorId: "api" });
+    app.transitions.apply({ entityType: "visit", entityId: id, to: "completed", actorType: "system", actorId: "api" });
+    expect(video.closed).toEqual([id]);
   });
 });

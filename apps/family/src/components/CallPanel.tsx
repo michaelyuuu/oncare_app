@@ -53,6 +53,7 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
       if (cancelled || lostOnce) return;
       lostOnce = true;
       leaveOnce();
+      if (handleRef.current === generationHandle) handleRef.current = null;
       callbacksRef.current.onLost();
     };
 
@@ -62,13 +63,13 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
         if (cancelled) return;
         const handle = await createCall(url, token, {
           onRemoteVideo: (element) => {
-            if (!cancelled) replaceMedia(remoteRef.current, element);
+            if (!cancelled && !lostOnce) replaceMedia(remoteRef.current, element);
           },
           onRemoteAudio: (element) => {
-            if (!cancelled) replaceMedia(audioRef.current, element);
+            if (!cancelled && !lostOnce) replaceMedia(audioRef.current, element);
           },
           onRemoteParticipant: (nextPresent) => {
-            if (cancelled) return;
+            if (cancelled || lostOnce) return;
             setPresent(nextPresent);
             if (nextPresent && !connectedOnce) {
               connectedOnce = true;
@@ -76,13 +77,13 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
             }
           },
           onLocalState: (nextState) => {
-            if (cancelled) return;
+            if (cancelled || lostOnce) return;
             setLocalState(nextState);
             if (generationHandle) attachLocalPreview(generationHandle);
           },
           onLost: reportLost,
         }, { publish: true });
-        if (cancelled) {
+        if (cancelled || lostOnce) {
           await handle.leave();
           return;
         }
@@ -108,11 +109,11 @@ export function CallPanel({ api, visitId, residentName, onConnected, onLost }: C
     try {
       await operation(handle);
     } catch {
-      setControlError(t("family.call.control_error"));
+      if (handleRef.current === handle) setControlError(t("family.call.control_error"));
     }
   }
 
-  const status = present ? t("family.call.connected") : t("family.call.waiting", { name: residentName });
+  const status = present ? t("family.call.connected") : t("family.call.waiting", { name: residentName.trim() || t("family.call.resident_fallback") });
   return <section className="call-panel" aria-label={t("family.call.region")}>
     <div ref={remoteRef} className="call-remote" aria-label={status} />
     <div ref={localRef} className="call-local" aria-hidden="true" />

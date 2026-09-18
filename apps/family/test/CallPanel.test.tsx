@@ -40,6 +40,43 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+test("early startup loss leaves the late handle while the panel stays mounted", async () => {
+  let resolveHandle!: (value: CallHandle) => void;
+  callMock.createCall.mockImplementation((_url, _token, callbacks) => {
+    callMock.callbacks = callbacks;
+    return new Promise<CallHandle>((resolve) => { resolveHandle = resolve; });
+  });
+  const onLost = vi.fn();
+  const { container } = render(<CallPanel api={apiWithToken()} visitId="v1" residentName="Mom" onConnected={vi.fn()} onLost={onLost} />);
+  await waitFor(() => expect(callMock.callbacks).toBeDefined());
+  act(() => callMock.callbacks.onLost());
+  await act(async () => resolveHandle(handle));
+  expect(onLost).toHaveBeenCalledTimes(1);
+  expect(handle.leave).toHaveBeenCalledTimes(1);
+  expect(container.querySelector(".call-local video")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Unmute" }));
+  expect(handle.setMic).not.toHaveBeenCalled();
+});
+
+test("a replaced call's pending control rejection cannot show feedback on the new call", async () => {
+  let rejectControl!: (error: Error) => void;
+  handle.setMic = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectControl = reject; }));
+  const api = apiWithToken();
+  const view = render(<CallPanel api={api} visitId="v1" residentName="Mom" onConnected={vi.fn()} onLost={vi.fn()} />);
+  await screen.findByRole("button", { name: "Mute" });
+  await userEvent.click(screen.getByRole("button", { name: "Mute" }));
+  handle = { ...handle, setMic: vi.fn(async () => {}), leave: vi.fn(async () => {}) };
+  view.rerender(<CallPanel api={api} visitId="v2" residentName="Dad" onConnected={vi.fn()} onLost={vi.fn()} />);
+  await waitFor(() => expect(callMock.createCall).toHaveBeenCalledTimes(2));
+  await act(async () => rejectControl(new Error("old control failed")));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("an unavailable resident name uses neutral localized waiting text", async () => {
+  render(<CallPanel api={apiWithToken()} visitId="v1" residentName="" onConnected={vi.fn()} onLost={vi.fn()} />);
+  expect(await screen.findByText("Waiting for your family member to join…")).toBeInTheDocument();
+});
+
 test("joins with publishing, attaches scoped media and the initial muted preview, and toggles controls", async () => {
   const api = apiWithToken();
   const { container } = render(<CallPanel api={api} visitId="v1" residentName="Mom" onConnected={vi.fn()} onLost={vi.fn()} />);

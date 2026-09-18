@@ -77,6 +77,55 @@ function callbacks() {
 }
 
 describe("createCall", () => {
+  test("reports camera publishing before microphone startup completes", async () => {
+    const cb = callbacks();
+    let finishMic!: () => void;
+    const pending = createCall("wss://x", "tok", cb, { publish: true, RoomImpl: FakeRoom as never });
+    FakeRoom.last.localParticipant.setMicrophoneEnabled.mockImplementation(() => new Promise<void>((resolve) => { finishMic = resolve; }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(cb.onLocalState).toHaveBeenLastCalledWith({ camera: true, mic: false });
+    finishMic();
+    const handle = await pending;
+    expect(cb.onLocalState).toHaveBeenLastCalledWith({ camera: true, mic: true });
+    await handle.leave();
+  });
+
+  test.each(["camera", "microphone"])("loss during pending %s startup stops continuation and late notifications", async (stage) => {
+    const cb = callbacks();
+    let finish!: () => void;
+    const pending = createCall("wss://x", "tok", cb, { publish: true, RoomImpl: FakeRoom as never });
+    const room = FakeRoom.last;
+    const operation = stage === "camera" ? room.localParticipant.setCameraEnabled : room.localParticipant.setMicrophoneEnabled;
+    operation.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    await Promise.resolve();
+    await Promise.resolve();
+    room.emit("disconnected");
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+    const notifications = cb.onLocalState.mock.calls.length;
+    finish();
+    await expect(pending).rejects.toThrow("Call ended during startup");
+    expect(cb.onLocalState).toHaveBeenCalledTimes(notifications);
+    expect(cb.onRemoteParticipant).not.toHaveBeenCalled();
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+    expect(cb.onLost).toHaveBeenCalledTimes(1);
+    if (stage === "camera") expect(room.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+  });
+
+  test.each(["mic", "camera"] as const)("pending %s control does not notify after leave", async (control) => {
+    const cb = callbacks();
+    const handle = await createCall("wss://x", "tok", cb, { publish: true, RoomImpl: FakeRoom as never });
+    let finish!: () => void;
+    const operation = control === "mic" ? FakeRoom.last.localParticipant.setMicrophoneEnabled : FakeRoom.last.localParticipant.setCameraEnabled;
+    operation.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const pending = control === "mic" ? handle.setMic(false) : handle.setCamera(false);
+    const notifications = cb.onLocalState.mock.calls.length;
+    await handle.leave();
+    finish();
+    await pending;
+    expect(cb.onLocalState).toHaveBeenCalledTimes(notifications);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
