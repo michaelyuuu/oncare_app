@@ -8,11 +8,13 @@ import { eventsRoutes } from "./routes/events-ws";
 import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
 import { robotRoutes } from "./routes/robots";
+import { taskRoutes } from "./routes/tasks";
 import { visitRoutes } from "./routes/visits";
 import { videoRoutes } from "./routes/video";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createTransitionService } from "./services/transitions";
+import { createTaskService, type TaskService } from "./services/tasks";
 import { createVisitService, type TransitionService, type VisitService } from "./services/visits";
 import { videoProviderFromEnv, type VideoProvider } from "./services/video";
 
@@ -22,6 +24,7 @@ declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
+    tasks: TaskService;
     video: VideoProvider;
   }
 }
@@ -32,6 +35,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
+  app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
   const hub = new GatewayHub();
   app.decorate("hub", hub);
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
@@ -49,6 +53,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(videoRoutes, { db: opts.db });
   app.register(gatewayRoutes, { db: opts.db });
   app.register(robotRoutes, { db: opts.db });
+  app.register(taskRoutes);
   app.register(eventsRoutes, { db: opts.db });
   app.get("/health", async () => ({ ok: true }));
   return app;
