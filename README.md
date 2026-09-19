@@ -19,7 +19,7 @@ The three apps are then available at `http://localhost:5174` (family), `http://l
 
 ## Synthetic demo credentials
 
-`family` / `family-demo-pass`; `staff` / `staff-demo-pass`; staff PIN `2468`; device token `device-demo-token`; robot token `robot-demo-token`. All are seeded fixtures, not production credentials.
+`family` / `family-demo-pass`; `staff` / `staff-demo-pass`; `admin` / `admin-demo-pass` (facility manager: opens the **Facility admin** tab in the staff console); staff and admin PIN `2468`; device token `device-demo-token`; robot token `robot-demo-token`. All are seeded fixtures, not production credentials.
 
 ## Checks and benchmarks
 
