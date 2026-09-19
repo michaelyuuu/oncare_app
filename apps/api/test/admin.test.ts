@@ -42,8 +42,9 @@ describe("admin API", () => {
     expect(fam.facilityId).toBeNull();
     const listed = (await call("GET", "/admin/users")).json().users as Array<Record<string, unknown>>;
     expect(listed.some((u) => "passwordHash" in u || "pinHash" in u)).toBe(false);
-    // A family member with no link to this facility is not listed.
-    expect(listed.map((u) => u.username)).not.toContain("son9");
+    // A family member created by this facility's admin is visible even before any link exists,
+    // so the admin UI can create their first link.
+    expect(listed.map((u) => u.username)).toContain("son9");
     expect((await call("POST", `/admin/users/${SEED_IDS.adminUser}/deactivate`)).json()).toEqual({ error: "cannot_deactivate_self" });
   });
 
@@ -107,5 +108,35 @@ describe("admin API", () => {
     expect((await call("POST", "/admin/staff-assignments", { userId: SEED_IDS.staffUser, residentId: "rb" })).statusCode).toBe(403);
     expect((await call("POST", "/admin/residents", { displayName: "X", roomLocationId: "loc_b" })).json()).toEqual({ error: "bad_location" });
     expect((await call("GET", "/admin/residents")).json().residents.map((r: { id: string }) => r.id)).not.toContain("rb");
+  });
+
+  test("an admin cannot reach a family user of another facility", async () => {
+    const { call, db } = await adminApp();
+    db.insert(t.facility).values({ id: "fb", name: "B", timezone: "Asia/Taipei" }).run();
+    db.insert(t.location).values({ id: "loc_b", facilityId: "fb", name: "B room", kind: "resident_room", x: 0, y: 0, yaw: 0, approved: true }).run();
+    db.insert(t.resident).values({ id: "rb", facilityId: "fb", displayName: "B1", roomLocationId: "loc_b" }).run();
+    db.insert(t.user).values({ id: "famb", role: "family", username: "famb", displayName: "FamB", passwordHash: "x", pinHash: null, facilityId: null }).run();
+    db.insert(t.familyRelationship).values({ id: "relb", userId: "famb", residentId: "rb", label: "kid" }).run();
+    db.insert(t.user).values({ id: "staffb", role: "staff", username: "staffb", displayName: "StaffB", passwordHash: "x", pinHash: null, facilityId: "fb" }).run();
+
+    // An admin of facility_demo cannot pull facility B's family user (or staff user) into its own
+    // scope by linking them, cannot reset their password or deactivate them, and cannot see them.
+    expect((await call("POST", "/admin/family-links", { userId: "famb", residentId: SEED_IDS.resident, label: "x" })).statusCode).toBe(403);
+    expect((await call("POST", "/admin/family-links", { userId: "staffb", residentId: SEED_IDS.resident, label: "x" })).statusCode).toBe(403);
+    expect((await call("POST", "/admin/users/famb/reset-password", { password: "pw-long-2" })).statusCode).toBe(403);
+    expect((await call("POST", "/admin/users/famb/deactivate")).statusCode).toBe(403);
+    const listed = (await call("GET", "/admin/users")).json().users as Array<{ username: string }>;
+    expect(listed.map((u) => u.username)).not.toContain("famb");
+    expect(listed.map((u) => u.username)).not.toContain("staffb");
+
+    // A family user this admin created (no links yet) is visible and linkable.
+    const fresh = (await call("POST", "/admin/users", { role: "family", username: "fresh9", displayName: "Fresh", password: "pw-long" })).json().user;
+    const relisted = (await call("GET", "/admin/users")).json().users as Array<{ username: string }>;
+    expect(relisted.map((u) => u.username)).toContain("fresh9");
+    expect((await call("POST", "/admin/family-links", { userId: fresh.id, residentId: SEED_IDS.resident, label: "kid" })).statusCode).toBe(201);
+
+    // A family user with links in both facilities is still out of scope: the foreign link disqualifies them.
+    db.insert(t.familyRelationship).values({ id: "rel_both", userId: "famb", residentId: SEED_IDS.resident, label: "also" }).run();
+    expect((await call("POST", "/admin/users/famb/reset-password", { password: "pw-long-2" })).statusCode).toBe(403);
   });
 });
