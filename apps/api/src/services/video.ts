@@ -1,4 +1,5 @@
 import { AccessToken, RoomServiceClient, TrackSource, TrackType, ServerError } from "livekit-server-sdk";
+import type { ActionRole } from "./access";
 
 /** Observed media state, not a promise that a camera is publishing. */
 export type CameraState = "on" | "paused" | "unavailable";
@@ -20,7 +21,7 @@ export interface VideoProvider {
   setCameraPaused(room: string, identity: string, paused: boolean): Promise<CameraState>;
 }
 
-export function grantsFor(role: "family" | "device" | "staff"): { canPublish: boolean; canSubscribe: boolean } {
+export function grantsFor(role: ActionRole): { canPublish: boolean; canSubscribe: boolean } {
   return role === "staff"
     ? { canPublish: false, canSubscribe: true }
     : { canPublish: true, canSubscribe: true };

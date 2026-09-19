@@ -6,8 +6,10 @@ import * as t from "../db/schema";
 
 export type FamilyLink = typeof t.familyRelationship.$inferSelect;
 
+export type ActionRole = "family" | "staff" | "device";
+
 /** Visit and task action tables know three roles. An admin acts with staff powers inside its facility. */
-export function actionRole(p: Principal): "family" | "staff" | "device" {
+export function actionRole(p: Principal): ActionRole {
   if (p.kind === "device") return "device";
   return p.role === "admin" ? "staff" : p.role;
 }

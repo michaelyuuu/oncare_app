@@ -9,6 +9,7 @@ export async function meRoutes(app: FastifyInstance, opts: { db: Db }) {
   app.get("/me/residents", { preHandler: requireRole("family") }, async (req) => {
     const p = req.principal;
     if (p.kind !== "user") return { residents: [] };
+    const visible = new Set(app.access.residentIdsVisibleTo(p));
     const rows = db
       .select({
         id: t.resident.id, displayName: t.resident.displayName, availability: t.resident.availability,
@@ -18,7 +19,8 @@ export async function meRoutes(app: FastifyInstance, opts: { db: Db }) {
       .from(t.familyRelationship)
       .innerJoin(t.resident, eq(t.resident.id, t.familyRelationship.residentId))
       .where(eq(t.familyRelationship.userId, p.id))
-      .all();
+      .all()
+      .filter((r) => visible.has(r.id));
     return {
       residents: rows.map((r) => ({
         id: r.id, displayName: r.displayName, availability: r.availability,

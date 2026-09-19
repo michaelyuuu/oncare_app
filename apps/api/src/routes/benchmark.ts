@@ -14,7 +14,7 @@ export async function benchmarkRoutes(app: FastifyInstance, opts: { db: Db; now?
     return { ok: true };
   });
 
-  app.get("/benchmark.csv", { preHandler: requireRole("staff") }, async (_req, reply) => {
+  app.get("/benchmark.csv", { preHandler: requireRole("staff", "admin") }, async (_req, reply) => {
     return reply.type("text/csv").send(app.benchmark.toCsv());
   });
 }

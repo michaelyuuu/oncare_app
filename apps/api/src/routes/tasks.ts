@@ -23,7 +23,7 @@ export async function taskRoutes(app: FastifyInstance) {
     return result.outcome;
   });
 
-  app.get("/tasks/:id", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+  app.get("/tasks/:id", { preHandler: requireRole("family", "staff", "admin", "device") }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const task = app.tasks.get(id);
     if (!task) return reply.code(404).send({ error: "not_found" });
@@ -31,7 +31,7 @@ export async function taskRoutes(app: FastifyInstance) {
     return { task };
   });
 
-  app.post("/tasks/:id/:action", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+  app.post("/tasks/:id/:action", { preHandler: requireRole("family", "staff", "admin", "device") }, async (req, reply) => {
     const { id, action } = req.params as { id: string; action: string };
     if (!TASK_ACTIONS.includes(action as TaskAction)) return reply.code(404).send({ error: "not_found" });
     const result = app.tasks.act({ taskId: id, action: action as TaskAction, principal: req.principal });

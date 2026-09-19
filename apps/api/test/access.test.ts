@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { eq } from "drizzle-orm";
+import { makeTransitionEvent, type AuditEvent } from "@oncare/core";
 import { openDb, type Db } from "../src/db/client";
 import * as t from "../src/db/schema";
 import { SEED_IDS, seed } from "../src/db/seed";
@@ -86,5 +87,89 @@ describe("helpers", () => {
     expect(access.familyLink(SEED_IDS.familyUser, "r2")).toBeUndefined();
     expect(access.familyLinks(SEED_IDS.familyUser)).toHaveLength(1);
     expect([admin(), staff(), family(), device()].map(actionRole)).toEqual(["staff", "staff", "family", "device"]);
+  });
+});
+
+describe("auditVisibleTo", () => {
+  const residentEvent = (): AuditEvent => makeTransitionEvent({
+    actorType: "staff", actorId: SEED_IDS.staffUser, entityType: "resident", entityId: R1,
+    fromState: "available", toState: "resting", reason: "availability_changed", correlationId: R1,
+  });
+
+  test.each<[string, () => Principal, boolean]>([
+    ["staff assigned to the resident sees it", () => staff(), true],
+    ["family never sees a resident-entity event", () => family(), false],
+    ["device never sees a resident-entity event", () => device(), false],
+  ])("resident event: %s", (_name, principal, expected) => {
+    expect(access.auditVisibleTo(principal(), residentEvent())).toBe(expected);
+  });
+
+  describe("visit event", () => {
+    function visitEvent() {
+      db.insert(t.visitSession).values({
+        id: "visit_x", residentId: R1, requesterId: SEED_IDS.familyUser, robotId: null,
+        state: "accepted", livekitRoom: null, requestedAt: new Date(0).toISOString(), connectedAt: null, endedAt: null,
+      }).run();
+      return makeTransitionEvent({
+        actorType: "family", actorId: SEED_IDS.familyUser, entityType: "visit", entityId: "visit_x",
+        fromState: null, toState: "accepted", reason: "auto_policy", correlationId: "visit_x",
+      });
+    }
+
+    test("the requester sees their own visit", () => {
+      expect(access.auditVisibleTo(family(SEED_IDS.familyUser), visitEvent())).toBe(true);
+    });
+
+    test("an unrelated family user does not", () => {
+      db.insert(t.user).values({ id: "fam2", role: "family", username: "fam2", displayName: "Other", passwordHash: "x", pinHash: null, facilityId: null }).run();
+      expect(access.auditVisibleTo(family("fam2"), visitEvent())).toBe(false);
+    });
+
+    test("the resident's own device sees it", () => {
+      expect(access.auditVisibleTo(device(), visitEvent())).toBe(true);
+    });
+
+    test("staff not assigned to the resident does not", () => {
+      db.insert(t.user).values({ id: "staff2", role: "staff", username: "staff2", displayName: "Other", passwordHash: "x", pinHash: null, facilityId: F }).run();
+      expect(access.auditVisibleTo(staff("staff2"), visitEvent())).toBe(false);
+    });
+  });
+
+  describe("robot event", () => {
+    const robotEvent = (): AuditEvent => makeTransitionEvent({
+      actorType: "staff", actorId: SEED_IDS.staffUser, entityType: "robot", entityId: SEED_IDS.robot,
+      fromState: null, toState: null, reason: "standby", correlationId: SEED_IDS.robot,
+    });
+
+    test("staff of the robot's facility sees it", () => {
+      expect(access.auditVisibleTo(staff(), robotEvent())).toBe(true);
+    });
+
+    test("admin of another facility does not", () => {
+      expect(access.auditVisibleTo(admin("fb"), robotEvent())).toBe(false);
+    });
+
+    test("family never sees a robot event", () => {
+      expect(access.auditVisibleTo(family(), robotEvent())).toBe(false);
+    });
+  });
+
+  describe("admin-only entity (correlationId is the facility)", () => {
+    const facilityEvent = (): AuditEvent => makeTransitionEvent({
+      actorType: "admin", actorId: SEED_IDS.adminUser, entityType: "device", entityId: SEED_IDS.device,
+      fromState: null, toState: null, reason: "device_registered", correlationId: F,
+    });
+
+    test("admin of that facility sees it", () => {
+      expect(access.auditVisibleTo(admin(F), facilityEvent())).toBe(true);
+    });
+
+    test("staff does not", () => {
+      expect(access.auditVisibleTo(staff(), facilityEvent())).toBe(false);
+    });
+
+    test("admin of another facility does not", () => {
+      expect(access.auditVisibleTo(admin("fb"), facilityEvent())).toBe(false);
+    });
   });
 });

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { TASK_TERMINAL_STATES, VISIT_TERMINAL_STATES, makeTransitionEvent } from "@oncare/core";
 import { requireRole } from "../auth/plugin";
@@ -79,7 +79,9 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
     const body = z.object({ pin: z.string().min(1) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "bad_request" });
 
-    const staff = db.select().from(t.user).where(eq(t.user.role, "staff")).all();
+    const staff = db.select().from(t.user).where(and(
+      eq(t.user.facilityId, principal.facilityId), eq(t.user.active, true), inArray(t.user.role, ["staff", "admin"]),
+    )).all();
     for (const user of staff) {
       if (user.pinHash && await verifySecret(body.data.pin, user.pinHash)) {
         audit(principal.id, principal.robotId, principal.residentId, "device_unlock");

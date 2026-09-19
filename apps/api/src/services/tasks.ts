@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   DEMO_CATALOGUE,
   KeywordParser,
@@ -13,7 +13,7 @@ import {
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
-import { actionRole } from "./access";
+import { actionRole, createAccess, type ActionRole } from "./access";
 import type { TransitionService } from "./visits";
 import type { GatewayHub } from "./gateway-hub";
 import { TransitionError } from "./transitions";
@@ -25,7 +25,6 @@ export type CreateOutcome =
   | { kind: "proposal"; task: TaskRow };
 export type CreateError = "no_relationship" | "consent_missing" | "visit_mismatch";
 export type TaskAction = "confirm" | "cancel" | "approve" | "deny" | "loaded" | "received" | "stop";
-type ActionRole = "family" | "staff" | "device";
 
 const ACTIONS: Record<TaskAction, { roles: ActionRole[]; from: TaskState[]; to: TaskState[]; reason?: string; approval?: "confirmed" | "approved" | "denied" | "cancelled" }> = {
   confirm: { roles: ["family"], from: ["awaiting_user_confirmation"], to: ["awaiting_policy_or_staff"], approval: "confirmed" },
@@ -58,6 +57,7 @@ export function createTaskService(
   const now = opts.now ?? (() => new Date());
   const id = opts.id ?? (() => `task_${randomUUID()}`);
   const parser = opts.parser ?? new KeywordParser();
+  const access = createAccess(db);
 
   function catalogue(): ItemCatalogue {
     const items = db.select().from(t.item).all();
@@ -86,10 +86,7 @@ export function createTaskService(
   }
 
   function create(input: { requesterId: string; residentId: string; text: string; visitId?: string }) {
-    const relationship = db.select().from(t.familyRelationship).where(and(
-      eq(t.familyRelationship.userId, input.requesterId),
-      eq(t.familyRelationship.residentId, input.residentId),
-    )).get();
+    const relationship = access.familyLink(input.requesterId, input.residentId);
     if (!relationship) return { ok: false as const, error: "no_relationship" as const };
     if (!relationship.consentItemDelivery) return { ok: false as const, error: "consent_missing" as const };
 
@@ -137,10 +134,8 @@ export function createTaskService(
     }).run();
     apply(taskId, "parsed");
 
-    const authorizedRecipients = db.select().from(t.familyRelationship).where(and(
-      eq(t.familyRelationship.userId, input.requesterId),
-      eq(t.familyRelationship.consentItemDelivery, true),
-    )).all().map((row) => row.residentId);
+    const authorizedRecipients = access.familyLinks(input.requesterId)
+      .filter((row) => row.consentItemDelivery).map((row) => row.residentId);
     const verdict = evaluateProposal(validated.proposal, { catalogue: cat, authorizedRecipients });
     if (!verdict.allowed) {
       apply(taskId, "rejected", verdict.code);
@@ -156,8 +151,8 @@ export function createTaskService(
 
   function canView(principal: Principal, task: TaskRow): boolean {
     if (principal.kind === "device") return principal.residentId === task.residentId;
-    if (principal.role === "staff") return true;
-    return principal.id === task.requesterId;
+    if (principal.role === "family") return principal.id === task.requesterId && access.canAccessResident(principal, task.residentId);
+    return access.canAccessResident(principal, task.residentId);
   }
 
   function act(input: { taskId: string; action: TaskAction; principal: Principal; reason?: string }) {

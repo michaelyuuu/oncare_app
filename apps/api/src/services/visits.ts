@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { VISIT_TERMINAL_STATES, type ActorType, type VisitState } from "@oncare/core";
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
-import { actionRole } from "./access";
+import { actionRole, createAccess, type ActionRole } from "./access";
 import { TransitionError, type createTransitionService } from "./transitions";
 import type { VideoProvider } from "./video";
 
@@ -14,7 +14,7 @@ export type CreateVisitError = "no_relationship" | "consent_missing" | "resident
 export type VisitAction = "approve" | "deny" | "answer" | "decline" | "connected" | "connection_lost" | "end" | "cancel";
 export type ActError = "not_found" | "forbidden" | "illegal_transition";
 
-const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">; to: VisitState[] }> = {
+const ACTIONS: Record<VisitAction, { roles: ActionRole[]; to: VisitState[] }> = {
   approve:   { roles: ["staff"],                     to: ["accepted"] },
   deny:      { roles: ["staff"],                     to: ["denied"] },
   answer:    { roles: ["device"],                    to: ["connecting"] },
@@ -27,7 +27,7 @@ const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">
 
 export const VISIT_ACTIONS = Object.keys(ACTIONS) as VisitAction[];
 
-function roleOf(p: Principal): "family" | "staff" | "device" { return actionRole(p); }
+function roleOf(p: Principal): ActionRole { return actionRole(p); }
 function actorTypeOf(p: Principal): ActorType { return p.kind === "device" ? "device" : p.role; }
 
 export interface VisitService {
@@ -46,6 +46,7 @@ export function createVisitService(
 ): VisitService {
   const now = opts.now ?? (() => new Date());
   const id = opts.id ?? (() => `visit_${randomUUID()}`);
+  const access = createAccess(db);
 
   function get(visitId: string): VisitRow | undefined {
     return db.select().from(t.visitSession).where(eq(t.visitSession.id, visitId)).get();
@@ -70,12 +71,11 @@ export function createVisitService(
   });
 
   function create(input: { requesterId: string; residentId: string }) {
-    const rel = db.select().from(t.familyRelationship)
-      .where(and(eq(t.familyRelationship.userId, input.requesterId), eq(t.familyRelationship.residentId, input.residentId))).get();
+    const rel = access.familyLink(input.requesterId, input.residentId);
     if (!rel) return { ok: false as const, error: "no_relationship" as const };
     if (!(rel.consentVideo && rel.consentRobotVisit)) return { ok: false as const, error: "consent_missing" as const };
     const resident = db.select().from(t.resident).where(eq(t.resident.id, input.residentId)).get();
-    if (!resident || resident.availability === "not_available") return { ok: false as const, error: "resident_unavailable" as const };
+    if (!resident || !resident.active || resident.availability === "not_available") return { ok: false as const, error: "resident_unavailable" as const };
 
     const robot = db.select().from(t.robot).where(eq(t.robot.facilityId, resident.facilityId)).get();
     const visitId = id();
@@ -92,8 +92,8 @@ export function createVisitService(
 
   function canView(principal: Principal, visit: VisitRow): boolean {
     if (principal.kind === "device") return principal.residentId === visit.residentId;
-    if (principal.role === "staff") return true;
-    return principal.id === visit.requesterId;
+    if (principal.role === "family") return principal.id === visit.requesterId && access.canAccessResident(principal, visit.residentId);
+    return access.canAccessResident(principal, visit.residentId);
   }
 
   function act(input: { visitId: string; action: VisitAction; principal: Principal }): { ok: true; visit: VisitRow } | { ok: false; error: ActError; detail?: string } {

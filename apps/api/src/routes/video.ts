@@ -13,12 +13,13 @@ const TOKEN_TTL_SECONDS = 600;
 export async function videoRoutes(app: FastifyInstance, opts: { db: Db; now?: () => Date }) {
   const { db } = opts;
 
-  app.post("/visits/:id/camera", { preHandler: requireRole("staff") }, async (req, reply) => {
+  app.post("/visits/:id/camera", { preHandler: requireRole("staff", "admin") }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = z.object({ paused: z.boolean() }).strict().safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "bad_request" });
     const visit = app.visits.get(id);
     if (!visit) return reply.code(404).send({ error: "not_found" });
+    if (!app.visits.canView(req.principal, visit)) return reply.code(403).send({ error: "forbidden" });
     if (!["connecting", "active"].includes(visit.state)) return reply.code(409).send({ error: "not_callable" });
     const device = visit.robotId && db.select().from(t.device).where(and(eq(t.device.robotId, visit.robotId), eq(t.device.residentId, visit.residentId))).get();
     if (!device) return reply.code(409).send({ error: "camera_unavailable" });
@@ -36,7 +37,7 @@ export async function videoRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     return { ok: true, cameraState };
   });
 
-  app.post("/visits/:id/token", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+  app.post("/visits/:id/token", { preHandler: requireRole("family", "staff", "admin", "device") }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const visit = app.visits.get(id);
     if (!visit) return reply.code(404).send({ error: "not_found" });
