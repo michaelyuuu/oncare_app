@@ -147,9 +147,15 @@ export function createToolRegistry(opts: {
     }
     // Authority is re-checked against current data: roles, and the tool's own access checks inside run().
     const def = byName.get(row.tool);
-    if (!allowed(p, def)) { claim(actionId, "cancelled"); return { ok: false, status: 403, error: "forbidden" }; }
+    if (!allowed(p, def)) {
+      if (claim(actionId, "cancelled")) audit(p, actionId, "tool_denied");
+      return { ok: false, status: 403, error: "forbidden" };
+    }
     const parsed = parse(def, row.input);
-    if (!parsed.ok) { claim(actionId, "cancelled"); return parsed.result; }
+    if (!parsed.ok) {
+      if (claim(actionId, "cancelled")) audit(p, actionId, "tool_cancelled");
+      return parsed.result;
+    }
     if (!claim(actionId, "confirmed")) return { ok: false, status: 409, error: "not_pending" };
     return run(def, p, parsed.data, actionId);
   }

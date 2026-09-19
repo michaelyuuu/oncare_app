@@ -105,6 +105,34 @@ describe("tool registry", () => {
     expect(calls).toEqual([]);
   });
 
+  test("a role no longer allowed at confirm time cancels the proposal and audits tool_denied", async () => {
+    const { db, tokens, invoke, post, calls } = await setup();
+    const id = (await invoke(tokens.family, "test_write", { residentId: SEED_IDS.resident, note: "x" })).json().actionId;
+    db.update(t.user).set({ role: "staff", facilityId: SEED_IDS.facility }).where(eq(t.user.id, SEED_IDS.familyUser)).run();
+    expect((await post(tokens.family, `/tools/actions/${id}/confirm`)).statusCode).toBe(403);
+    expect(calls).toEqual([]);
+    expect(db.select().from(t.pendingAction).where(eq(t.pendingAction.id, id)).get()).toMatchObject({ status: "cancelled" });
+    const denied = db.select().from(t.auditEvent).where(eq(t.auditEvent.reason, "tool_denied")).all();
+    expect(denied).toEqual([expect.objectContaining({ actorType: "ai", actorId: SEED_IDS.familyUser, entityType: "tool", entityId: id })]);
+  });
+
+  test("stored input failing re-parse at confirm time cancels the proposal and audits tool_cancelled", async () => {
+    const { app, db } = await setup();
+    const principal = { kind: "user" as const, id: SEED_IDS.familyUser, role: "family" as const, facilityId: null };
+    const actionId = "act_bad_stored_input";
+    // Missing "note" — the stored input no longer satisfies test_write's schema.
+    db.insert(t.pendingAction).values({
+      id: actionId, principalKind: "user", principalId: SEED_IDS.familyUser, tool: "test_write",
+      input: { residentId: SEED_IDS.resident }, summary: "Send?",
+      createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), status: "pending",
+    }).run();
+    const outcome = await app.tools.confirm(principal, actionId);
+    expect(outcome).toMatchObject({ ok: false, status: 400, error: "bad_input" });
+    expect(db.select().from(t.pendingAction).where(eq(t.pendingAction.id, actionId)).get()).toMatchObject({ status: "cancelled" });
+    const cancelled = db.select().from(t.auditEvent).where(eq(t.auditEvent.reason, "tool_cancelled")).all();
+    expect(cancelled).toEqual([expect.objectContaining({ actorType: "ai", actorId: SEED_IDS.familyUser, entityType: "tool", entityId: actionId })]);
+  });
+
   test("cancel, confirm:false writes, and the audit trail", async () => {
     const { db, tokens, invoke, post, calls } = await setup();
     const id = (await invoke(tokens.family, "test_write", { residentId: SEED_IDS.resident, note: "never" })).json().actionId;
