@@ -3,12 +3,13 @@ import { buildApp } from "../src/app";
 import { openDb } from "../src/db/client";
 import { SEED_SECRETS, seed } from "../src/db/seed";
 import { FakeVideoProvider } from "../src/services/video";
+import type { ToolDef } from "../src/tools/registry";
 
-export async function makeTestApp(opts: { now?: () => Date } = {}) {
+export async function makeTestApp(opts: { now?: () => Date; tools?: ToolDef[] } = {}) {
   const db = openDb(":memory:");
   await seed(db);
   const video = new FakeVideoProvider();
-  const app = buildApp({ db, jwtSecret: "test-secret", video, ...(opts.now ? { now: opts.now } : {}) });
+  const app = buildApp({ db, jwtSecret: "test-secret", video, ...(opts.now ? { now: opts.now } : {}), ...(opts.tools ? { tools: opts.tools } : {}) });
   await app.ready();
   const login = async (username: string, password: string) =>
     (await app.inject({ method: "POST", url: "/auth/login", payload: { username, password } })).json().token as string;

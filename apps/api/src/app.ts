@@ -12,6 +12,7 @@ import { locationRoutes } from "./routes/locations";
 import { robotRoutes } from "./routes/robots";
 import { staffRoutes } from "./routes/staff";
 import { taskRoutes } from "./routes/tasks";
+import { toolRoutes } from "./routes/tools";
 import { visitRoutes } from "./routes/visits";
 import { videoRoutes } from "./routes/video";
 import { createAccess } from "./services/access";
@@ -23,8 +24,10 @@ import { createVisitService, type TransitionService, type VisitService } from ".
 import { videoProviderFromEnv, type VideoProvider } from "./services/video";
 import { createBenchmarkService } from "./services/benchmark";
 import { benchmarkRoutes } from "./routes/benchmark";
+import { BUILTIN_TOOLS } from "./tools/builtin";
+import { createToolRegistry, type ToolDef, type ToolRegistry } from "./tools/registry";
 
-export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider }
+export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider; tools?: ToolDef[] }
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -33,6 +36,7 @@ declare module "fastify" {
     tasks: TaskService;
     video: VideoProvider;
     benchmark: ReturnType<typeof createBenchmarkService>;
+    tools: ToolRegistry;
   }
 }
 
@@ -43,6 +47,9 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
+  app.decorate("tools", createToolRegistry({
+    db: opts.db, access: app.access, transitions, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+  }));
   const hub = new GatewayHub();
   app.decorate("hub", hub);
   app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}, hub));
@@ -68,6 +75,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(benchmarkRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(eventsRoutes, { db: opts.db });
   app.register(adminRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
+  app.register(toolRoutes);
   app.get("/health", async () => ({ ok: true }));
   return app;
 }
