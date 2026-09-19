@@ -50,4 +50,11 @@ describe("createApi", () => {
     await expect(api.get("/health")).rejects.toMatchObject({ status: 502, code: "http_error" });
     await expect(api.get("/health")).rejects.toBeInstanceOf(ApiError);
   });
+
+  test("del sends DELETE with the bearer token and no body", async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"ok":true}'));
+    const api = createApi("http://api", () => "jwt", fetchImpl as unknown as typeof fetch);
+    expect(await api.del("/admin/family-links/l1")).toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledWith("http://api/admin/family-links/l1", { method: "DELETE", headers: { accept: "application/json", authorization: "Bearer jwt" } });
+  });
 });

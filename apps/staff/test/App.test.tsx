@@ -81,7 +81,7 @@ test("nonstaff login is rejected without persisting a session", async () => {
     await userEvent.type(screen.getByLabelText("Username"), "family");
     await userEvent.type(screen.getByLabelText("Password"), "x");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByText("This account is not a staff account")).toBeInTheDocument();
+    expect(await screen.findByText("This account is not a staff or manager account")).toBeInTheDocument();
     expect(sessionStorage.getItem("oncare.staff")).toBeNull();
 });
 test("staff login persists session and logout removes it", async () => {

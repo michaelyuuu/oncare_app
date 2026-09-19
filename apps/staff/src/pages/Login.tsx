@@ -25,11 +25,12 @@ export function Login({ api, onLoggedIn }: {
                     displayName?: string;
                 };
             }>("/auth/login", { username, password });
-            if (result.principal.role !== "staff") {
-                setError(t("staff.login.not_staff"));
+            const role = result.principal.role;
+            if (role !== "staff" && role !== "admin") {
+                setError(t("staff.login.not_staff_or_admin"));
                 return;
             }
-            onLoggedIn({ token: result.token, displayName: result.principal.displayName ?? username });
+            onLoggedIn({ token: result.token, displayName: result.principal.displayName ?? username, role });
         }
         catch (error) {
             setError(t(error instanceof ApiError && error.status === 401 ? "family.login.failed" : "family.error.login"));
