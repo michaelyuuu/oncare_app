@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { describe, expect, test } from "vitest";
+import * as t from "../src/db/schema";
+import { SEED_IDS, SEED_SECRETS, seed } from "../src/db/seed";
+import { verifySecret } from "../src/auth/password";
 
 const real = fileURLToPath(new URL("../drizzle", import.meta.url));
 
@@ -51,5 +55,32 @@ describe("migration 0002_foundation", () => {
     ]);
     expect(sqlite.prepare("SELECT active FROM resident ORDER BY id").all()).toEqual([{ active: 1 }, { active: 1 }]);
     expect(sqlite.prepare("SELECT count(*) AS n FROM pending_action").get()).toEqual({ n: 0 });
+  });
+
+  test("seed inserts the demo admin into an existing facility_demo database that predates it", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.pragma("foreign_keys = ON");
+    const db = drizzle(sqlite);
+    migrate(db, { migrationsFolder: legacyFolder() });
+    sqlite.exec(`
+      INSERT INTO facility (id, name, timezone) VALUES ('${SEED_IDS.facility}', 'Demo Care House', 'Asia/Taipei');
+    `);
+
+    migrate(db, { migrationsFolder: real });
+
+    // The schema-typed db is only needed for seed()'s query-builder calls; the underlying
+    // connection is the same one just migrated to head.
+    const typedDb = drizzle(sqlite, { schema: t });
+    await seed(typedDb);
+
+    const admin = typedDb.select().from(t.user).where(eq(t.user.id, SEED_IDS.adminUser)).get();
+    expect(admin?.active).toBe(true);
+    expect(admin?.facilityId).toBe(SEED_IDS.facility);
+    expect(await verifySecret(SEED_SECRETS.adminPassword, admin!.passwordHash)).toBe(true);
+
+    // Idempotent: a second call inserts nothing new.
+    const before = typedDb.select().from(t.user).all().length;
+    await seed(typedDb);
+    expect(typedDb.select().from(t.user).all().length).toBe(before);
   });
 });

@@ -14,8 +14,21 @@ export const SEED_SECRETS = {
   deviceToken: "device-demo-token", robotToken: "robot-demo-token",
 } as const;
 
+/** Inserts just the demo admin, same values as the fresh seed below. */
+async function seedAdmin(db: Db): Promise<void> {
+  db.insert(t.user).values({
+    id: SEED_IDS.adminUser, role: "admin", username: "admin", displayName: "Demo Manager",
+    passwordHash: await hashSecret(SEED_SECRETS.adminPassword), pinHash: await hashSecret(SEED_SECRETS.staffPin), facilityId: SEED_IDS.facility,
+  }).run();
+}
+
 export async function seed(db: Db): Promise<void> {
-  if (db.select().from(t.facility).where(eq(t.facility.id, SEED_IDS.facility)).get()) return;
+  if (db.select().from(t.facility).where(eq(t.facility.id, SEED_IDS.facility)).get()) {
+    // An existing (or upgraded) demo database may predate the admin user: back-fill it, and only it,
+    // so anyone following the README with an existing oncare.db can still log in as admin.
+    if (!db.select().from(t.user).where(eq(t.user.id, SEED_IDS.adminUser)).get()) await seedAdmin(db);
+    return;
+  }
   db.insert(t.facility).values({ id: SEED_IDS.facility, name: "Demo Care House", timezone: "Asia/Taipei" }).run();
   db.insert(t.location).values([
     { id: SEED_IDS.roomLocation, facilityId: SEED_IDS.facility, name: "Demo room", kind: "resident_room", x: 0, y: 0, yaw: 0, approved: true },
@@ -26,8 +39,8 @@ export async function seed(db: Db): Promise<void> {
   db.insert(t.user).values([
     { id: SEED_IDS.familyUser, role: "family", username: "family", displayName: "Demo Daughter", passwordHash: await hashSecret(SEED_SECRETS.familyPassword), pinHash: null, facilityId: null },
     { id: SEED_IDS.staffUser, role: "staff", username: "staff", displayName: "Demo Nurse", passwordHash: await hashSecret(SEED_SECRETS.staffPassword), pinHash: await hashSecret(SEED_SECRETS.staffPin), facilityId: SEED_IDS.facility },
-    { id: SEED_IDS.adminUser, role: "admin", username: "admin", displayName: "Demo Manager", passwordHash: await hashSecret(SEED_SECRETS.adminPassword), pinHash: await hashSecret(SEED_SECRETS.staffPin), facilityId: SEED_IDS.facility },
   ]).run();
+  await seedAdmin(db);
   db.insert(t.staffAssignment).values({ id: "sa_demo_01", userId: SEED_IDS.staffUser, residentId: SEED_IDS.resident, createdAt: new Date(0).toISOString() }).run();
   db.insert(t.familyRelationship).values({ id: "rel_demo_01", userId: SEED_IDS.familyUser, residentId: SEED_IDS.resident, label: "daughter", consentVideo: true, consentRobotVisit: true, consentItemDelivery: true }).run();
   db.insert(t.robot).values({ id: SEED_IDS.robot, facilityId: SEED_IDS.facility, name: "Demo Robot", tokenHash: await hashSecret(SEED_SECRETS.robotToken) }).run();
