@@ -50,35 +50,6 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
   const residentIn = (id: string, f: string) => db.select().from(t.resident).where(and(eq(t.resident.id, id), eq(t.resident.facilityId, f))).get();
   const roomIn = (id: string, f: string) => db.select().from(t.location).where(and(eq(t.location.id, id), eq(t.location.facilityId, f), eq(t.location.kind, "resident_room"))).get();
   const facilityResidentIds = (f: string) => db.select({ id: t.resident.id }).from(t.resident).where(eq(t.resident.facilityId, f)).all().map((r) => r.id);
-  /**
-   * A family user's scope is fixed to a single facility: they are in facility f's scope only if
-   * (a) none of their family_relationship rows point at a resident of a *different* facility, and
-   * (b) they hold at least one link to a resident of f, or an admin of f created their account
-   * (an audit_event row: entity_type "user", reason "user_created", correlation_id f). This lets a
-   * freshly created, still-unlinked family user be found long enough to receive their first link,
-   * without ever letting an admin reach a family user who is (even partly) another facility's.
-   * Cross-facility family linking is not supported in this sub-project.
-   */
-  function familyInScope(u: UserRow, f: string): boolean {
-    const links = db.select({ residentId: t.familyRelationship.residentId }).from(t.familyRelationship).where(eq(t.familyRelationship.userId, u.id)).all();
-    if (links.length > 0) {
-      const facilities = db.select({ facilityId: t.resident.facilityId }).from(t.resident).where(inArray(t.resident.id, links.map((l) => l.residentId))).all();
-      if (facilities.some((r) => r.facilityId !== f)) return false;
-      if (facilities.some((r) => r.facilityId === f)) return true;
-    }
-    return !!db.select().from(t.auditEvent).where(and(
-      eq(t.auditEvent.entityType, "user"), eq(t.auditEvent.entityId, u.id),
-      eq(t.auditEvent.reason, "user_created"), eq(t.auditEvent.correlationId, f),
-    )).get();
-  }
-  /** Staff and admins of the facility, and family members in its scope (see `familyInScope`). */
-  function userIn(id: string, f: string): UserRow | undefined {
-    const u = db.select().from(t.user).where(eq(t.user.id, id)).get();
-    if (!u) return undefined;
-    if (u.facilityId === f) return u;
-    if (u.role !== "family") return undefined;
-    return familyInScope(u, f) ? u : undefined;
-  }
   const linkIn = (id: string, f: string) => {
     const link = db.select().from(t.familyRelationship).where(eq(t.familyRelationship.id, id)).get();
     return link && residentIn(link.residentId, f) ? link : undefined;
@@ -121,7 +92,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
   // ---- users
   app.get("/admin/users", adminOnly, async (req, reply) => {
     const admin = adminOf(req); if (!admin) return forbidden(reply);
-    const users = db.select().from(t.user).all().filter((u) => userIn(u.id, admin.facilityId));
+    const users = db.select().from(t.user).all().filter((u) => app.access.userManagedBy(admin.facilityId, u.id));
     return { users: users.map(publicUser) };
   });
   app.post("/admin/users", adminOnly, async (req, reply) => {
@@ -142,7 +113,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const admin = adminOf(req); if (!admin) return forbidden(reply);
     const { id } = req.params as { id: string };
     if (id === admin.id) return reply.code(409).send({ error: "cannot_deactivate_self" });
-    if (!userIn(id, admin.facilityId)) return forbidden(reply);
+    if (!app.access.userManagedBy(admin.facilityId, id)) return forbidden(reply);
     db.update(t.user).set({ active: false }).where(eq(t.user.id, id)).run();
     audit(admin, "user", id, "user_deactivated");
     return { user: publicUser(db.select().from(t.user).where(eq(t.user.id, id)).get()!) };
@@ -150,7 +121,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
   app.post("/admin/users/:id/reset-password", adminOnly, async (req, reply) => {
     const admin = adminOf(req); if (!admin) return forbidden(reply);
     const { id } = req.params as { id: string };
-    if (!userIn(id, admin.facilityId)) return forbidden(reply);
+    if (!app.access.userManagedBy(admin.facilityId, id)) return forbidden(reply);
     const body = z.object({ password: z.string().min(6) }).strict().safeParse(req.body); if (!body.success) return bad(reply);
     db.update(t.user).set({ passwordHash: await hashSecret(body.data.password) }).where(eq(t.user.id, id)).run();
     audit(admin, "user", id, "password_reset");
@@ -159,7 +130,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
   app.post("/admin/users/:id/reset-pin", adminOnly, async (req, reply) => {
     const admin = adminOf(req); if (!admin) return forbidden(reply);
     const { id } = req.params as { id: string };
-    const u = userIn(id, admin.facilityId); if (!u) return forbidden(reply);
+    const u = app.access.userManagedBy(admin.facilityId, id); if (!u) return forbidden(reply);
     if (u.role === "family") return bad(reply, "bad_role");
     const body = z.object({ pin: z.string().regex(/^\d{4,8}$/) }).strict().safeParse(req.body); if (!body.success) return bad(reply);
     db.update(t.user).set({ pinHash: await hashSecret(body.data.pin) }).where(eq(t.user.id, id)).run();
@@ -178,7 +149,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const body = linkCreate.safeParse(req.body); if (!body.success) return bad(reply);
     if (!residentIn(body.data.residentId, admin.facilityId)) return forbidden(reply);
     // Scope-checked before the role check so an out-of-facility id never reveals its existence or role.
-    const u = userIn(body.data.userId, admin.facilityId);
+    const u = app.access.userManagedBy(admin.facilityId, body.data.userId);
     if (!u) return forbidden(reply);
     if (u.role !== "family") return bad(reply, "bad_role");
     if (db.select().from(t.familyRelationship).where(and(eq(t.familyRelationship.userId, u.id), eq(t.familyRelationship.residentId, body.data.residentId))).get()) {
@@ -217,7 +188,7 @@ export async function adminRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const admin = adminOf(req); if (!admin) return forbidden(reply);
     const body = assignmentCreate.safeParse(req.body); if (!body.success) return bad(reply);
     if (!residentIn(body.data.residentId, admin.facilityId)) return forbidden(reply);
-    const u = userIn(body.data.userId, admin.facilityId); if (!u) return forbidden(reply);
+    const u = app.access.userManagedBy(admin.facilityId, body.data.userId); if (!u) return forbidden(reply);
     if (u.role !== "staff") return bad(reply, "bad_role");
     const existing = db.select().from(t.staffAssignment).where(and(eq(t.staffAssignment.userId, u.id), eq(t.staffAssignment.residentId, body.data.residentId))).get();
     if (existing?.active) return reply.code(409).send({ error: "duplicate" });

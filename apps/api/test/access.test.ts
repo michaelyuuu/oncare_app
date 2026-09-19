@@ -96,6 +96,40 @@ describe("helpers", () => {
   });
 });
 
+describe("userManagedBy", () => {
+  test("staff of this facility is a row", () => {
+    expect(access.userManagedBy(F, SEED_IDS.staffUser)).toMatchObject({ id: SEED_IDS.staffUser });
+  });
+
+  test("staff of another facility is undefined", () => {
+    expect(access.userManagedBy("fb", SEED_IDS.staffUser)).toBeUndefined();
+  });
+
+  test("family linked here only is a row", () => {
+    expect(access.userManagedBy(F, SEED_IDS.familyUser)).toMatchObject({ id: SEED_IDS.familyUser });
+  });
+
+  test("family linked in both facilities is undefined", () => {
+    db.insert(t.familyRelationship).values({ id: "rel_both", userId: SEED_IDS.familyUser, residentId: "rb", label: "also" }).run();
+    expect(access.userManagedBy(F, SEED_IDS.familyUser)).toBeUndefined();
+  });
+
+  test("unlinked family created by this facility's admin is a row", () => {
+    db.insert(t.user).values({ id: "fresh1", role: "family", username: "fresh1", displayName: "Fresh", passwordHash: "x", pinHash: null, facilityId: null }).run();
+    const ev = makeTransitionEvent({
+      actorType: "admin", actorId: SEED_IDS.adminUser, entityType: "user", entityId: "fresh1",
+      fromState: null, toState: null, reason: "user_created", correlationId: F,
+    });
+    db.insert(t.auditEvent).values(ev).run();
+    expect(access.userManagedBy(F, "fresh1")).toMatchObject({ id: "fresh1" });
+  });
+
+  test("unlinked family with no creation audit row is undefined", () => {
+    db.insert(t.user).values({ id: "fresh2", role: "family", username: "fresh2", displayName: "Fresh", passwordHash: "x", pinHash: null, facilityId: null }).run();
+    expect(access.userManagedBy(F, "fresh2")).toBeUndefined();
+  });
+});
+
 describe("auditVisibleTo", () => {
   const residentEvent = (): AuditEvent => makeTransitionEvent({
     actorType: "staff", actorId: SEED_IDS.staffUser, entityType: "resident", entityId: R1,

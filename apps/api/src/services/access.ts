@@ -1,10 +1,11 @@
-import { and, eq, getTableColumns } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray } from "drizzle-orm";
 import type { AuditEvent } from "@oncare/core";
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 
 export type FamilyLink = typeof t.familyRelationship.$inferSelect;
+export type ManagedUser = typeof t.user.$inferSelect;
 
 export type ActionRole = "family" | "staff" | "device";
 
@@ -79,6 +80,36 @@ export function createAccess(db: Db) {
       .where(and(eq(t.familyRelationship.userId, userId), eq(t.resident.active, true))).all();
   }
 
+  /**
+   * The single answer to "may an admin of facility f manage this user?" (spec §3: authorization
+   * decisions go through this file, never a direct family_relationship / staff_assignment query
+   * elsewhere). Staff and admins belong to the facility they carry on their user row. A family
+   * user's scope is fixed to a single facility: they are in facility f's scope only if
+   * (a) none of their family_relationship rows point at a resident of a *different* facility, and
+   * (b) they hold at least one link to a resident of f, or an admin of f created their account
+   * (an audit_event row: entity_type "user", reason "user_created", correlation_id f). This lets a
+   * freshly created, still-unlinked family user be found long enough to receive their first link,
+   * without ever letting an admin reach a family user who is (even partly) another facility's.
+   * Cross-facility family linking is not supported in this sub-project.
+   */
+  function userManagedBy(facilityId: string, userId: string): ManagedUser | undefined {
+    const u = db.select().from(t.user).where(eq(t.user.id, userId)).get();
+    if (!u) return undefined;
+    if (u.facilityId === facilityId) return u;
+    if (u.role !== "family") return undefined;
+    const links = db.select({ residentId: t.familyRelationship.residentId }).from(t.familyRelationship).where(eq(t.familyRelationship.userId, u.id)).all();
+    if (links.length > 0) {
+      const facilities = db.select({ facilityId: t.resident.facilityId }).from(t.resident).where(inArray(t.resident.id, links.map((l) => l.residentId))).all();
+      if (facilities.some((r) => r.facilityId !== facilityId)) return undefined;
+      if (facilities.some((r) => r.facilityId === facilityId)) return u;
+    }
+    const created = db.select().from(t.auditEvent).where(and(
+      eq(t.auditEvent.entityType, "user"), eq(t.auditEvent.entityId, u.id),
+      eq(t.auditEvent.reason, "user_created"), eq(t.auditEvent.correlationId, facilityId),
+    )).get();
+    return created ? u : undefined;
+  }
+
   function robotFacility(robotId: string): string | null {
     return db.select({ f: t.robot.facilityId }).from(t.robot).where(eq(t.robot.id, robotId)).get()?.f ?? null;
   }
@@ -117,7 +148,7 @@ export function createAccess(db: Db) {
     }
   }
 
-  return { resolvePrincipal, residentIdsVisibleTo, canAccessResident, sameFacility, familyLink, familyLinks, auditVisibleTo };
+  return { resolvePrincipal, residentIdsVisibleTo, canAccessResident, sameFacility, familyLink, familyLinks, userManagedBy, auditVisibleTo };
 }
 
 export type Access = ReturnType<typeof createAccess>;
