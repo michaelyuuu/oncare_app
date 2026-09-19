@@ -2,6 +2,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
+import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
@@ -66,6 +67,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(taskRoutes);
   app.register(benchmarkRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(eventsRoutes, { db: opts.db });
+  app.register(adminRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.get("/health", async () => ({ ok: true }));
   return app;
 }
