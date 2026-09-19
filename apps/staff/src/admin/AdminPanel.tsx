@@ -25,13 +25,15 @@ async function load(api: Api): Promise<AdminData> {
 export function AdminPanel({ api }: { api: Api }) {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState(false);
+  // Reloading after a change must never clear a mutation error: it only reports its own failures.
   const reload = useCallback(async () => {
-    try { setData(await load(api)); setError(false); } catch { setError(true); }
+    try { setData(await load(api)); } catch { setError(true); }
   }, [api]);
   useEffect(() => { void reload(); }, [reload]);
 
   const run = useCallback(async (change: (api: Api) => Promise<unknown>) => {
-    try { const result = await change(api); setError(false); return result; }
+    setError(false);
+    try { return await change(api); }
     catch { setError(true); return null; }
     finally { await reload(); }
   }, [api, reload]);

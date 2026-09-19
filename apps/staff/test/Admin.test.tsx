@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "../src/App";
@@ -80,4 +80,34 @@ test("deactivating a person and an iPad posts to the exact routes", async () => 
   const devices = screen.getByRole("region", { name: "Resident iPads" });
   await userEvent.click(within(devices).getByRole("button", { name: "Deactivate" }));
   expect(requests.filter((r) => r.method === "POST").map((r) => r.path)).toEqual(["/admin/users/s1/deactivate", "/admin/devices/d1/deactivate"]);
+});
+
+test("a failed change keeps the error banner up after the follow-up reload, and a later success clears it", async () => {
+  asAdmin();
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    const path = url.replace("http://api", "").split("?")[0]!;
+    const method = init?.method ?? "GET";
+    requests.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (method === "POST" && path === "/admin/users") return new Response(JSON.stringify({ error: "username_taken" }), { status: 409 });
+    if (method === "POST" && path === "/admin/devices") return new Response(JSON.stringify({ device: { id: "d2" }, deviceToken: "tok-once-123" }), { status: 201 });
+    if (method !== "GET") return new Response('{"ok":true}');
+    return new Response(JSON.stringify(data[path] ?? {}));
+  }));
+  render(<App apiBase="http://api" />);
+  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  const people = await screen.findByRole("region", { name: "Staff and family" });
+
+  await userEvent.type(within(people).getByLabelText("Username"), "newnurse");
+  await userEvent.type(within(people).getByLabelText("Display name"), "New Nurse");
+  await userEvent.type(within(people).getByLabelText("Temporary password"), "secret1");
+  const getsBeforeSubmit = requests.filter((r) => r.method === "GET").length;
+  await userEvent.click(within(people).getByRole("button", { name: "Add person" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("The change was not saved. Check the connection and try again.");
+  // Wait for the mutation's follow-up reload GETs to land, then confirm the banner is still up.
+  await waitFor(() => expect(requests.filter((r) => r.method === "GET").length).toBeGreaterThan(getsBeforeSubmit));
+  expect(screen.getByRole("alert")).toHaveTextContent("The change was not saved. Check the connection and try again.");
+
+  await userEvent.click(within(people).getAllByRole("button", { name: "Deactivate" })[0]!);
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });
