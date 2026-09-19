@@ -3,7 +3,7 @@ import { t } from "@oncare/web-common";
 import type { SectionProps } from "./types";
 
 export function Links({ data, run }: SectionProps) {
-  const [family, setFamily] = useState({ userId: "", residentId: "", label: "", consentVideo: true });
+  const [family, setFamily] = useState({ userId: "", residentId: "", label: "", consentVideo: true, consentRobotVisit: true, consentItemDelivery: true });
   const [nurse, setNurse] = useState({ userId: "", residentId: "" });
   const person = (id: string) => data.people.find((p) => p.id === id)?.displayName ?? id;
   const resident = (id: string) => data.residents.find((r) => r.id === id)?.displayName ?? id;
@@ -30,6 +30,8 @@ export function Links({ data, run }: SectionProps) {
       <select id="link-resident" required value={family.residentId} onChange={(e) => setFamily({ ...family, residentId: e.target.value })}>{residentOptions}</select>
       <label htmlFor="link-label">{t("admin.links.label")}</label><input id="link-label" required value={family.label} onChange={(e) => setFamily({ ...family, label: e.target.value })}/>
       <label><input type="checkbox" checked={family.consentVideo} onChange={(e) => setFamily({ ...family, consentVideo: e.target.checked })}/>{t("admin.links.video")}</label>
+      <label><input type="checkbox" checked={family.consentRobotVisit} onChange={(e) => setFamily({ ...family, consentRobotVisit: e.target.checked })}/>{t("admin.links.robot_visit")}</label>
+      <label><input type="checkbox" checked={family.consentItemDelivery} onChange={(e) => setFamily({ ...family, consentItemDelivery: e.target.checked })}/>{t("admin.links.item_delivery")}</label>
       <button>{t("admin.links.add_family")}</button>
     </form>
     <ul>{data.assignments.map((a) => <li key={a.id}>{`${person(a.userId)} → ${resident(a.residentId)}`}

@@ -270,6 +270,8 @@
   "admin.links.resident": "Resident",
   "admin.links.label": "Relationship",
   "admin.links.video": "May video call",
+  "admin.links.robot_visit": "May request robot visits",
+  "admin.links.item_delivery": "May request item delivery",
   "admin.links.add_family": "Link family",
   "admin.links.nurse": "Nurse",
   "admin.links.add_nurse": "Assign nurse",

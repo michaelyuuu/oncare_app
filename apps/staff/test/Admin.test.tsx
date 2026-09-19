@@ -71,6 +71,37 @@ test("registering an iPad reveals its token once and removing a link calls DELET
   expect(requests).toContainEqual({ method: "DELETE", path: "/admin/family-links/l1", body: undefined });
 });
 
+test("linking a family member defaults video, robot-visit and item consent all on", async () => {
+  asAdmin();
+  render(<App apiBase="http://api" />);
+  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  const links = screen.getByRole("region", { name: "Family links and nurse assignments" });
+  await userEvent.selectOptions(within(links).getByLabelText("Family member"), "fam1");
+  await userEvent.selectOptions(within(links).getAllByLabelText("Resident")[0]!, "r1");
+  await userEvent.type(within(links).getByLabelText("Relationship"), "daughter");
+  await userEvent.click(within(links).getByRole("button", { name: "Link family" }));
+  expect(requests).toContainEqual({
+    method: "POST", path: "/admin/family-links",
+    body: { userId: "fam1", residentId: "r1", label: "daughter", consentVideo: true, consentRobotVisit: true, consentItemDelivery: true },
+  });
+});
+
+test("unticking a family-link consent checkbox sends it as false", async () => {
+  asAdmin();
+  render(<App apiBase="http://api" />);
+  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  const links = screen.getByRole("region", { name: "Family links and nurse assignments" });
+  await userEvent.selectOptions(within(links).getByLabelText("Family member"), "fam1");
+  await userEvent.selectOptions(within(links).getAllByLabelText("Resident")[0]!, "r1");
+  await userEvent.type(within(links).getByLabelText("Relationship"), "daughter");
+  await userEvent.click(within(links).getByLabelText("May request robot visits"));
+  await userEvent.click(within(links).getByRole("button", { name: "Link family" }));
+  expect(requests).toContainEqual({
+    method: "POST", path: "/admin/family-links",
+    body: { userId: "fam1", residentId: "r1", label: "daughter", consentVideo: true, consentRobotVisit: false, consentItemDelivery: true },
+  });
+});
+
 test("deactivating a person and an iPad posts to the exact routes", async () => {
   asAdmin();
   render(<App apiBase="http://api" />);
