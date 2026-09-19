@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableColumns } from "drizzle-orm";
 import type { AuditEvent } from "@oncare/core";
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
@@ -62,13 +62,21 @@ export function createAccess(db: Db) {
     return p.facilityId !== null && p.facilityId === facilityId;
   }
 
+  // A family relationship to a resident who has since been deactivated grants nothing: this is the
+  // one place that rule lives, so visit and task creation (and anything else keyed off a family
+  // link) never need their own `resident.active` check.
   function familyLink(userId: string, residentId: string): FamilyLink | undefined {
-    return db.select().from(t.familyRelationship)
-      .where(and(eq(t.familyRelationship.userId, userId), eq(t.familyRelationship.residentId, residentId))).get();
+    return db.select(getTableColumns(t.familyRelationship)).from(t.familyRelationship)
+      .innerJoin(t.resident, eq(t.resident.id, t.familyRelationship.residentId))
+      .where(and(
+        eq(t.familyRelationship.userId, userId), eq(t.familyRelationship.residentId, residentId), eq(t.resident.active, true),
+      )).get();
   }
 
   function familyLinks(userId: string): FamilyLink[] {
-    return db.select().from(t.familyRelationship).where(eq(t.familyRelationship.userId, userId)).all();
+    return db.select(getTableColumns(t.familyRelationship)).from(t.familyRelationship)
+      .innerJoin(t.resident, eq(t.resident.id, t.familyRelationship.residentId))
+      .where(and(eq(t.familyRelationship.userId, userId), eq(t.resident.active, true))).all();
   }
 
   function robotFacility(robotId: string): string | null {

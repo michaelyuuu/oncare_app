@@ -79,6 +79,9 @@ describe("staff scope", () => {
     db.update(t.resident).set({ active: false }).where(eq(t.resident.id, SEED_IDS.resident)).run();
     expect((await app.inject({ method: "GET", url: "/me/residents", headers: auth(tokens.family) })).json().residents).toEqual([]);
     expect((await app.inject({ method: "POST", url: "/visits", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident } })).statusCode).not.toBe(201);
+    const res = await app.inject({ method: "POST", url: "/tasks", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident, text: "water" } });
+    expect(res.statusCode < 200 || res.statusCode >= 300).toBe(true);
+    expect(db.select().from(t.taskRequest).all()).toEqual([]);
   });
 
   test("a device unlock PIN must belong to active staff or admin of the device's facility", async () => {

@@ -88,6 +88,12 @@ describe("helpers", () => {
     expect(access.familyLinks(SEED_IDS.familyUser)).toHaveLength(1);
     expect([admin(), staff(), family(), device()].map(actionRole)).toEqual(["staff", "staff", "family", "device"]);
   });
+
+  test("familyLink and familyLinks omit a relationship whose resident has been deactivated", () => {
+    db.update(t.resident).set({ active: false }).where(eq(t.resident.id, R1)).run();
+    expect(access.familyLink(SEED_IDS.familyUser, R1)).toBeUndefined();
+    expect(access.familyLinks(SEED_IDS.familyUser)).toEqual([]);
+  });
 });
 
 describe("auditVisibleTo", () => {

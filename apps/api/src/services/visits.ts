@@ -74,8 +74,10 @@ export function createVisitService(
     const rel = access.familyLink(input.requesterId, input.residentId);
     if (!rel) return { ok: false as const, error: "no_relationship" as const };
     if (!(rel.consentVideo && rel.consentRobotVisit)) return { ok: false as const, error: "consent_missing" as const };
+    // An inactive resident has no family link (access.familyLink filters on resident.active), so
+    // `rel` above already refused that case; this lookup is only for the availability gate.
     const resident = db.select().from(t.resident).where(eq(t.resident.id, input.residentId)).get();
-    if (!resident || !resident.active || resident.availability === "not_available") return { ok: false as const, error: "resident_unavailable" as const };
+    if (!resident || resident.availability === "not_available") return { ok: false as const, error: "resident_unavailable" as const };
 
     const robot = db.select().from(t.robot).where(eq(t.robot.facilityId, resident.facilityId)).get();
     const visitId = id();
