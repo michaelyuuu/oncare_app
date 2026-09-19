@@ -92,11 +92,11 @@ describe("grantsFor", () => {
 });
 
 describe("POST /visits/:id/token", () => {
-  test("missing visits return 404 and unrelated devices return 403 without issuing tokens", async () => {
+  test("missing visits return 404 and unknown devices are rejected without issuing tokens", async () => {
     const { app, video, tokens, token } = await visitIn("connecting");
     expect((await app.inject({ method: "POST", url: "/visits/missing/token", headers: auth(tokens.family) })).statusCode).toBe(404);
     const otherDevice = app.jwt.sign({ kind: "device", id: "other_device", residentId: "other_resident", facilityId: SEED_IDS.facility, robotId: SEED_IDS.robot, assignmentVersion: 1 });
-    expect((await token(otherDevice)).statusCode).toBe(403);
+    expect((await token(otherDevice)).statusCode).toBe(401);
     expect(video.issued).toEqual([]);
   });
   test("device gets a publishing token while the call is ringing; family does not yet", async () => {

@@ -21,7 +21,7 @@ function connect(url: string, token: string): Promise<{ ws: WebSocket; messages:
 const settle = () => new Promise((r) => setTimeout(r, 80));
 
 describe("WS /events", () => {
-  test("staff receives all visit transitions; family receives only its own; device only its resident's", async () => {
+  test("staff receives assigned residents' visit transitions; family only its own; device only its resident's", async () => {
     const { app, db, tokens } = await makeTestApp();
     const srv = await listen(app); closers.push(srv.close);
     // second family user related to a second resident
@@ -42,7 +42,7 @@ describe("WS /events", () => {
     await settle();
 
     const states = (m: any[]) => m.filter((x) => x.type !== "hello").map((x) => x.toState);
-    expect(states(staff.messages)).toEqual(["awaiting_policy_or_staff", "accepted", "awaiting_policy_or_staff", "accepted"]);
+    expect(states(staff.messages)).toEqual(["awaiting_policy_or_staff", "accepted"]);
     expect(states(fam1.messages)).toEqual(["awaiting_policy_or_staff", "accepted"]);
     expect(states(fam2.messages)).toEqual(["awaiting_policy_or_staff", "accepted"]);
     expect(fam1.messages.filter((x) => x.type !== "hello").every((x) => x.correlationId === fam1.messages[1].correlationId)).toBe(true);

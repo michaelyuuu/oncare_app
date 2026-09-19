@@ -13,7 +13,10 @@ export async function makeTestApp(opts: { now?: () => Date } = {}) {
   const login = async (username: string, password: string) =>
     (await app.inject({ method: "POST", url: "/auth/login", payload: { username, password } })).json().token as string;
   const device = (await app.inject({ method: "POST", url: "/auth/device", payload: { deviceToken: SEED_SECRETS.deviceToken } })).json().token as string;
-  return { app, db, video, tokens: { family: await login("family", SEED_SECRETS.familyPassword), staff: await login("staff", SEED_SECRETS.staffPassword), device } };
+  return { app, db, video, tokens: {
+    family: await login("family", SEED_SECRETS.familyPassword), staff: await login("staff", SEED_SECRETS.staffPassword),
+    admin: await login("admin", SEED_SECRETS.adminPassword), device,
+  } };
 }
 
 export async function listen(app: FastifyInstance): Promise<{ url: string; close: () => Promise<void> }> {
