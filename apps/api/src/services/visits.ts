@@ -13,7 +13,7 @@ export type CreateVisitError = "no_relationship" | "consent_missing" | "resident
 export type VisitAction = "approve" | "deny" | "answer" | "decline" | "connected" | "connection_lost" | "end" | "cancel";
 export type ActError = "not_found" | "forbidden" | "illegal_transition";
 
-const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">; to: VisitState[] }> = {
+const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "admin" | "device">; to: VisitState[] }> = {
   approve:   { roles: ["staff"],                     to: ["accepted"] },
   deny:      { roles: ["staff"],                     to: ["denied"] },
   answer:    { roles: ["device"],                    to: ["connecting"] },
@@ -26,7 +26,7 @@ const ACTIONS: Record<VisitAction, { roles: Array<"family" | "staff" | "device">
 
 export const VISIT_ACTIONS = Object.keys(ACTIONS) as VisitAction[];
 
-function roleOf(p: Principal): "family" | "staff" | "device" { return p.kind === "device" ? "device" : p.role; }
+function roleOf(p: Principal): "family" | "staff" | "admin" | "device" { return p.kind === "device" ? "device" : p.role; }
 function actorTypeOf(p: Principal): ActorType { return p.kind === "device" ? "device" : p.role; }
 
 export interface VisitService {

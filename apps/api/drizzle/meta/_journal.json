@@ -15,6 +15,13 @@
       "when": 1789697699008,
       "tag": "0001_marvelous_ikaris",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789805293784,
+      "tag": "0002_foundation",
+      "breakpoints": true
     }
   ]
 }

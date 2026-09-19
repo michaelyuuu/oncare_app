@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { Intent } from "@oncare/contracts";
 import type { TaskProposal } from "@oncare/core";
 
@@ -9,11 +9,15 @@ export const resident = sqliteTable("resident", {
   id: text("id").primaryKey(), facilityId: text("facility_id").notNull().references(() => facility.id),
   displayName: text("display_name").notNull(), roomLocationId: text("room_location_id").notNull(),
   availability: text("availability", { enum: ["available", "in_activity", "resting", "not_available"] }).notNull().default("available"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
 });
 export const user = sqliteTable("user", {
-  id: text("id").primaryKey(), role: text("role", { enum: ["family", "staff"] }).notNull(),
+  id: text("id").primaryKey(), role: text("role", { enum: ["family", "staff", "admin"] }).notNull(),
   username: text("username").notNull().unique(), displayName: text("display_name").notNull(),
   passwordHash: text("password_hash").notNull(), pinHash: text("pin_hash"),
+  /** Required for staff and admin (enforced in services); null for family. */
+  facilityId: text("facility_id").references(() => facility.id),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
 });
 export const familyRelationship = sqliteTable("family_relationship", {
   id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => user.id),
@@ -26,10 +30,27 @@ export const robot = sqliteTable("robot", {
   id: text("id").primaryKey(), facilityId: text("facility_id").notNull().references(() => facility.id),
   name: text("name").notNull(), tokenHash: text("token_hash").notNull(),
 });
-export const robotDevice = sqliteTable("robot_device", {
-  id: text("id").primaryKey(), robotId: text("robot_id").notNull().references(() => robot.id),
+/** A resident's iPad. A robot is optional: most rooms have an iPad and no robot. */
+export const device = sqliteTable("device", {
+  id: text("id").primaryKey(), facilityId: text("facility_id").notNull().references(() => facility.id),
+  robotId: text("robot_id").references(() => robot.id),
   kind: text("kind", { enum: ["ipad"] }).notNull(), residentId: text("resident_id").notNull().references(() => resident.id),
   deviceTokenHash: text("device_token_hash").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  /** Incremented on every reassignment; a device JWT carrying an older value is rejected. */
+  assignmentVersion: integer("assignment_version").notNull().default(1),
+});
+export const staffAssignment = sqliteTable("staff_assignment", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => user.id),
+  residentId: text("resident_id").notNull().references(() => resident.id),
+  active: integer("active", { mode: "boolean" }).notNull().default(true), createdAt: text("created_at").notNull(),
+}, (table) => [uniqueIndex("staff_assignment_user_resident").on(table.userId, table.residentId)]);
+export const pendingAction = sqliteTable("pending_action", {
+  id: text("id").primaryKey(), principalKind: text("principal_kind", { enum: ["user", "device"] }).notNull(),
+  principalId: text("principal_id").notNull(), tool: text("tool").notNull(),
+  input: text("input", { mode: "json" }).notNull(), summary: text("summary").notNull(),
+  createdAt: text("created_at").notNull(), expiresAt: text("expires_at").notNull(),
+  status: text("status", { enum: ["pending", "confirmed", "cancelled", "expired"] }).notNull(),
 });
 export const location = sqliteTable("location", {
   id: text("id").primaryKey(), facilityId: text("facility_id").notNull().references(() => facility.id),

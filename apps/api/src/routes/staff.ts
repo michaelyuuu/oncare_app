@@ -71,7 +71,7 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const tasks = db.select().from(t.taskRequest).all();
     const observedKeys = new Set<string>();
     const activeVisits: QueueVisit[] = await Promise.all(visits.filter(v => ["connecting", "active", "ending"].includes(v.state)).map(async v => {
-      const device = v.robotId && db.select().from(t.robotDevice).where(and(eq(t.robotDevice.robotId, v.robotId), eq(t.robotDevice.residentId, v.residentId))).get();
+      const device = v.robotId && db.select().from(t.device).where(and(eq(t.device.robotId, v.robotId), eq(t.device.residentId, v.residentId))).get();
       let cameraState: QueueVisit["cameraState"] = "unavailable";
       if (device && v.state !== "ending") {
         observedKeys.add(`${v.id}:${device.id}`);
@@ -94,7 +94,7 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       activeVisits,
       caregiverCalls: db.select().from(t.auditEvent).where(and(eq(t.auditEvent.reason, "call_caregiver"), gte(t.auditEvent.at, new Date(now().getTime() - 30 * 60_000).toISOString()))).orderBy(desc(t.auditEvent.at)).all().map(event => ({
         ...event,
-        residentId: event.actorType === "device" ? db.select().from(t.robotDevice).where(eq(t.robotDevice.id, event.actorId)).get()?.residentId ?? null : null,
+        residentId: event.actorType === "device" ? db.select().from(t.device).where(eq(t.device.id, event.actorId)).get()?.residentId ?? null : null,
       })),
       robot: robot ? { robotId: robot.id, ...app.hub.status(robot.id) } : null,
     };

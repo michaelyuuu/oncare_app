@@ -20,7 +20,7 @@ export interface VideoProvider {
   setCameraPaused(room: string, identity: string, paused: boolean): Promise<CameraState>;
 }
 
-export function grantsFor(role: "family" | "device" | "staff"): { canPublish: boolean; canSubscribe: boolean } {
+export function grantsFor(role: "family" | "device" | "staff" | "admin"): { canPublish: boolean; canSubscribe: boolean } {
   return role === "staff"
     ? { canPublish: false, canSubscribe: true }
     : { canPublish: true, canSubscribe: true };

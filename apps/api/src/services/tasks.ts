@@ -24,7 +24,7 @@ export type CreateOutcome =
   | { kind: "proposal"; task: TaskRow };
 export type CreateError = "no_relationship" | "consent_missing" | "visit_mismatch";
 export type TaskAction = "confirm" | "cancel" | "approve" | "deny" | "loaded" | "received" | "stop";
-type ActionRole = "family" | "staff" | "device";
+type ActionRole = "family" | "staff" | "admin" | "device";
 
 const ACTIONS: Record<TaskAction, { roles: ActionRole[]; from: TaskState[]; to: TaskState[]; reason?: string; approval?: "confirmed" | "approved" | "denied" | "cancelled" }> = {
   confirm: { roles: ["family"], from: ["awaiting_user_confirmation"], to: ["awaiting_policy_or_staff"], approval: "confirmed" },

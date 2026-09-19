@@ -3,8 +3,8 @@ import fastifyJwt from "@fastify/jwt";
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 
 export type Principal =
-  | { kind: "user"; id: string; role: "family" | "staff" }
-  | { kind: "device"; id: string; residentId: string; robotId: string };
+  | { kind: "user"; id: string; role: "family" | "staff" | "admin" }
+  | { kind: "device"; id: string; residentId: string; robotId: string | null };
 
 declare module "fastify" {
   interface FastifyRequest { principal: Principal }
@@ -20,7 +20,7 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: { secret: string
   app.decorateRequest("principal", null, []);
 });
 
-export function requireRole(...roles: Array<"family" | "staff" | "device">): preHandlerHookHandler {
+export function requireRole(...roles: Array<"family" | "staff" | "admin" | "device">): preHandlerHookHandler {
   return async (req, reply) => {
     try {
       await req.jwtVerify();

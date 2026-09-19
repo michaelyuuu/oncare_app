@@ -18,9 +18,10 @@ export function screenForVisitState(state: string | null): DeviceScreen {
 export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
   const { db } = opts;
 
-  function audit(deviceId: string, robotId: string, reason: string) {
+  function audit(deviceId: string, robotId: string | null, residentId: string, reason: string) {
     db.insert(t.auditEvent).values(makeTransitionEvent({
-      actorType: "device", actorId: deviceId, entityType: "robot", entityId: robotId,
+      actorType: "device", actorId: deviceId,
+      entityType: robotId ? "robot" : "resident", entityId: robotId ?? residentId,
       fromState: null, toState: null, reason, correlationId: deviceId,
     })).run();
   }
@@ -51,7 +52,7 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
       .get() ?? null;
     const itemId = task ? (task.proposal as { item: string }).item : null;
     const item = itemId ? db.select().from(t.item).where(eq(t.item.id, itemId)).get() ?? null : null;
-    const status = app.hub.status(principal.robotId);
+    const status = principal.robotId ? app.hub.status(principal.robotId) : { connected: false, lastHeartbeat: null, lastSeenAt: null };
     const visitScreen = screenForVisitState(visit?.state ?? null);
     const screen = visitScreen !== "home" ? visitScreen : task?.state === "placing" ? "delivery_arrived" : "home";
 
@@ -68,7 +69,7 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
   app.post("/device/call-caregiver", { preHandler: requireRole("device") }, async (req) => {
     const principal = req.principal;
     if (principal.kind !== "device") return { error: "forbidden" };
-    audit(principal.id, principal.robotId, "call_caregiver");
+    audit(principal.id, principal.robotId, principal.residentId, "call_caregiver");
     return { ok: true };
   });
 
@@ -81,12 +82,12 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
     const staff = db.select().from(t.user).where(eq(t.user.role, "staff")).all();
     for (const user of staff) {
       if (user.pinHash && await verifySecret(body.data.pin, user.pinHash)) {
-        audit(principal.id, principal.robotId, "device_unlock");
+        audit(principal.id, principal.robotId, principal.residentId, "device_unlock");
         return { ok: true };
       }
     }
 
-    audit(principal.id, principal.robotId, "device_unlock_failed");
+    audit(principal.id, principal.robotId, principal.residentId, "device_unlock_failed");
     return reply.code(401).send({ error: "invalid_pin" });
   });
 }

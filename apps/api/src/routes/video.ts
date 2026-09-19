@@ -19,7 +19,7 @@ export async function videoRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const visit = app.visits.get(id);
     if (!visit) return reply.code(404).send({ error: "not_found" });
     if (!["connecting", "active"].includes(visit.state)) return reply.code(409).send({ error: "not_callable" });
-    const device = visit.robotId && db.select().from(t.robotDevice).where(and(eq(t.robotDevice.robotId, visit.robotId), eq(t.robotDevice.residentId, visit.residentId))).get();
+    const device = visit.robotId && db.select().from(t.device).where(and(eq(t.device.robotId, visit.robotId), eq(t.device.residentId, visit.residentId))).get();
     if (!device) return reply.code(409).send({ error: "camera_unavailable" });
     const p = req.principal;
     if (p.kind !== "user") return reply.code(403).send({ error: "forbidden" });

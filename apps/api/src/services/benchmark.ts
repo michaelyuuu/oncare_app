@@ -85,7 +85,7 @@ export function createBenchmarkService(db: Db, transitions: TransitionService, o
   });
 
   function recordScreenShown(deviceId: string, screen: string, entityId: string, at: string): boolean {
-    const device = db.select().from(t.robotDevice).where(eq(t.robotDevice.id, deviceId)).get();
+    const device = db.select().from(t.device).where(eq(t.device.id, deviceId)).get();
     if (!device) return false;
     const visitRow = db.select().from(t.visitSession).where(eq(t.visitSession.id, entityId)).get();
     const taskRow = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, entityId)).get();

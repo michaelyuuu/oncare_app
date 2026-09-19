@@ -20,7 +20,7 @@ export async function authRoutes(app: FastifyInstance, opts: { db: Db }) {
   app.post("/auth/device", async (req, reply) => {
     const body = z.object({ deviceToken: z.string().min(1) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "bad_request" });
-    for (const d of db.select().from(t.robotDevice).all()) {
+    for (const d of db.select().from(t.device).where(eq(t.device.active, true)).all()) {
       if (await verifySecret(body.data.deviceToken, d.deviceTokenHash)) {
         const principal = { kind: "device", id: d.id, residentId: d.residentId, robotId: d.robotId } as const;
         return { token: app.jwt.sign(principal), principal };
