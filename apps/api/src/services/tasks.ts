@@ -13,6 +13,7 @@ import {
 import type { Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
+import { actionRole } from "./access";
 import type { TransitionService } from "./visits";
 import type { GatewayHub } from "./gateway-hub";
 import { TransitionError } from "./transitions";
@@ -24,7 +25,7 @@ export type CreateOutcome =
   | { kind: "proposal"; task: TaskRow };
 export type CreateError = "no_relationship" | "consent_missing" | "visit_mismatch";
 export type TaskAction = "confirm" | "cancel" | "approve" | "deny" | "loaded" | "received" | "stop";
-type ActionRole = "family" | "staff" | "admin" | "device";
+type ActionRole = "family" | "staff" | "device";
 
 const ACTIONS: Record<TaskAction, { roles: ActionRole[]; from: TaskState[]; to: TaskState[]; reason?: string; approval?: "confirmed" | "approved" | "denied" | "cancelled" }> = {
   confirm: { roles: ["family"], from: ["awaiting_user_confirmation"], to: ["awaiting_policy_or_staff"], approval: "confirmed" },
@@ -163,7 +164,7 @@ export function createTaskService(
     const task = get(input.taskId);
     if (!task) return { ok: false as const, error: "not_found" as const };
     const spec = ACTIONS[input.action];
-    const role: ActionRole = input.principal.kind === "device" ? "device" : input.principal.role;
+    const role: ActionRole = actionRole(input.principal);
     if (!spec.roles.includes(role) || !canView(input.principal, task)) return { ok: false as const, error: "forbidden" as const };
     if (input.action !== "cancel" && !spec.from.includes(task.state as TaskState)) {
       return { ok: false as const, error: "illegal_transition" as const, detail: `${input.action} is not allowed from ${task.state}` };
@@ -171,7 +172,7 @@ export function createTaskService(
     try {
       const approval = spec.approval ? { id: `appr_${randomUUID()}`, taskId: task.id, actorId: input.principal.id, decision: spec.approval, reason: input.reason ?? null, at: now().toISOString() } : undefined;
       for (const [index, to] of spec.to.entries()) transitions.apply({
-        entityType: "task", entityId: task.id, to, actorType: role, actorId: input.principal.id,
+        entityType: "task", entityId: task.id, to, actorType: input.principal.kind === "device" ? "device" : input.principal.role, actorId: input.principal.id,
         ...(spec.reason ? { reason: spec.reason } : {}),
         ...(index === 0 && approval ? { taskApproval: approval } : {}),
       });

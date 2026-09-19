@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { requireRole } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
+import { actionRole } from "../services/access";
 import { grantsFor } from "../services/video";
 
 const TOKEN_TTL_SECONDS = 600;
@@ -42,7 +43,7 @@ export async function videoRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     if (!app.visits.canView(req.principal, visit)) return reply.code(403).send({ error: "forbidden" });
 
     const principal = req.principal;
-    const role = principal.kind === "device" ? "device" : principal.role;
+    const role = actionRole(principal);
     const callable = role === "device"
       ? ["awaiting_resident_consent", "connecting", "active"].includes(visit.state)
       : ["connecting", "active"].includes(visit.state);

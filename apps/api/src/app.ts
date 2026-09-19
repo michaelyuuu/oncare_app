@@ -13,6 +13,7 @@ import { staffRoutes } from "./routes/staff";
 import { taskRoutes } from "./routes/tasks";
 import { visitRoutes } from "./routes/visits";
 import { videoRoutes } from "./routes/video";
+import { createAccess, type Access } from "./services/access";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createTransitionService } from "./services/transitions";
@@ -26,6 +27,7 @@ export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video
 
 declare module "fastify" {
   interface FastifyInstance {
+    access: Access;
     transitions: TransitionService; visits: VisitService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
     tasks: TaskService;
@@ -36,6 +38,7 @@ declare module "fastify" {
 
 export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
+  app.decorate("access", createAccess(opts.db));
   const transitions = createTransitionService(opts.db, opts.now ? { now: opts.now } : {});
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
