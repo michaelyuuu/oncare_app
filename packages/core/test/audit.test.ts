@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AuditEventSchema, REASON_CODE, makeTransitionEvent } from "../src/audit";
+import { AuditEventSchema, REASON_CODE, makeTransitionEvent, ACTOR_TYPES, ENTITY_TYPES } from "../src/audit";
 
 describe("audit events", () => {
   test("makeTransitionEvent fills id, timestamp and copies every field", () => {
@@ -64,5 +64,14 @@ describe("audit events", () => {
   test("schema rejects an unknown actor type", () => {
     const bad = { id: "x", at: new Date().toISOString(), actorType: "hacker", actorId: "1", entityType: "visit", entityId: "v", fromState: null, toState: null, reason: null, correlationId: "c" };
     expect(AuditEventSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe("foundation vocabulary", () => {
+  test("admins and AI are actors; admin-managed records and tools are entities", () => {
+    expect(ACTOR_TYPES).toEqual(expect.arrayContaining(["admin", "ai"]));
+    expect(ENTITY_TYPES).toEqual(expect.arrayContaining(["user", "device", "family_link", "staff_assignment", "tool"]));
+    const ev = makeTransitionEvent({ actorType: "ai", actorId: "u1", entityType: "tool", entityId: "get_resident_status", fromState: null, toState: null, reason: "tool_invoked", correlationId: "facility_demo" });
+    expect(AuditEventSchema.safeParse(ev).success).toBe(true);
   });
 });
