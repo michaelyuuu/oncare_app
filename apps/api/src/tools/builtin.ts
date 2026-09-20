@@ -1,5 +1,37 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { defineTool, ToolForbidden, ToolInputError, type ToolDef } from "./registry";
+import { defineTool, ToolConflict, ToolForbidden, ToolInputError, ToolNotFound, type ToolDef } from "./registry";
+import { buildCapabilities } from "../services/capabilities";
+import type { AssistanceRequest } from "../services/assistance";
+
+function requireDevice(ctx: Parameters<NonNullable<ToolDef["run"]>>[0]) {
+  if (ctx.principal.kind !== "device") throw new ToolForbidden();
+  return ctx.principal;
+}
+
+function throwAssistanceFailure(error: string): never {
+  if (error === "forbidden") throw new ToolForbidden();
+  if (error === "not_found") throw new ToolNotFound();
+  if (error === "version_conflict" || error === "invalid_transition" || error === "idempotency_conflict") throw new ToolConflict(error);
+  throw new ToolInputError(error);
+}
+
+function requestStatus(request: AssistanceRequest) {
+  return {
+    id: request.id,
+    residentId: request.residentId,
+    category: request.category,
+    note: request.note,
+    persistenceState: request.persistenceState,
+    deliveryState: request.deliveryState,
+    handlingState: request.handlingState,
+    withdrawalState: request.withdrawalState,
+    escalationState: request.escalationState,
+    version: request.version,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+  };
+}
 
 export const listMyResidentsOrContacts = defineTool({
   name: "list_my_residents_or_contacts",
@@ -26,4 +58,89 @@ export const getResidentStatus = defineTool({
   },
 });
 
-export const BUILTIN_TOOLS: ToolDef[] = [listMyResidentsOrContacts, getResidentStatus];
+export const getApprovedContacts = defineTool({
+  name: "get_approved_contacts",
+  description: "List the resident's server-approved family contacts.",
+  roles: ["device"],
+  effect: "read",
+  input: z.object({}).strict(),
+  run: (ctx) => {
+    const principal = requireDevice(ctx);
+    return { contacts: ctx.directory.familyContacts(principal.residentId) };
+  },
+});
+
+export const requestStaffHelp = defineTool({
+  name: "request_staff_help",
+  description: "Create a staff assistance request when the resident asks for a person or help.",
+  roles: ["device"],
+  effect: "write",
+  confirm: false,
+  input: z.object({
+    category: z.enum(["general_assistance", "communication_support", "other"]),
+    note: z.string().trim().min(1).max(500).optional(),
+  }).strict(),
+  run: (ctx, input) => {
+    const principal = requireDevice(ctx);
+    const result = ctx.assistance.create({
+      principal,
+      category: input.category,
+      note: input.note ?? null,
+      idempotencyKey: "assistant-" + randomUUID(),
+    });
+    if (!result.ok) throwAssistanceFailure(result.error);
+    return { requestId: result.request.id, duplicate: result.duplicate, request: requestStatus(result.request) };
+  },
+});
+
+export const getMyRequestStatus = defineTool({
+  name: "get_my_request_status",
+  description: "Read the current evidence-based status of one assistance request owned by this resident device.",
+  roles: ["device"],
+  effect: "read",
+  input: z.object({ requestId: z.string().regex(/^help_[a-f0-9]{32}$/) }).strict(),
+  run: (ctx, input) => {
+    const principal = requireDevice(ctx);
+    const request = ctx.assistance.get(input.requestId);
+    if (!request) throw new ToolNotFound();
+    if (!ctx.assistance.canView(principal, request)) throw new ToolForbidden();
+    return { request: requestStatus(request) };
+  },
+});
+
+export const requestWithdrawal = defineTool({
+  name: "request_withdrawal",
+  description: "Request withdrawal of one assistance request when the resident asks to cancel it.",
+  roles: ["device"],
+  effect: "write",
+  confirm: false,
+  input: z.object({ requestId: z.string().regex(/^help_[a-f0-9]{32}$/) }).strict(),
+  run: (ctx, input) => {
+    const principal = requireDevice(ctx);
+    const result = ctx.assistance.requestWithdrawal({ requestId: input.requestId, principal });
+    if (!result.ok) throwAssistanceFailure(result.error);
+    return { request: requestStatus(result.request) };
+  },
+});
+
+export const getServiceStatus = defineTool({
+  name: "get_service_status",
+  description: "Explain the current assistant, family-call, staff-assistance, and robot capability states.",
+  roles: ["device"],
+  effect: "read",
+  input: z.object({}).strict(),
+  run: (ctx) => {
+    requireDevice(ctx);
+    return buildCapabilities(ctx.principal);
+  },
+});
+
+export const BUILTIN_TOOLS: ToolDef[] = [
+  listMyResidentsOrContacts,
+  getResidentStatus,
+  getApprovedContacts,
+  requestStaffHelp,
+  getMyRequestStatus,
+  requestWithdrawal,
+  getServiceStatus,
+];

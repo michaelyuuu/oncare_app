@@ -47,7 +47,10 @@ describe("tool registry", () => {
     const { app, tokens } = await setup();
     const names = async (token: string) => (await app.inject({ method: "GET", url: "/tools", headers: auth(token) })).json().tools.map((x: { name: string }) => x.name).sort();
     expect(await names(tokens.family)).toEqual(["get_resident_status", "list_my_residents_or_contacts", "test_write"]);
-    expect(await names(tokens.device)).toEqual(["get_resident_status", "list_my_residents_or_contacts", "test_urgent"]);
+    expect(await names(tokens.device)).toEqual([
+      "get_approved_contacts", "get_my_request_status", "get_resident_status", "get_service_status",
+      "list_my_residents_or_contacts", "request_staff_help", "request_withdrawal", "test_urgent",
+    ]);
     const tool = (await app.inject({ method: "GET", url: "/tools", headers: auth(tokens.family) })).json().tools.find((x: { name: string }) => x.name === "test_write");
     expect(tool).toMatchObject({ effect: "write", confirm: true, inputSchema: { type: "object", properties: { residentId: { type: "string" }, note: { type: "string" } } } });
   });
@@ -63,6 +66,32 @@ describe("tool registry", () => {
     expect((await invoke(tokens.device, "get_resident_status")).json().result.resident.id).toBe(SEED_IDS.resident);
     expect((await invoke(tokens.family, "get_resident_status", { residentId: "someone_else" })).statusCode).toBe(403);
     expect((await invoke(tokens.family, "get_resident_status")).json()).toMatchObject({ error: "bad_input" });
+  });
+
+  test("resident communication tools create, read, and withdraw a scoped request", async () => {
+    const { app, db, tokens, invoke } = await setup();
+    const help = await invoke(tokens.device, "request_staff_help", { category: "general_assistance", note: "Please help me." });
+    expect(help.statusCode).toBe(200);
+    const requestId = help.json().result.requestId as string;
+    expect(db.select().from(t.assistanceRequest).all()).toHaveLength(1);
+    expect(help.json().result).toMatchObject({ requestId, request: { id: requestId, persistenceState: "recorded", deliveryState: "pending", handlingState: "open" } });
+
+    const status = await invoke(tokens.device, "get_my_request_status", { requestId });
+    expect(status.statusCode).toBe(200);
+    expect(status.json().result.request).toMatchObject({ id: requestId, version: 1, handlingState: "open" });
+
+    const withdrawal = await invoke(tokens.device, "request_withdrawal", { requestId });
+    expect(withdrawal.statusCode).toBe(200);
+    expect(withdrawal.json().result.request).toMatchObject({ id: requestId, withdrawalState: "requested", handlingState: "open" });
+  });
+
+  test("communication tools reject a request owned by another device", async () => {
+    const { app, tokens, invoke } = await setup();
+    const help = await invoke(tokens.device, "request_staff_help", { category: "other" });
+    const requestId = help.json().result.requestId as string;
+    const foreign = { kind: "device" as const, id: "other_device", residentId: SEED_IDS.resident, facilityId: SEED_IDS.facility, robotId: null, assignmentVersion: 1 };
+    expect(await app.tools.invoke(foreign, "get_my_request_status", { requestId })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
+    expect(await app.tools.invoke(foreign, "request_withdrawal", { requestId })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
   });
 
   test("unknown tools, tools of another role and bad input are rejected", async () => {

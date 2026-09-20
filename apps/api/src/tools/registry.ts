@@ -8,11 +8,12 @@ import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import type { Access } from "../services/access";
 import { createDirectory, type Directory } from "../services/directory";
+import type { AssistanceService } from "../services/assistance";
 import type { TransitionService } from "../services/visits";
 
 export const PENDING_ACTION_TTL_MS = 120_000;
 
-export interface ToolContext { principal: Principal; access: Access; directory: Directory; now: () => Date }
+export interface ToolContext { principal: Principal; access: Access; directory: Directory; assistance: AssistanceService; now: () => Date }
 
 export interface ToolDef<I extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string;
@@ -37,6 +38,10 @@ export interface ToolDef<I extends z.ZodTypeAny = z.ZodTypeAny> {
 export class ToolForbidden extends Error {}
 /** Thrown by a tool when valid-shaped input is still unusable (e.g. a required-for-this-role field is missing). */
 export class ToolInputError extends Error {}
+/** Thrown by a tool when a requested resource does not exist. */
+export class ToolNotFound extends Error {}
+/** Thrown by a tool when a current resource state rejects an otherwise valid request. */
+export class ToolConflict extends Error {}
 
 export function defineTool<I extends z.ZodTypeAny>(def: ToolDef<I>): ToolDef<I> {
   if (def.effect === "write" && def.confirm !== false && !def.summarize) {
@@ -54,14 +59,14 @@ const roleKey = (p: Principal) => (p.kind === "device" ? "device" : p.role);
 const needsConfirmation = (def: ToolDef) => def.effect === "write" && def.confirm !== false;
 
 export function createToolRegistry(opts: {
-  db: Db; access: Access; transitions: TransitionService; tools: ToolDef[]; now?: () => Date; id?: () => string;
+  db: Db; access: Access; transitions: TransitionService; assistance: AssistanceService; tools: ToolDef[]; now?: () => Date; id?: () => string;
 }) {
-  const { db, access, transitions } = opts;
+  const { db, access, transitions, assistance } = opts;
   const now = opts.now ?? (() => new Date());
   const id = opts.id ?? (() => `act_${randomUUID()}`);
   const directory = createDirectory(db);
   const byName = new Map(opts.tools.map((def) => [def.name, def]));
-  const ctx = (principal: Principal): ToolContext => ({ principal, access, directory, now });
+  const ctx = (principal: Principal): ToolContext => ({ principal, access, directory, assistance, now });
   const allowed = (p: Principal, def: ToolDef | undefined): def is ToolDef => def !== undefined && def.roles.includes(roleKey(p));
 
   function audit(p: Principal, entityId: string, reason: string) {
@@ -75,6 +80,8 @@ export function createToolRegistry(opts: {
 
   function failure(e: unknown, p: Principal, entityId: string): ToolResult {
     if (e instanceof ToolForbidden) { audit(p, entityId, "tool_denied"); return { ok: false, status: 403, error: "forbidden" }; }
+    if (e instanceof ToolNotFound) return { ok: false, status: 404, error: "not_found" };
+    if (e instanceof ToolConflict) return { ok: false, status: 409, error: "conflict" };
     if (e instanceof ToolInputError) return { ok: false, status: 400, error: "bad_input", detail: e.message };
     throw e;
   }

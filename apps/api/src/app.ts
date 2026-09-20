@@ -4,6 +4,7 @@ import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
 import { adminRoutes } from "./routes/admin";
 import { assistanceRoutes } from "./routes/assistance";
+import { capabilitiesRoutes } from "./routes/capabilities";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
@@ -52,7 +53,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("video", video);
   app.decorate("transitions", transitions);
   app.decorate("tools", createToolRegistry({
-    db: opts.db, access: app.access, transitions, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+    db: opts.db, access: app.access, transitions, assistance: app.assistance, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
   }));
   const hub = new GatewayHub();
   app.decorate("hub", hub);
@@ -69,6 +70,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(authRoutes, { db: opts.db });
   app.register(deviceRoutes, { db: opts.db });
   app.register(assistanceRoutes);
+  app.register(capabilitiesRoutes);
   app.register(meRoutes, { db: opts.db });
   app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);

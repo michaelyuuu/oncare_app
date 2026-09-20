@@ -169,12 +169,13 @@ export function createAssistanceService(
   function requestWithdrawal(input: {
     requestId: string;
     principal: Principal;
-    version: number;
+    version?: number;
   }): AssistanceResult<{ request: AssistanceRequest }> {
     const row = get(input.requestId);
     if (!row) return { ok: false, error: "not_found" };
     if (input.principal.kind !== "device" || !canView(input.principal, row)) return { ok: false, error: "forbidden" };
-    if (row.version !== input.version) return { ok: false, error: "version_conflict" };
+    if (input.version !== undefined && row.version !== input.version) return { ok: false, error: "version_conflict" };
+    if (row.withdrawalState === "requested") return { ok: true, request: row };
     if (row.withdrawalState !== "none" || row.handlingState === "resolved" || row.handlingState === "cancelled") {
       return { ok: false, error: "invalid_transition" };
     }
