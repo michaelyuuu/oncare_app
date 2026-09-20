@@ -10,7 +10,7 @@ test("the resident default is the communication-first home with preserved meetin
   const onHelp = vi.fn();
   render(<Home name="Demo Resident" now={0} onOpenAssistant={onAssistant} onCallCaregiver={onCaregiver} onHelpStaff={onHelp} />);
 
-  expect(screen.getByRole("status")).toHaveTextContent("Tap to talk");
+  expect(screen.getByRole("status")).toHaveTextContent("Tap anywhere to talk");
   expect(screen.getByTestId("communication-orb")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "I need help" })).toBeInTheDocument();

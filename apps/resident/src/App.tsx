@@ -179,8 +179,10 @@ export function App({ apiBase }: { apiBase: string }) {
     helpStatus={helpStatus}
     disabled={pending || !jwt || !ui.apiReachable}
     offline={!jwt || !ui.apiReachable}
+    error={error}
   />;
   const inCall = screen === "in_call";
+  const communicationSurface = screen === "home" || screen === "disconnected";
   useEffect(() => { if (!inCall) setLocal({ camera: false, mic: false }); }, [inCall]);
   const action = (actionName: string) => { if (server?.visit) void perform(`/visits/${encodeURIComponent(server.visit.id)}/${actionName}`); };
   const reportCall = async (visitId: string, actionName: "connected" | "connection_lost") => {
@@ -192,12 +194,12 @@ export function App({ apiBase }: { apiBase: string }) {
     } catch { if (epoch === generation.current) returnHome(true); }
   };
   return <div className="kiosk" data-screen={screen}>
-    <StatusBar cameraOn={inCall && local.camera} micOn={inCall && local.mic} simulated={server?.robot.adapter === "mock"} callerName={inCall && server?.visit?.state === "active" ? callerName : null}/>
-    <main className="stage">
-      {(screen === "disconnected" || error) && <p className="feedback" role="status">{t(error ? "resident.error.retry" : "resident.error.reconnecting")}</p>}
+    {!communicationSurface && <StatusBar cameraOn={inCall && local.camera} micOn={inCall && local.mic} simulated={server?.robot.adapter === "mock"} callerName={inCall && server?.visit?.state === "active" ? callerName : null}/>}
+    <main className={"stage" + (communicationSurface ? " stage--communication" : "")}>
+      {!communicationSurface && error && <p className="feedback" role="status">{t("resident.error.retry")}</p>}
       <ScreenBoundary key={`${screen}:${server?.visit?.id ?? ""}`} fallback={home} onError={() => returnHome(true)}>
         {(screen === "home" || screen === "disconnected") && !assistantOpen && home}
-        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel api={api} residentName={server?.resident.displayName ?? ""} disabled={pending || !jwt || !ui.apiReachable} onClose={() => setAssistantOpen(false)} />}
+        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel api={api} residentName={server?.resident.displayName ?? ""} disabled={pending || !jwt || !ui.apiReachable} onHelpStaff={() => void helpStaff()} helpStatus={helpStatus} onClose={() => setAssistantOpen(false)} />}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
         {screen === "in_call" && server?.visit && <InCall api={api} visitId={server.visit.id} callerName={callerName} active={server.visit.state === "active"} onConnected={() => void reportCall(server.visit!.id, "connected")} onLost={() => void reportCall(server.visit!.id, "connection_lost")} onEnd={() => action("end")} onLocalState={setLocal} disabled={pending || server.visit.state !== "active"}/>}
         {screen === "delivery_arrived" && server?.task && <DeliveryArrived itemLabel={server.task.item.label} onReceived={() => void perform(`/tasks/${encodeURIComponent(server.task!.id)}/received`)}/>}

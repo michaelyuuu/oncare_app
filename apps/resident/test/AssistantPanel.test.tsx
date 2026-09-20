@@ -46,12 +46,12 @@ describe("resident assistant surface", () => {
     expect(onAssistant).toHaveBeenCalledTimes(1);
   });
 
-  test("panel offers text fallback and Stop, and calls the fake session", async () => {
+  test("Talk uses the communication shell and keeps text fallback when live voice is unavailable", async () => {
     const { api, post } = apiFor();
     render(<AssistantPanel api={api} residentName="Demo Resident" disabled={false} onClose={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: "Talk to Ontaru" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop listening" })).toBeInTheDocument();
+    expect(await screen.findByTestId("assistant-text-fallback")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Type a message" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Type a message" }), { target: { value: "Please get staff help" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/assistant/sessions/conv_1/input", { text: "Please get staff help" }));

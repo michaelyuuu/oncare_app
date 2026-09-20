@@ -254,3 +254,303 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   .communication-orb::before,
   .communication-orb::after { animation: none; }
 }
+
+/* communication reference surface: used by the resident Home and Talk routes */
+.kiosk[data-screen="home"],
+.kiosk[data-screen="disconnected"] {
+  padding-bottom: 0;
+  background: #fbf6ef;
+}
+.stage--communication {
+  width: 100%;
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+.communication-screen {
+  --communication-bg: #fbf6ef;
+  --communication-ink: #3b2f2a;
+  --communication-soft: #8a7568;
+  --communication-action: #b9502f;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: var(--communication-ink);
+  background:
+    radial-gradient(circle at 50% 38%, rgb(255 231 207 / 68%), transparent 35%),
+    var(--communication-bg);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.communication-screen::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 40%;
+  left: 50%;
+  width: min(78vw, 720px);
+  aspect-ratio: 1;
+  border: 1px solid rgb(240 138 107 / 24%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 34px rgb(240 138 107 / 7%), 0 0 0 70px rgb(240 138 107 / 4%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.communication-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(circle at 50% 50%, transparent 0 33%, rgb(185 80 47 / 3%) 70%, transparent 100%);
+  pointer-events: none;
+}
+.communication-brand {
+  position: absolute;
+  z-index: 4;
+  top: 26px;
+  left: 28px;
+  margin: 0;
+  color: var(--communication-soft);
+  font-size: clamp(16px, 1.8vw, 22px);
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.communication-zone-corner {
+  position: absolute;
+  z-index: 5;
+  top: 22px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.communication-ghost {
+  min-height: 48px;
+  padding: 10px 18px;
+  border: 1px solid rgb(203 183 166 / 88%);
+  border-radius: 999px;
+  color: #6f5a50;
+  background: rgb(255 248 238 / 68%);
+  font-size: clamp(14px, 1.55vw, 17px);
+  font-weight: 700;
+}
+.communication-orb-button {
+  position: absolute;
+  z-index: 2;
+  top: 40%;
+  left: 50%;
+  width: min(52vh, 390px, 72vw);
+  aspect-ratio: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  transform: translate(-50%, -50%);
+}
+.communication-orb-button:not(:disabled) { cursor: pointer; }
+.communication-orb-button--static { pointer-events: none; }
+.communication-orb {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 28% 22%, #fff8ee 0 3%, transparent 4%),
+    radial-gradient(circle at 34% 29%, #ffe7cf 0 18%, #ffc9a8 42%, #f6a95b 66%, #f08a6b 84%, #b9502f 100%);
+  box-shadow: 0 0 0 22px rgb(246 169 91 / 14%), 0 0 72px rgb(240 138 107 / 42%);
+  animation: communication-orb-breathe 3.6s ease-in-out infinite;
+}
+.communication-orb::before,
+.communication-orb::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.communication-orb::before {
+  inset: 15%;
+  background: radial-gradient(circle at 40% 30%, rgb(255 248 238 / 68%), transparent 34%);
+  box-shadow: inset -24px -30px 34px rgb(158 75 58 / 16%);
+}
+.communication-orb::after {
+  inset: -18px;
+  border: 1px solid rgb(240 138 107 / 42%);
+  box-shadow: 0 0 0 18px rgb(240 138 107 / 10%);
+  animation: communication-orb-ring 3.6s ease-in-out infinite;
+}
+.communication-orb i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(1px);
+  mix-blend-mode: screen;
+  opacity: .66;
+}
+.communication-orb i:nth-child(1) {
+  top: 12%;
+  left: 12%;
+  width: 34%;
+  height: 30%;
+  background: #fff8ee;
+  opacity: .42;
+  transform: rotate(-18deg);
+}
+.communication-orb i:nth-child(2) {
+  right: 8%;
+  bottom: 13%;
+  width: 38%;
+  height: 34%;
+  background: #f3b7b0;
+  transform: rotate(22deg);
+}
+.communication-orb i:nth-child(3) {
+  top: 35%;
+  right: 17%;
+  width: 26%;
+  height: 42%;
+  background: #f08a6b;
+  opacity: .46;
+  transform: rotate(28deg);
+}
+.communication-orb i:nth-child(4) {
+  bottom: 18%;
+  left: 18%;
+  width: 28%;
+  height: 28%;
+  background: #ffe7cf;
+  opacity: .5;
+}
+.communication-screen[data-orb="connecting"] .communication-orb,
+.communication-screen[data-orb="thinking"] .communication-orb {
+  animation-duration: 1.7s;
+}
+.communication-screen[data-orb="speaking"] .communication-orb {
+  animation-duration: 1.05s;
+}
+.communication-screen[data-orb="thinking"] .communication-orb { filter: saturate(.86) brightness(.98); }
+.communication-screen[data-orb="offline"] .communication-orb {
+  filter: grayscale(.72);
+  opacity: .72;
+  animation-play-state: paused;
+}
+.communication-screen[data-orb="offline"] .communication-orb::after { animation-play-state: paused; }
+.communication-status {
+  position: absolute;
+  z-index: 3;
+  top: calc(40% + min(28vh, 214px));
+  left: 50%;
+  width: min(calc(100% - 48px), 640px);
+  min-height: 1.45em;
+  margin: 0;
+  color: var(--communication-soft);
+  font-size: clamp(18px, 2.25vw, 28px);
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  transform: translateX(-50%);
+}
+.communication-zone-bottom {
+  position: absolute;
+  z-index: 5;
+  right: 24px;
+  bottom: 28px;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.communication-solid {
+  min-width: min(100%, 360px);
+  min-height: 58px;
+  padding: 12px 24px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff8ee;
+  background: var(--communication-action);
+  box-shadow: 0 10px 22px rgb(185 80 47 / 22%);
+  font-size: clamp(16px, 1.75vw, 20px);
+  font-weight: 800;
+}
+.communication-demo {
+  position: absolute;
+  right: 2px;
+  bottom: 4px;
+  color: rgb(138 117 104 / 72%);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+.communication-fallback {
+  position: absolute;
+  z-index: 6;
+  bottom: 100px;
+  left: 50%;
+  width: min(calc(100% - 48px), 580px);
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgb(203 183 166 / 75%);
+  border-radius: 20px;
+  color: var(--communication-soft);
+  background: rgb(255 248 238 / 88%);
+  box-shadow: 0 14px 30px rgb(95 65 48 / 12%);
+  font-size: 15px;
+  text-align: left;
+  transform: translateX(-50%);
+}
+.communication-fallback__row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.communication-fallback input {
+  min-height: 52px;
+  border: 1px solid #cbb7a6;
+  border-radius: 14px;
+  background: #fffdf9;
+  font-size: 16px;
+}
+.communication-fallback__send {
+  min-width: 112px;
+  min-height: 52px;
+  padding: 8px 16px;
+  font-size: 16px;
+}
+.communication-screen button:focus-visible,
+.communication-screen input:focus-visible {
+  outline: 3px solid var(--communication-action);
+  outline-offset: 4px;
+}
+@keyframes communication-orb-breathe {
+  0%, 100% { transform: scale(.97); }
+  50% { transform: scale(1.035); }
+}
+@keyframes communication-orb-ring {
+  0%, 100% { opacity: .46; transform: scale(.96); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+@media (max-width: 700px) {
+  .communication-brand { top: 18px; left: 20px; }
+  .communication-zone-corner { top: 14px; right: 16px; gap: 6px; }
+  .communication-ghost { min-height: 42px; padding: 8px 12px; font-size: 13px; }
+  .communication-orb-button { top: 38%; width: min(66vw, 300px); }
+  .communication-status { top: calc(38% + min(28vh, 200px)); width: calc(100% - 32px); }
+  .communication-zone-bottom { right: 16px; bottom: 18px; left: 16px; }
+  .communication-solid { width: 100%; min-height: 54px; }
+  .communication-demo { right: 0; bottom: -18px; }
+  .communication-fallback { bottom: 92px; width: calc(100% - 32px); }
+  .communication-fallback__row { display: grid; grid-template-columns: 1fr; }
+  .communication-fallback__send { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .communication-orb,
+  .communication-orb::after { animation: none; }
+}
