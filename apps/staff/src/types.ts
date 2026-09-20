@@ -26,6 +26,19 @@ export interface AuditRow {
     reason: string | null;
     correlationId: string;
 }
+export interface AssistanceRequest {
+    id: string;
+    residentId: string;
+    category: string;
+    note?: string | null;
+    persistenceState: string;
+    deliveryState: string;
+    handlingState: string;
+    withdrawalState: string;
+    version: number;
+    createdAt: string;
+    updatedAt: string;
+}
 export interface Robot {
     robotId: string;
     connected: boolean;
@@ -51,6 +64,7 @@ export interface QueueData {
     tasksAwaitingHandoff: Task[];
     activeVisits: Visit[];
     caregiverCalls: Array<AuditRow & { residentId?: string | null }>;
+    assistanceRequests?: AssistanceRequest[];
     robot: Robot | null;
 }
 export type Action = (path: string, body?: unknown) => Promise<void>;

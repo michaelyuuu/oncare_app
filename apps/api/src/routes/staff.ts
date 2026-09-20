@@ -65,9 +65,11 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       clearTimeout(timer);
     }
   }
-  app.get("/queue", staffOnly, async (req) => {
+  app.get("/queue", staffOnly, async (req, reply) => {
     const p = req.principal;
     const visible = new Set(app.access.residentIdsVisibleTo(p));
+    const assistance = app.assistance.listForStaff(p);
+    if (!assistance.ok) return reply.code(403).send({ error: assistance.error });
     const robot = p.facilityId ? db.select().from(t.robot).where(eq(t.robot.facilityId, p.facilityId)).get() : undefined;
     const visits = db.select().from(t.visitSession).all().filter(v => visible.has(v.residentId));
     const tasks = db.select().from(t.taskRequest).all().filter(k => visible.has(k.residentId));
@@ -93,6 +95,7 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       tasksAwaitingApproval: tasks.filter(k => k.state === "awaiting_policy_or_staff"),
       tasksAwaitingLoad: tasks.filter(k => k.state === "locating_item"),
       tasksAwaitingHandoff: tasks.filter(k => k.state === "placing"),
+      assistanceRequests: assistance.requests,
       activeVisits,
       caregiverCalls: db.select().from(t.auditEvent).where(and(eq(t.auditEvent.reason, "call_caregiver"), gte(t.auditEvent.at, new Date(now().getTime() - 30 * 60_000).toISOString()))).orderBy(desc(t.auditEvent.at)).all().map(event => ({
         ...event,

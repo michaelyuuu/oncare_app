@@ -106,6 +106,22 @@ p {
   margin-bottom:20px;
   border-bottom:1px solid #b8c8d2
 }
+.assistance-row {
+  padding:16px;
+  border:1px solid #d9c48b;
+  border-radius:8px;
+  background:#fffaf0
+}
+.assistance-status {
+  color:#855600;
+  font-weight:700
+}
+.assistance-row time {
+  display:block;
+  margin:10px 0;
+  color:#456072;
+  font-size:14px
+}
 .actions,.pills {
   display:flex;
   flex-wrap:wrap;

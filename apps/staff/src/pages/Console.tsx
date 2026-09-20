@@ -105,7 +105,7 @@ export function Console({ api, apiBase, token }: {
         }
         catch (error) {
             const code = error instanceof ApiError ? error.code : "request";
-            const supported = ["invalid_pin", "busy", "robot_unavailable", "not_delivered", "camera_control_failed", "camera_unavailable", "not_callable", "forbidden", "not_found"];
+            const supported = ["invalid_pin", "busy", "robot_unavailable", "not_delivered", "camera_control_failed", "camera_unavailable", "not_callable", "forbidden", "not_found", "version_conflict", "invalid_transition"];
             if (alive.current && inFlight.current === actions)
                 setErrors(old => ({ ...old, [key]: t(`staff.error.${supported.includes(code) ? code : "request"}`) }));
         }

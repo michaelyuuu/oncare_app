@@ -61,6 +61,29 @@ describe("staff operations", () => {
     ]));
     expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.id, original.id)).get()).toEqual(original);
   });
+  test("queue includes scoped assistance requests for staff handling", async () => {
+    const { app, tokens } = await makeTestApp();
+    const created = await app.inject({
+      method: "POST",
+      url: "/assistance-requests",
+      headers: { ...auth(tokens.device), "idempotency-key": "staff-queue-test" },
+      payload: { category: "general_assistance" },
+    });
+    expect(created.statusCode).toBe(201);
+    const requestId = created.json().request.id;
+    const result = await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().assistanceRequests).toEqual([
+      expect.objectContaining({
+        id: requestId,
+        residentId: SEED_IDS.resident,
+        persistenceState: "recorded",
+        deliveryState: "pending",
+        handlingState: "open",
+        version: 1,
+      }),
+    ]);
+  });
   test("queue groups work, includes only recent caregiver calls using the injected clock", async () => {
     const { app, db, tokens } = await makeTestApp({ now: () => new Date("2030-01-01T12:00:00Z") });
     db.update(t.resident).set({ availability: "in_activity" }).run();

@@ -52,6 +52,38 @@ test("approval, denial, tray actions, emergency stop and end call use their exac
         await userEvent.click(screen.getAllByRole("button", { name })[0]!);
     expect(posts.map(p => p.path)).toEqual(["/visits/v1/approve", "/visits/v1/deny", "/tasks/t1/loaded", "/tasks/t2/received", "/robots/robot1/stop", "/visits/v2/end"]);
 });
+test("assistance queue sends versioned acknowledge, progress, and resolve actions", async () => {
+    const request = {
+        id: "help_1",
+        residentId: "r1",
+        category: "general_assistance",
+        note: "Please help",
+        persistenceState: "recorded",
+        deliveryState: "pending",
+        handlingState: "open",
+        withdrawalState: "none",
+        version: 1,
+        createdAt: "2026-09-19T00:00:00.000Z",
+        updatedAt: "2026-09-19T00:00:00.000Z",
+    };
+    (queue as unknown as { assistanceRequests: Array<typeof request> }).assistanceRequests = [request];
+    render(<App apiBase="http://api"/>);
+    expect(await screen.findByText("Request recorded")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Acknowledge request" }));
+    expect(posts).toContainEqual({ path: "/staff/assistance-requests/help_1/acknowledge", body: { version: 1 } });
+
+    Object.assign(request, { deliveryState: "delivered", handlingState: "acknowledged", version: 2 });
+    act(() => Socket.current.onmessage?.({ data: '{"id":"assistance-ack"}' }));
+    expect(await screen.findByText("Staff acknowledged")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start work" }));
+    expect(posts).toContainEqual({ path: "/staff/assistance-requests/help_1/in_progress", body: { version: 2 } });
+
+    Object.assign(request, { handlingState: "in_progress", version: 3 });
+    act(() => Socket.current.onmessage?.({ data: '{"id":"assistance-progress"}' }));
+    expect(await screen.findByText("Work in progress")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
+    expect(posts).toContainEqual({ path: "/staff/assistance-requests/help_1/resolve", body: { version: 3 } });
+});
 test.each([["active", "Navigating"], ["succeeded", "Arrived"], ["canceled", "Canceled"]])(
     "navweb heartbeat %s has a localized staff navigation status", async (status, label) => {
         queue.robot!.lastHeartbeat.adapter = "navweb";
