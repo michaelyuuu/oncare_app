@@ -17,6 +17,8 @@ npm run dev
 
 The three apps are then available at `http://localhost:5174` (family), `http://localhost:5173` (resident kiosk), and `http://localhost:5175` (staff). Start the synthetic gateway separately from `robot_gateway/` with `ONCARE_ROBOT_TOKEN=robot-demo-token` and `ROBOT_ADAPTER=mock`; it must log `SIMULATED ROBOT`. Copy `apps/api/.env.example` to `apps/api/.env` when configuring a real LiveKit provider. Never commit real credentials.
 
+The resident kiosk includes a touch-first **Talk to Ontaru** assistant. With no `OPENAI_API_KEY`, its text fallback is deterministic and uses only the server's allowlisted communication tools: approved contacts, staff assistance, request status, withdrawal, and service status. `OPENAI_API_KEY` enables the optional server-side OpenAI Realtime/WebRTC adapter; the key is read only by the API and is never accepted from or returned to the browser. `ONCARE_REALTIME_MODEL` and `ONCARE_REALTIME_ENDPOINT` select the provider configuration. Set `ONCARE_ASSISTANT_PROFILE` to a bounded JSON profile when facility-specific wording is required; an invalid configured profile stops startup rather than weakening the fixed safety rules. The capability endpoint reports fake/live voice, family-call, staff-assistance, and robot states separately. Robot movement, navigation, manipulation, shell, ROS, and actuator operations are not assistant capabilities.
+
 ## Synthetic demo credentials
 
 `family` / `family-demo-pass`; `staff` / `staff-demo-pass`; `admin` / `admin-demo-pass` (facility manager: opens the **Facility admin** tab in the staff console); staff and admin PIN `2468`; device token `device-demo-token`; robot token `robot-demo-token`. All are seeded fixtures, not production credentials.

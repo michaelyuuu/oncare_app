@@ -5,6 +5,7 @@ import type { Db } from "./db/client";
 import { adminRoutes } from "./routes/admin";
 import { assistanceRoutes } from "./routes/assistance";
 import { capabilitiesRoutes } from "./routes/capabilities";
+import { assistantRoutes } from "./routes/assistant";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
@@ -19,6 +20,7 @@ import { visitRoutes } from "./routes/visits";
 import { videoRoutes } from "./routes/video";
 import { createAccess } from "./services/access";
 import { createAssistanceService, type AssistanceService } from "./services/assistance";
+import { loadAssistantProfile } from "./services/assistant-profile";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createTransitionService } from "./services/transitions";
@@ -29,13 +31,15 @@ import { createBenchmarkService } from "./services/benchmark";
 import { benchmarkRoutes } from "./routes/benchmark";
 import { BUILTIN_TOOLS } from "./tools/builtin";
 import { createToolRegistry, type ToolDef, type ToolRegistry } from "./tools/registry";
+import { createVoiceService, type OpenAIRealtimeProvider, type VoiceService } from "./services/voice";
 
-export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider; tools?: ToolDef[] }
+export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider; tools?: ToolDef[]; realtime?: OpenAIRealtimeProvider }
 
 declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
     assistance: AssistanceService;
+    assistant: VoiceService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
     tasks: TaskService;
     video: VideoProvider;
@@ -55,6 +59,15 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("tools", createToolRegistry({
     db: opts.db, access: app.access, transitions, assistance: app.assistance, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
   }));
+  const profile = loadAssistantProfile();
+  app.decorate("assistant", createVoiceService({
+    db: opts.db,
+    access: app.access,
+    tools: app.tools,
+    profile,
+    ...(opts.realtime ? { realtime: opts.realtime } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+  }));
   const hub = new GatewayHub();
   app.decorate("hub", hub);
   app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}, hub));
@@ -65,12 +78,14 @@ export function buildApp(opts: AppOptions): FastifyInstance {
     onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
   }));
   app.addHook("onClose", async () => app.visits.stop());
+  app.addHook("onClose", async () => app.assistant.stop());
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
   app.register(deviceRoutes, { db: opts.db });
   app.register(assistanceRoutes);
   app.register(capabilitiesRoutes);
+  app.register(assistantRoutes);
   app.register(meRoutes, { db: opts.db });
   app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);
