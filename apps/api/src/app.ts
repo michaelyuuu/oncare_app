@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
 import { adminRoutes } from "./routes/admin";
+import { assistanceRoutes } from "./routes/assistance";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
@@ -16,6 +17,7 @@ import { toolRoutes } from "./routes/tools";
 import { visitRoutes } from "./routes/visits";
 import { videoRoutes } from "./routes/video";
 import { createAccess } from "./services/access";
+import { createAssistanceService, type AssistanceService } from "./services/assistance";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createTransitionService } from "./services/transitions";
@@ -32,6 +34,7 @@ export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video
 declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
+    assistance: AssistanceService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
     tasks: TaskService;
     video: VideoProvider;
@@ -44,6 +47,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
   app.decorate("access", createAccess(opts.db));
   const transitions = createTransitionService(opts.db, opts.now ? { now: opts.now } : {});
+  app.decorate("assistance", createAssistanceService(opts.db, app.access, transitions, opts.now ? { now: opts.now } : {}));
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
@@ -64,6 +68,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
   app.register(deviceRoutes, { db: opts.db });
+  app.register(assistanceRoutes);
   app.register(meRoutes, { db: opts.db });
   app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);

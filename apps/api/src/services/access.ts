@@ -134,6 +134,10 @@ export function createAccess(db: Db) {
         if (!k || !visible.has(k.residentId)) return false;
         return p.kind === "device" || isStaffLike || k.requesterId === p.id;
       }
+      case "assistance_request": {
+        const request = db.select().from(t.assistanceRequest).where(eq(t.assistanceRequest.id, ev.entityId)).get();
+        return request !== undefined && visible.has(request.residentId);
+      }
       case "robot": {
         const f = robotFacility(ev.entityId);
         return isStaffLike && f !== null && sameFacility(p, f);

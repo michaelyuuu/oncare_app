@@ -52,6 +52,27 @@ export const pendingAction = sqliteTable("pending_action", {
   createdAt: text("created_at").notNull(), expiresAt: text("expires_at").notNull(),
   status: text("status", { enum: ["pending", "confirmed", "cancelled", "expired"] }).notNull(),
 });
+export const assistanceRequest = sqliteTable("assistance_request", {
+  id: text("id").primaryKey(),
+  residentId: text("resident_id").notNull().references(() => resident.id),
+  deviceId: text("device_id").notNull().references(() => device.id),
+  facilityId: text("facility_id").notNull().references(() => facility.id),
+  category: text("category", { enum: ["general_assistance", "communication_support", "other"] }).notNull(),
+  note: text("note"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  persistenceState: text("persistence_state", { enum: ["recorded", "failed"] }).notNull().default("recorded"),
+  deliveryState: text("delivery_state", { enum: ["pending", "delivered", "failed", "unknown"] }).notNull().default("pending"),
+  handlingState: text("handling_state", { enum: ["open", "acknowledged", "in_progress", "resolved", "cancelled"] }).notNull().default("open"),
+  withdrawalState: text("withdrawal_state", { enum: ["none", "requested", "confirmed", "rejected"] }).notNull().default("none"),
+  escalationState: text("escalation_state", { enum: ["none", "due", "attempting", "delivered", "failed"] }).notNull().default("none"),
+  version: integer("version").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  deliveryAt: text("delivery_at"),
+  acknowledgedAt: text("acknowledged_at"),
+  resolvedAt: text("resolved_at"),
+  withdrawalAt: text("withdrawal_at"),
+}, (table) => [uniqueIndex("assistance_request_device_idempotency").on(table.deviceId, table.idempotencyKey)]);
 export const location = sqliteTable("location", {
   id: text("id").primaryKey(), facilityId: text("facility_id").notNull().references(() => facility.id),
   name: text("name").notNull(), kind: text("kind", { enum: ["resident_room", "pickup_station", "standby"] }).notNull(),

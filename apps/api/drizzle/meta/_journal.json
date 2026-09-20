@@ -22,6 +22,13 @@
       "when": 1789805293784,
       "tag": "0002_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789869139585,
+      "tag": "0003_flat_magneto",
+      "breakpoints": true
     }
   ]
 }

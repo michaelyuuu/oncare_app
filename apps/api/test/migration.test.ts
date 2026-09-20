@@ -55,6 +55,7 @@ describe("migration 0002_foundation", () => {
     ]);
     expect(sqlite.prepare("SELECT active FROM resident ORDER BY id").all()).toEqual([{ active: 1 }, { active: 1 }]);
     expect(sqlite.prepare("SELECT count(*) AS n FROM pending_action").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT count(*) AS n FROM assistance_request").get()).toEqual({ n: 0 });
   });
 
   test("seed inserts the demo admin into an existing facility_demo database that predates it", async () => {
