@@ -12,6 +12,8 @@ import { InCall } from "./screens/InCall";
 import { DeliveryArrived } from "./screens/DeliveryArrived";
 import { CaregiverCalled } from "./screens/CaregiverCalled";
 import { Settings, type PinGuard } from "./screens/Settings";
+import { AssistantPanel } from "./components/AssistantPanel";
+import { requestStaffHelp } from "./assistant";
 
 // This boundary covers screen render/lifecycle errors; async errors use returnHome.
 export class ScreenBoundary extends Component<{ children: ReactNode; fallback: ReactNode; onError: () => void }, { failed: boolean }> {
@@ -34,12 +36,15 @@ export function App({ apiBase }: { apiBase: string }) {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [helpStatus, setHelpStatus] = useState<"idle" | "sending" | "recorded" | "error">("idle");
   const [local, setLocal] = useState({ camera: false, mic: false });
   const busy = useRef(false);
   const generation = useRef(0);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const spoken = useRef(new Set<string>());
   const screenShown = useRef(new Set<string>());
+  const helpIdempotencyKey = useRef<string | null>(null);
   const pinGuard = useRef<PinGuard>({ failures: 0, lockedUntil: 0 });
   const api = useMemo(() => createApi(apiBase, () => jwt), [apiBase, jwt]);
   const key = stateKey(server);
@@ -56,6 +61,7 @@ export function App({ apiBase }: { apiBase: string }) {
     setJwt(null); setServer(null); busy.current = false; setPending(false);
     const failed = () => {
       setDismissed(keyRef.current);
+      setAssistantOpen(false);
       setUi({ settingsOpen: false, caregiverCalledUntil: null, apiReachable: false });
     };
     const authenticate = async () => {
@@ -94,6 +100,7 @@ export function App({ apiBase }: { apiBase: string }) {
 
   const returnHome = useCallback((withError = false) => {
     setDismissed(keyRef.current); setError(withError);
+    setAssistantOpen(false);
     setUi((value) => ({ ...value, settingsOpen: false, caregiverCalledUntil: null }));
   }, []);
   const selected = selectScreen(server, ui, now);
@@ -127,6 +134,25 @@ export function App({ apiBase }: { apiBase: string }) {
     } catch { if (epoch === generation.current) returnHome(true); }
     finally { if (epoch === generation.current) { busy.current = false; setPending(false); } }
   };
+  const helpStaff = async () => {
+    if (busy.current || !jwt || !ui.apiReachable) return;
+    const epoch = generation.current;
+    const key = helpIdempotencyKey.current ?? (
+      "touch-" + (globalThis.crypto?.randomUUID?.() ?? (Date.now().toString(36) + "-" + Math.random().toString(36).slice(2)))
+    );
+    helpIdempotencyKey.current = key;
+    busy.current = true; setPending(true); setHelpStatus("sending");
+    try {
+      await requestStaffHelp(api, key);
+      if (epoch !== generation.current) return;
+      helpIdempotencyKey.current = null;
+      setHelpStatus("recorded"); setError(false);
+    } catch {
+      if (epoch === generation.current) setHelpStatus("error");
+    } finally {
+      if (epoch === generation.current) { busy.current = false; setPending(false); }
+    }
+  };
   const saveToken = async (token: string) => {
     if (busy.current) return;
     busy.current = true; setPending(true);
@@ -144,7 +170,15 @@ export function App({ apiBase }: { apiBase: string }) {
     finally { busy.current = false; setPending(false); }
   };
   const callerName = server?.caller?.displayName ?? "";
-  const home = <Home name={server?.resident.displayName ?? ""} now={now} onCallCaregiver={() => void perform("/device/call-caregiver", true)} disabled={pending || !jwt || !ui.apiReachable}/>;
+  const home = <Home
+    name={server?.resident.displayName ?? ""}
+    now={now}
+    onOpenAssistant={() => setAssistantOpen(true)}
+    onCallCaregiver={() => void perform("/device/call-caregiver", true)}
+    onHelpStaff={() => void helpStaff()}
+    helpStatus={helpStatus}
+    disabled={pending || !jwt || !ui.apiReachable}
+  />;
   const inCall = screen === "in_call";
   useEffect(() => { if (!inCall) setLocal({ camera: false, mic: false }); }, [inCall]);
   const action = (actionName: string) => { if (server?.visit) void perform(`/visits/${encodeURIComponent(server.visit.id)}/${actionName}`); };
@@ -161,7 +195,8 @@ export function App({ apiBase }: { apiBase: string }) {
     <main className="stage">
       {(screen === "disconnected" || error) && <p className="feedback" role="status">{t(error ? "resident.error.retry" : "resident.error.reconnecting")}</p>}
       <ScreenBoundary key={`${screen}:${server?.visit?.id ?? ""}`} fallback={home} onError={() => returnHome(true)}>
-        {(screen === "home" || screen === "disconnected") && home}
+        {(screen === "home" || screen === "disconnected") && !assistantOpen && home}
+        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel api={api} residentName={server?.resident.displayName ?? ""} disabled={pending || !jwt || !ui.apiReachable} onClose={() => setAssistantOpen(false)} />}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
         {screen === "in_call" && server?.visit && <InCall api={api} visitId={server.visit.id} callerName={callerName} active={server.visit.state === "active"} onConnected={() => void reportCall(server.visit!.id, "connected")} onLost={() => void reportCall(server.visit!.id, "connection_lost")} onEnd={() => action("end")} onLocalState={setLocal} disabled={pending || server.visit.state !== "active"}/>}
         {screen === "delivery_arrived" && server?.task && <DeliveryArrived itemLabel={server.task.item.label} onReceived={() => void perform(`/tasks/${encodeURIComponent(server.task!.id)}/received`)}/>}
