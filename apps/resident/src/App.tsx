@@ -178,6 +178,7 @@ export function App({ apiBase }: { apiBase: string }) {
     onHelpStaff={() => void helpStaff()}
     helpStatus={helpStatus}
     disabled={pending || !jwt || !ui.apiReachable}
+    offline={!jwt || !ui.apiReachable}
   />;
   const inCall = screen === "in_call";
   useEffect(() => { if (!inCall) setLocal({ camera: false, mic: false }); }, [inCall]);

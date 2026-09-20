@@ -41,7 +41,7 @@ describe("resident assistant surface", () => {
     render(<Home name="Demo Resident" now={0} onOpenAssistant={onAssistant} onCallCaregiver={onCaregiver} onHelpStaff={onHelp} />);
     expect(screen.getByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Call a caregiver" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Help staff" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "I need help" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Talk to Ontaru" }));
     expect(onAssistant).toHaveBeenCalledTimes(1);
   });
