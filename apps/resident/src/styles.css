@@ -274,6 +274,8 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   --communication-ink: #3b2f2a;
   --communication-soft: #8a7568;
   --communication-action: #b9502f;
+  --communication-level: 0;
+  --communication-halo: .35;
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -288,15 +290,17 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
 .communication-screen::before {
   content: "";
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   top: 40%;
   left: 50%;
-  width: min(78vw, 720px);
+  width: 58vh;
   aspect-ratio: 1;
-  border: 1px solid rgb(240 138 107 / 24%);
   border-radius: 50%;
-  box-shadow: 0 0 0 34px rgb(240 138 107 / 7%), 0 0 0 70px rgb(240 138 107 / 4%);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(calc(1 + var(--communication-level) * .2));
+  background: radial-gradient(circle, rgb(246 169 91 / 34%) 0%, rgb(240 138 107 / 16%) 42%, transparent 70%);
+  filter: blur(3vh);
+  opacity: var(--communication-halo);
+  transition: opacity .9s ease, top .9s ease, width .9s ease, height .9s ease;
   pointer-events: none;
 }
 .communication-screen::after {
@@ -344,7 +348,8 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   z-index: 2;
   top: 40%;
   left: 50%;
-  width: min(52vh, 390px, 72vw);
+  width: min(38vh, 390px);
+  height: min(38vh, 390px);
   aspect-ratio: 1;
   margin: 0;
   padding: 0;
@@ -357,16 +362,22 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
 .communication-orb-button:not(:disabled) { cursor: pointer; }
 .communication-orb-button--static { pointer-events: none; }
 .communication-orb {
+  --communication-sat: 1;
+  --communication-glow: 1;
   position: absolute;
   inset: 0;
   display: block;
   overflow: visible;
   border-radius: 50%;
+  transform: scale(calc(1 + var(--communication-level) * .12));
+  filter: saturate(var(--communication-sat)) brightness(var(--communication-glow));
   background:
     radial-gradient(circle at 28% 22%, #fff8ee 0 3%, transparent 4%),
     radial-gradient(circle at 34% 29%, #ffe7cf 0 18%, #ffc9a8 42%, #f6a95b 66%, #f08a6b 84%, #b9502f 100%);
-  box-shadow: 0 0 0 22px rgb(246 169 91 / 14%), 0 0 72px rgb(240 138 107 / 42%);
-  animation: communication-orb-breathe 3.6s ease-in-out infinite;
+  box-shadow: inset 1.6vh 1.4vh 3vh rgb(255 255 255 / 42%), inset -2vh -2.4vh 4vh rgb(120 53 43 / 30%), 0 1.5vh 4vh rgb(210 105 73 / 18%);
+  isolation: isolate;
+  transition: filter .9s ease, opacity .9s ease, transform .9s ease;
+  animation: communication-orb-breathe 6s ease-in-out infinite;
 }
 .communication-orb::before,
 .communication-orb::after {
@@ -376,76 +387,100 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   pointer-events: none;
 }
 .communication-orb::before {
-  inset: 15%;
-  background: radial-gradient(circle at 40% 30%, rgb(255 248 238 / 68%), transparent 34%);
-  box-shadow: inset -24px -30px 34px rgb(158 75 58 / 16%);
+  inset: 4%;
+  z-index: 2;
+  background: conic-gradient(from 20deg, transparent 0 12%, rgb(255 236 211 / 48%) 20%, transparent 31%, rgb(241 127 91 / 36%) 48%, transparent 62%, rgb(255 228 197 / 32%) 78%, transparent 91%);
+  filter: blur(1.5vh);
+  mix-blend-mode: screen;
+  opacity: .72;
+  animation: communication-orb-current 14s ease-in-out infinite alternate;
 }
 .communication-orb::after {
-  inset: -18px;
-  border: 1px solid rgb(240 138 107 / 42%);
-  box-shadow: 0 0 0 18px rgb(240 138 107 / 10%);
-  animation: communication-orb-ring 3.6s ease-in-out infinite;
+  inset: 13%;
+  z-index: 3;
+  border: 0;
+  background: radial-gradient(circle at 34% 24%, #fff8ee 0 4%, transparent 30%), radial-gradient(circle at 72% 72%, rgb(184 65 49 / 28%), transparent 58%);
+  filter: blur(1vh);
+  opacity: .84;
 }
 .communication-orb i {
   position: absolute;
-  display: block;
+  inset: -6%;
   border-radius: 50%;
-  filter: blur(1px);
+  filter: blur(2.6vh);
+  animation: communication-orb-drift 16s ease-in-out infinite alternate;
   mix-blend-mode: screen;
-  opacity: .66;
 }
 .communication-orb i:nth-child(1) {
-  top: 12%;
-  left: 12%;
-  width: 34%;
-  height: 30%;
-  background: #fff8ee;
-  opacity: .42;
-  transform: rotate(-18deg);
+  background: radial-gradient(circle at 34% 32%, #ffc9a8 0%, transparent 62%);
 }
 .communication-orb i:nth-child(2) {
-  right: 8%;
-  bottom: 13%;
-  width: 38%;
-  height: 34%;
-  background: #f3b7b0;
-  transform: rotate(22deg);
+  background: radial-gradient(circle at 68% 38%, #f6a95b 0%, transparent 58%);
+  animation-duration: 19s;
+  animation-direction: alternate-reverse;
 }
 .communication-orb i:nth-child(3) {
-  top: 35%;
-  right: 17%;
-  width: 26%;
-  height: 42%;
-  background: #f08a6b;
-  opacity: .46;
-  transform: rotate(28deg);
+  background: radial-gradient(circle at 58% 72%, #f08a6b 0%, transparent 60%);
+  animation-duration: 23s;
 }
 .communication-orb i:nth-child(4) {
-  bottom: 18%;
-  left: 18%;
-  width: 28%;
-  height: 28%;
-  background: #ffe7cf;
-  opacity: .5;
+  background: radial-gradient(circle at 30% 68%, #f3b7b0 0%, transparent 60%);
+  animation-duration: 27s;
+  animation-direction: alternate-reverse;
 }
 .communication-screen[data-orb="connecting"] .communication-orb,
 .communication-screen[data-orb="thinking"] .communication-orb {
-  animation-duration: 1.7s;
+  --communication-sat: .9;
+  --communication-glow: 1.05;
+}
+.communication-screen[data-orb="connecting"] .communication-orb-button {
+  width: min(32vh, 390px);
+  height: min(32vh, 390px);
 }
 .communication-screen[data-orb="speaking"] .communication-orb {
-  animation-duration: 1.05s;
+  --communication-sat: 1.25;
+  --communication-glow: 1.08;
+  animation-duration: 2.2s;
 }
-.communication-screen[data-orb="thinking"] .communication-orb { filter: saturate(.86) brightness(.98); }
+.communication-screen[data-orb="listening"] { --communication-halo: .8; }
+.communication-screen[data-orb="thinking"] { --communication-halo: .6; }
+.communication-screen[data-orb="speaking"] { --communication-halo: 1; }
+.communication-screen[data-orb="connecting"] { --communication-halo: .5; }
+.communication-screen[data-orb="thinking"] .communication-orb i { animation: communication-orb-swirl 7s linear infinite; }
+.communication-screen[data-orb="idle"] .communication-orb {
+  --communication-sat: .55;
+  --communication-glow: 1.02;
+}
+.communication-screen[data-orb="idle"] .communication-orb::before {
+  opacity: .48;
+  animation-duration: 18s;
+}
+.communication-screen[data-orb="listening"] .communication-orb {
+  --communication-sat: 1.15;
+  animation-duration: 3.4s;
+}
+.communication-screen[data-orb="listening"] .communication-orb::before { opacity: .86; animation-duration: 10s; }
+.communication-screen[data-orb="thinking"] .communication-orb::before { opacity: .72; animation-duration: 7s; }
+.communication-screen[data-orb="speaking"] .communication-orb::before { opacity: 1; animation-duration: 5.5s; }
 .communication-screen[data-orb="offline"] .communication-orb {
-  filter: grayscale(.72);
+  --communication-sat: 0;
+  --communication-glow: .98;
   opacity: .72;
+  animation: none;
+}
+.communication-screen[data-orb="offline"] .communication-orb i {
+  background: radial-gradient(circle at 50% 45%, #cfc4ba 0%, transparent 64%);
+  animation: none;
+}
+.communication-screen[data-orb="offline"] { --communication-halo: 0; }
+.communication-screen[data-orb="offline"] .communication-orb::before,
+.communication-screen[data-orb="offline"] .communication-orb::after {
   animation-play-state: paused;
 }
-.communication-screen[data-orb="offline"] .communication-orb::after { animation-play-state: paused; }
 .communication-status {
   position: absolute;
   z-index: 3;
-  top: calc(40% + min(28vh, 214px));
+  top: calc(40% + 22vh);
   left: 50%;
   width: min(calc(100% - 48px), 640px);
   min-height: 1.45em;
@@ -530,19 +565,28 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   outline-offset: 4px;
 }
 @keyframes communication-orb-breathe {
-  0%, 100% { transform: scale(.97); }
-  50% { transform: scale(1.035); }
+  0%, 100% { opacity: .86; }
+  50% { opacity: 1; }
 }
-@keyframes communication-orb-ring {
-  0%, 100% { opacity: .46; transform: scale(.96); }
-  50% { opacity: 1; transform: scale(1.03); }
+@keyframes communication-orb-drift {
+  from { transform: rotate(0deg) translate(1.2vh, -.8vh) scale(1); }
+  to { transform: rotate(40deg) translate(-1.2vh, 1vh) scale(1.08); }
+}
+@keyframes communication-orb-swirl {
+  to { transform: rotate(360deg); }
+}
+@keyframes communication-orb-current {
+  from { transform: rotate(-8deg) scale(.94); }
+  50% { transform: rotate(18deg) scale(1.03); }
+  to { transform: rotate(42deg) scale(.98); }
 }
 @media (max-width: 700px) {
   .communication-brand { top: 18px; left: 20px; }
   .communication-zone-corner { top: 14px; right: 16px; gap: 6px; }
   .communication-ghost { min-height: 42px; padding: 8px 12px; font-size: 13px; }
-  .communication-orb-button { top: 38%; width: min(66vw, 300px); }
-  .communication-status { top: calc(38% + min(28vh, 200px)); width: calc(100% - 32px); }
+  .communication-orb-button { width: 38vw; height: 38vw; }
+  .communication-screen[data-orb="connecting"] .communication-orb-button { width: 32vw; height: 32vw; }
+  .communication-status { top: calc(40% + 22vh); width: calc(100% - 32px); }
   .communication-zone-bottom { right: 16px; bottom: 18px; left: 16px; }
   .communication-solid { width: 100%; min-height: 54px; }
   .communication-demo { right: 0; bottom: -18px; }
@@ -552,5 +596,9 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
 }
 @media (prefers-reduced-motion: reduce) {
   .communication-orb,
-  .communication-orb::after { animation: none; }
+  .communication-orb::before,
+  .communication-orb::after,
+  .communication-orb i,
+  .communication-screen::before { animation: none !important; }
+  .communication-orb { transform: none; transition: filter .9s ease, opacity .9s ease; }
 }
