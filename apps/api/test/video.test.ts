@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { makeTestApp } from "./helpers";
 import * as t from "../src/db/schema";
 import { SEED_IDS } from "../src/db/seed";
-import { grantsFor, LiveKitProvider } from "../src/services/video";
+import { FakeVideoProvider, grantsFor, LiveKitProvider, videoProviderFromEnv } from "../src/services/video";
 import { RoomServiceClient, ParticipantInfo, TrackInfo, TrackSource, TrackType, ServerError } from "livekit-server-sdk";
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
@@ -88,6 +88,18 @@ describe("grantsFor", () => {
     expect(grantsFor("family")).toEqual({ canPublish: true, canSubscribe: true });
     expect(grantsFor("device")).toEqual({ canPublish: true, canSubscribe: true });
     expect(grantsFor("staff")).toEqual({ canPublish: false, canSubscribe: true });
+  });
+});
+
+describe("videoProviderFromEnv", () => {
+  test("explicit fake mode wins over configured LiveKit credentials", () => {
+    const provider = videoProviderFromEnv({
+      ONCARE_VIDEO_PROVIDER: "fake",
+      LIVEKIT_URL: "wss://configured.example",
+      LIVEKIT_API_KEY: "configured-key",
+      LIVEKIT_API_SECRET: "configured-secret",
+    });
+    expect(provider).toBeInstanceOf(FakeVideoProvider);
   });
 });
 

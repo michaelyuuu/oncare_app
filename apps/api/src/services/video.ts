@@ -116,6 +116,7 @@ export class FakeVideoProvider implements VideoProvider {
 }
 
 export function videoProviderFromEnv(env: NodeJS.ProcessEnv): VideoProvider {
+  if (env.ONCARE_VIDEO_PROVIDER === "fake") return new FakeVideoProvider();
   const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = env;
   return LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET
     ? new LiveKitProvider(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
