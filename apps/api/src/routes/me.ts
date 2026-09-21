@@ -1,11 +1,32 @@
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
-import { requireRole } from "../auth/plugin";
+import { eq, inArray } from "drizzle-orm";
+import { requireRole, type Principal } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 
+function publicPrincipal(principal: Principal) {
+  return principal.kind === "device"
+    ? { kind: "device" as const }
+    : { kind: "user" as const, role: principal.role };
+}
+
 export async function meRoutes(app: FastifyInstance, opts: { db: Db }) {
   const { db } = opts;
+  app.get("/me/identities", { preHandler: requireRole("device", "family", "staff", "admin") }, async (req) => {
+    const visible = app.access.residentIdsVisibleTo(req.principal);
+    const rows = visible.length
+      ? db.select({ residentId: t.resident.id, displayName: t.resident.displayName })
+          .from(t.resident).where(inArray(t.resident.id, visible)).all()
+      : [];
+    const relationship = req.principal.kind === "device" ? "self"
+      : req.principal.role === "family" ? "family"
+      : req.principal.role === "staff" ? "assignment" : "facility";
+    return {
+      principal: publicPrincipal(req.principal),
+      identities: rows.map((row) => ({ ...row, relationship })),
+    };
+  });
+
   app.get("/me/residents", { preHandler: requireRole("family") }, async (req) => {
     const p = req.principal;
     if (p.kind !== "user") return { residents: [] };
