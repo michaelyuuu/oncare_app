@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
+const reuseExistingServer = process.env.ONCARE_E2E_REUSE_SERVER === "1";
+
 export default defineConfig({
   testDir: ".",
   timeout: 120_000,
@@ -12,7 +14,7 @@ export default defineConfig({
     {
       command: "npm run dev",
       url: "http://127.0.0.1:3000/health",
-      reuseExistingServer: true,
+      reuseExistingServer,
       timeout: 120_000,
       cwd: "..",
       env: { ...process.env, ONCARE_VIDEO_PROVIDER: "fake" },
