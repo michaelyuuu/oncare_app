@@ -71,8 +71,10 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
+  const laundry = createLaundryRepository(opts.db, opts.now ? { now: opts.now } : {});
+  app.decorate("laundry", laundry);
   app.decorate("tools", createToolRegistry({
-    db: opts.db, access: app.access, transitions, assistance: app.assistance, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+    db: opts.db, access: app.access, transitions, assistance: app.assistance, laundry, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
   }));
   const profile = loadAssistantProfile();
   app.decorate("assistant", createVoiceService({
@@ -88,8 +90,6 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}, hub));
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
   app.decorate("benchmark", createBenchmarkService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
-  const laundry = createLaundryRepository(opts.db, opts.now ? { now: opts.now } : {});
-  app.decorate("laundry", laundry);
   app.decorate("rfid", createRfidConnector({
     repository: laundry,
     stations: opts.rfidStations ?? [],

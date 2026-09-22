@@ -9,6 +9,19 @@ function requireDevice(ctx: Parameters<NonNullable<ToolDef["run"]>>[0]) {
   return ctx.principal;
 }
 
+function requireAdminFacility(
+  ctx: Parameters<NonNullable<ToolDef["run"]>>[0],
+  residentId?: string,
+): string {
+  if (ctx.principal.kind !== "user" || ctx.principal.role !== "admin" || ctx.principal.facilityId === null) {
+    throw new ToolForbidden();
+  }
+  if (residentId !== undefined && !ctx.access.canAccessResident(ctx.principal, residentId)) {
+    throw new ToolForbidden();
+  }
+  return ctx.principal.facilityId;
+}
+
 function throwAssistanceFailure(error: string): never {
   if (error === "forbidden") throw new ToolForbidden();
   if (error === "not_found") throw new ToolNotFound();
@@ -135,6 +148,53 @@ export const getServiceStatus = defineTool({
   },
 });
 
+const overviewInput = z.object({ residentId: z.string().min(1).optional() }).strict();
+
+export const getLaundryOverview = defineTool({
+  name: "get_laundry_overview",
+  description: "Summarize laundry garment totals and synchronization status for this facility or one accessible resident.",
+  roles: ["admin"],
+  effect: "read",
+  input: overviewInput,
+  run: (ctx, input) => {
+    const facilityId = requireAdminFacility(ctx, input.residentId);
+    return ctx.laundry.overview(facilityId, input.residentId);
+  },
+});
+
+const findInput = z.object({
+  residentId: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  category: z.string().trim().min(1).max(50).optional(),
+  color: z.string().trim().min(1).max(50).optional(),
+  status: z.enum(["active", "lost", "discarded"]).optional(),
+}).strict();
+
+export const findGarments = defineTool({
+  name: "find_garments",
+  description: "Find up to 20 facility-scoped garments by accessible resident, name, category, color, or status.",
+  roles: ["admin"],
+  effect: "read",
+  input: findInput,
+  run: (ctx, input) => {
+    const facilityId = requireAdminFacility(ctx, input.residentId);
+    const overview = ctx.laundry.overview(facilityId, input.residentId);
+    return {
+      availability: overview.availability,
+      syncedAt: overview.syncedAt,
+      stale: overview.stale,
+      warnings: overview.warnings,
+      garments: ctx.laundry.find(facilityId, {
+        ...(input.residentId !== undefined ? { residentId: input.residentId } : {}),
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.category !== undefined ? { category: input.category } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+      }),
+    };
+  },
+});
+
 export const BUILTIN_TOOLS: ToolDef[] = [
   listMyResidentsOrContacts,
   getResidentStatus,
@@ -143,4 +203,6 @@ export const BUILTIN_TOOLS: ToolDef[] = [
   getMyRequestStatus,
   requestWithdrawal,
   getServiceStatus,
+  getLaundryOverview,
+  findGarments,
 ];
