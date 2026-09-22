@@ -47,27 +47,39 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
   }
 
   function onVisitAccepted(ev: AuditEvent) {
-    const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, ev.entityId)).get();
-    if (!visit?.robotId) return;
-    const resident = db.select().from(t.resident).where(eq(t.resident.id, visit.residentId)).get();
-    if (!resident) return;
-    const issuedAt = now();
-    const intent: Intent = {
-      type: "intent", intent: "request_visit", correlationId: visit.id,
-      expiresAt: new Date(issuedAt.getTime() + ttl).toISOString(), payload: { locationId: resident.roomLocationId },
-    };
-    // A robot that has told us it is not ready (estopped, lift fault, ...) must
-    // not be sent anywhere: the command is recorded as refused and the visit
-    // fails over immediately, rather than sitting accepted until the intent
-    // expires. No heartbeat at all means "never seen": store and send as usual,
-    // the robot itself will reject what it cannot do.
-    if (hub.status(visit.robotId).lastHeartbeat?.robotReady === false) {
-      db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, correlationId: visit.id, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: "robot_not_ready" }).run();
-      applyQuietly({ entityType: "visit", entityId: visit.id, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "robot_not_ready" });
+    ensureVisitCommand(ev.entityId);
+  }
+
+  function ensureVisitCommand(visitId: string) {
+    // Serialize the command claim across listeners, recovery ticks and API
+    // workers. An existing command retains its identity and original expiry;
+    // pending transport delivery uses the gateway's existing flush/replay path.
+    const claimed = db.transaction((tx) => {
+      const visit = tx.select().from(t.visitSession).where(eq(t.visitSession.id, visitId)).get();
+      if (!visit?.robotId || visit.state !== "accepted") return;
+      const existing = tx.select().from(t.robotCommand).where(eq(t.robotCommand.visitId, visitId)).get();
+      if (existing) return { command: existing, created: false };
+      const resident = tx.select().from(t.resident).where(eq(t.resident.id, visit.residentId)).get();
+      if (!resident) return;
+      const issuedAt = now();
+      const intent: Intent = {
+        type: "intent", intent: "request_visit", correlationId: visit.id,
+        expiresAt: new Date(issuedAt.getTime() + ttl).toISOString(), payload: { locationId: resident.roomLocationId },
+      };
+      // Preserve refusal when the robot has explicitly reported it is unsafe.
+      const result = hub.status(visit.robotId).lastHeartbeat?.robotReady === false ? "robot_not_ready" : null;
+      const command = { id: id(), robotId: visit.robotId, visitId, taskId: null, correlationId: visitId,
+        intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result };
+      tx.insert(t.robotCommand).values(command).run();
+      return { command, created: true };
+    }, { behavior: "immediate" });
+    if (!claimed) return;
+    const { command, created } = claimed;
+    if (command.result === "robot_not_ready") {
+      applyQuietly({ entityType: "visit", entityId: visitId, to: "robot_unavailable", actorType: "system", actorId: "api", reason: "robot_not_ready" });
       return;
     }
-    db.insert(t.robotCommand).values({ id: id(), robotId: visit.robotId, visitId: visit.id, taskId: null, correlationId: visit.id, intent, issuedAt: issuedAt.toISOString(), expiresAt: intent.expiresAt, ackedAt: null, result: null }).run();
-    hub.send(visit.robotId, intent);
+    if (created) hub.send(command.robotId, command.intent as Intent);
   }
 
   function onTaskQueued(ev: AuditEvent) {
@@ -315,5 +327,5 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     return n;
   }
 
-  return { flushPending, sweepExpired, sendStop, sendResume, sendStandby, auditRobot, cancelVisit: cancelCommand, stop() { unsubTransitions(); unsubHub(); } };
+  return { ensureVisitCommand, flushPending, sweepExpired, sendStop, sendResume, sendStandby, auditRobot, cancelVisit: cancelCommand, stop() { unsubTransitions(); unsubHub(); } };
 }

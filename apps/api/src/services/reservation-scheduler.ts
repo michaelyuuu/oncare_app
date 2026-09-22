@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, lte } from "drizzle-orm";
 import { makeTransitionEvent, VISIT_TERMINAL_STATES, type AuditEvent } from "@oncare/core";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
@@ -25,7 +25,7 @@ export function createReservationScheduler(opts: {
     // serializes reminder claims across independent scheduler instances.
     const event = db.transaction((tx) => {
       const row = tx.select().from(t.visitReservation).where(eq(t.visitReservation.id, id)).get();
-      if (!row || row.status !== "confirmed" || (failed && row.visitId !== null)) return;
+      if (!row || row.status !== "confirmed") return;
       if (tx.select().from(t.auditEvent).where(and(
         eq(t.auditEvent.entityType, "visit_reservation"), eq(t.auditEvent.entityId, id), eq(t.auditEvent.reason, reason),
       )).get()) return;
@@ -67,13 +67,28 @@ export function createReservationScheduler(opts: {
       )).all();
       for (const row of reminders) reservationEvent(row.id, "reservation_reminder", at);
       const due = db.select().from(t.visitReservation).where(and(
-        eq(t.visitReservation.status, "confirmed"), isNull(t.visitReservation.visitId), lte(t.visitReservation.dispatchAt, atIso),
+        eq(t.visitReservation.status, "confirmed"), lte(t.visitReservation.dispatchAt, atIso),
       )).all();
       for (const row of due) {
+        if (row.visitId) {
+          const visit = visits.get(row.visitId);
+          if (!visit || !["requested", "awaiting_policy_or_staff", "accepted"].includes(visit.state)) continue;
+          // A completed policy evaluation that waits for staff must keep doing
+          // so. Only an interrupted evaluation is eligible for automatic resume.
+          if (visit.state === "awaiting_policy_or_staff" && db.select().from(t.auditEvent).where(and(
+            eq(t.auditEvent.entityType, "visit_reservation"), eq(t.auditEvent.entityId, row.id),
+            eq(t.auditEvent.reason, "reservation_activated"),
+          )).get()) continue;
+        }
         const result = visits.createScheduled({ residentId: row.residentId, familyUserId: row.familyUserId,
           scheduledStartAt: row.startAt, reservationId: row.id,
         });
-        if (result.ok) reservationEvent(row.id, "reservation_activated", at);
+        if (result.ok) {
+          // Acceptance is durable; its in-process listener may not have run
+          // before an exit. Command creation has its own atomic deduplication.
+          dispatch.ensureVisitCommand(result.visit.id);
+          reservationEvent(row.id, "reservation_activated", at);
+        }
         else if (result.error !== "invalid_reservation") reservationEvent(row.id, "reservation_activation_failed", at, true);
       }
     } finally { ticking = false; }

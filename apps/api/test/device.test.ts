@@ -19,6 +19,27 @@ describe("screenForVisitState", () => {
 });
 
 describe("GET /device/state", () => {
+  test.each([
+    ["awaiting_resident_consent", "incoming"],
+    ["awaiting_family_consent", "in_call"],
+    ["connecting", "in_call"],
+    ["active", "in_call"],
+  ])("a newer pre-start scheduled visit cannot hide an immediate %s call", async (state, screen) => {
+    const { app, db, tokens } = await makeTestApp({ now: () => new Date("2026-09-22T00:55:00.000Z") });
+    try {
+      db.insert(t.visitSession).values([
+        { id: "immediate", residentId: SEED_IDS.resident, requesterId: SEED_IDS.familyUser,
+          state, requestedAt: "2026-09-22T00:54:00.000Z", initiatorKind: state === "awaiting_family_consent" ? "device" : "family" },
+        { id: "scheduled", residentId: SEED_IDS.resident, requesterId: SEED_IDS.familyUser,
+          state: "awaiting_resident_consent", requestedAt: "2026-09-22T00:55:00.000Z", scheduledStartAt: "2026-09-22T01:00:00.000Z" },
+      ]).run();
+      const get = async () => (await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) })).json();
+      expect(await get()).toMatchObject({ screen, visit: { id: "immediate" }, caller: { displayName: "Demo Daughter" } });
+      db.update(t.visitSession).set({ state: "completed" }).where(eq(t.visitSession.id, "immediate")).run();
+      expect(await get()).toMatchObject({ screen: "home", visit: { id: "scheduled" } });
+    } finally { await app.close(); }
+  });
+
   test("home when there is no visit", async () => {
     const { app, tokens } = await makeTestApp();
     const res = await app.inject({ method: "GET", url: "/device/state", headers: auth(tokens.device) });

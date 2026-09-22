@@ -91,7 +91,11 @@ export function createVisitService(
   }
 
   function finishCreation(visitId: string, availability: string): CreateResult {
-    transitions.apply({ entityType: "visit", entityId: visitId, to: "awaiting_policy_or_staff", actorType: "system", actorId: "api" });
+    // A scheduled reservation may already be linked when a previous process
+    // exited. Resume only the creation steps that are still outstanding.
+    if (get(visitId)?.state === "requested") {
+      transitions.apply({ entityType: "visit", entityId: visitId, to: "awaiting_policy_or_staff", actorType: "system", actorId: "api" });
+    }
     if (availability === "available" && get(visitId)?.state === "awaiting_policy_or_staff") {
       transitions.apply({ entityType: "visit", entityId: visitId, to: "accepted", actorType: "system", actorId: "api", reason: "auto_policy" });
     }
@@ -129,13 +133,16 @@ export function createVisitService(
     const claimed = db.transaction((tx) => {
       const reservation = tx.select().from(t.visitReservation).where(eq(t.visitReservation.id, input.reservationId)).get();
       const at = now().toISOString();
-      if (!reservation || reservation.status !== "confirmed" || reservation.visitId !== null
+      if (!reservation || reservation.status !== "confirmed"
         || reservation.residentId !== input.residentId || reservation.familyUserId !== input.familyUserId
         || reservation.startAt !== input.scheduledStartAt) {
         return { ok: false as const, error: "invalid_reservation" as const };
       }
       const checked = validateParticipants(input.residentId, input.familyUserId);
       if (!checked.ok) return checked;
+      if (reservation.visitId !== null) {
+        return { ok: true as const, visitId: reservation.visitId, availability: checked.resident.availability };
+      }
       const visitId = id();
       tx.insert(t.visitSession).values({
         id: visitId, residentId: input.residentId, requesterId: input.familyUserId, robotId: reservation.robotId,

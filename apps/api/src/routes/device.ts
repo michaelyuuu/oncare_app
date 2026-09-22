@@ -33,13 +33,18 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db; now?: (
     if (principal.kind !== "device") return { error: "forbidden" };
 
     const resident = db.select().from(t.resident).where(eq(t.resident.id, principal.residentId)).get()!;
-    const visit = db.select().from(t.visitSession)
+    const at = opts.now?.() ?? new Date();
+    const visits = db.select().from(t.visitSession)
       .where(and(
         eq(t.visitSession.residentId, principal.residentId),
         notInArray(t.visitSession.state, [...VISIT_TERMINAL_STATES]),
       ))
       .orderBy(desc(t.visitSession.requestedAt))
-      .get() ?? null;
+      .all();
+    // Choose an actionable call before falling back to a suppressed scheduled
+    // visit. Keep the fallback row available for the existing home response.
+    const visit = visits.find(v => screenForVisitState(v.state, v.scheduledStartAt, at, v.initiatorKind) !== "home")
+      ?? visits[0] ?? null;
     const caller = visit
       ? db.select({ displayName: t.user.displayName }).from(t.user).where(eq(t.user.id, visit.requesterId)).get() ?? null
       : null;
@@ -55,7 +60,7 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db; now?: (
     const itemId = task ? (task.proposal as { item: string }).item : null;
     const item = itemId ? db.select().from(t.item).where(eq(t.item.id, itemId)).get() ?? null : null;
     const status = principal.robotId ? app.hub.status(principal.robotId) : { connected: false, lastHeartbeat: null, lastSeenAt: null };
-    const visitScreen = screenForVisitState(visit?.state ?? null, visit?.scheduledStartAt ?? null, opts.now?.() ?? new Date(), visit?.initiatorKind ?? null);
+    const visitScreen = screenForVisitState(visit?.state ?? null, visit?.scheduledStartAt ?? null, at, visit?.initiatorKind ?? null);
     const screen = visitScreen !== "home" ? visitScreen : task?.state === "placing" ? "delivery_arrived" : "home";
 
     return {
