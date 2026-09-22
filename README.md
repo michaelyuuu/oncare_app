@@ -21,6 +21,10 @@ Start the synthetic gateway separately from `robot_gateway/` with `ONCARE_ROBOT_
 
 The resident kiosk includes a touch-first **Talk to Ontaru** assistant. With no `OPENAI_API_KEY`, its text fallback is deterministic and uses only the server's allowlisted communication tools: approved contacts, staff assistance, request status, withdrawal, and service status. `OPENAI_API_KEY` enables the optional server-side OpenAI Realtime/WebRTC adapter; the key is read only by the API and is never accepted from or returned to the browser. `ONCARE_REALTIME_MODEL` and `ONCARE_REALTIME_ENDPOINT` select the provider configuration. Set `ONCARE_ASSISTANT_PROFILE` to a bounded JSON profile when facility-specific wording is required; an invalid configured profile stops startup rather than weakening the fixed safety rules. The capability endpoint reports fake/live voice, family-call, staff-assistance, and robot states separately. Robot movement, navigation, manipulation, shell, ROS, and actuator operations are not assistant capabilities.
 
+## RFID laundry synchronization
+
+The API can poll one or more private RFID ledger stations into a read-only, last-known-good projection for facility managers. Configure the server-only `ONCARE_RFID_STATIONS` JSON array; the production poll interval is 60 seconds and data is marked stale after five minutes without a successful sync. Structured overview and garment search remain available without `OPENAI_API_KEY`, while conversational laundry answers are optional. Tokens, raw EPC/source keys, photos, and scan journals are excluded from browser and model output. See the [RFID synchronization runbook](docs/runbooks/rfid-oncare-sync.md) for exact configuration, HTTPS and token-rotation requirements, degraded-state behavior, and station disable steps.
+
 ## Synthetic demo credentials
 
 `family` / `family-demo-pass`; `staff` / `staff-demo-pass`; `admin` / `admin-demo-pass` (facility manager: opens the **Facility admin** tab in the staff console); staff and admin PIN `2468`; device token `device-demo-token`; robot token `robot-demo-token`. All are seeded fixtures, not production credentials.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseRfidStations } from "../src/services/rfid-config";
+import { parseRfidIntervalMs, parseRfidStations } from "../src/services/rfid-config";
 
 const STATION_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -58,4 +58,21 @@ describe("RFID station configuration", () => {
       ONCARE_RFID_STATIONS: encoded({ token, unexpected: true }),
     })).toThrowError(expect.not.stringContaining(token));
   });
+
+  test.each([undefined, "", "   "])("defaults the server poll interval to exactly one minute", (value) => {
+    expect(parseRfidIntervalMs({ ONCARE_RFID_POLL_INTERVAL_MS: value })).toBe(60_000);
+  });
+
+  test("accepts a bounded server-only test poll interval", () => {
+    expect(parseRfidIntervalMs({ ONCARE_RFID_POLL_INTERVAL_MS: "250" })).toBe(250);
+  });
+
+  test.each(["0", "249", "1.5", "60001", "fast", "250ms"])(
+    "rejects unsafe RFID poll interval %s",
+    (value) => {
+      expect(() => parseRfidIntervalMs({ ONCARE_RFID_POLL_INTERVAL_MS: value })).toThrow(
+        "ONCARE_RFID_POLL_INTERVAL_MS is invalid",
+      );
+    },
+  );
 });

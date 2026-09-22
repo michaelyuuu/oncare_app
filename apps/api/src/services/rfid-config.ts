@@ -43,3 +43,18 @@ export function parseRfidStations(env: Record<string, string | undefined>): Rfid
   if (!parsed.success) throw new Error("ONCARE_RFID_STATIONS is invalid");
   return parsed.data;
 }
+
+const DEFAULT_RFID_POLL_INTERVAL_MS = 60_000;
+const MIN_RFID_POLL_INTERVAL_MS = 250;
+
+export function parseRfidIntervalMs(env: Record<string, string | undefined>): number {
+  const configured = env.ONCARE_RFID_POLL_INTERVAL_MS;
+  if (configured === undefined || configured.trim() === "") return DEFAULT_RFID_POLL_INTERVAL_MS;
+  const trimmed = configured.trim();
+  if (!/^[1-9]\d*$/.test(trimmed)) throw new Error("ONCARE_RFID_POLL_INTERVAL_MS is invalid");
+  const intervalMs = Number(trimmed);
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < MIN_RFID_POLL_INTERVAL_MS || intervalMs > DEFAULT_RFID_POLL_INTERVAL_MS) {
+    throw new Error("ONCARE_RFID_POLL_INTERVAL_MS is invalid");
+  }
+  return intervalMs;
+}

@@ -13,6 +13,7 @@ const data = {
   "/locations": { locations: [{ id: "room1", name: "Room 101", kind: "resident_room" }, { id: "pick", name: "Station", kind: "pickup_station" }] },
   "/queue": { visitsAwaitingApproval: [], tasksAwaitingApproval: [], tasksAwaitingLoad: [], tasksAwaitingHandoff: [], caregiverCalls: [], activeVisits: [], robot: null },
   "/audit": { events: [] },
+  "/tools": { tools: [{ name: "get_laundry_overview" }, { name: "find_garments" }] },
 } as Record<string, unknown>;
 let requests: Array<{ method: string; path: string; body: unknown }>;
 
@@ -26,6 +27,10 @@ beforeEach(() => {
     const method = init?.method ?? "GET";
     requests.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (method === "POST" && path === "/admin/devices") return new Response(JSON.stringify({ device: { id: "d2" }, deviceToken: "tok-once-123" }), { status: 201 });
+    if (method === "POST" && path === "/tools/get_laundry_overview/invoke") return new Response(JSON.stringify({ result: {
+      availability: "never_synced", total: 0, active: 0, lostOrDiscarded: 0, recentlyWashed: 0,
+      syncedAt: null, stale: false, warnings: [],
+    } }));
     if (method !== "GET") return new Response('{"ok":true}');
     return new Response(JSON.stringify(data[path] ?? {}));
   }));
@@ -110,7 +115,7 @@ test("deactivating a person and an iPad posts to the exact routes", async () => 
   await userEvent.click(within(people).getAllByRole("button", { name: "Deactivate" })[0]!);
   const devices = screen.getByRole("region", { name: "Resident iPads" });
   await userEvent.click(within(devices).getByRole("button", { name: "Deactivate" }));
-  expect(requests.filter((r) => r.method === "POST").map((r) => r.path)).toEqual(["/admin/users/s1/deactivate", "/admin/devices/d1/deactivate"]);
+  expect(requests.filter((r) => r.method === "POST" && r.path.startsWith("/admin/")).map((r) => r.path)).toEqual(["/admin/users/s1/deactivate", "/admin/devices/d1/deactivate"]);
 });
 
 test("a failed change keeps the error banner up after the follow-up reload, and a later success clears it", async () => {
@@ -121,6 +126,10 @@ test("a failed change keeps the error banner up after the follow-up reload, and 
     requests.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (method === "POST" && path === "/admin/users") return new Response(JSON.stringify({ error: "username_taken" }), { status: 409 });
     if (method === "POST" && path === "/admin/devices") return new Response(JSON.stringify({ device: { id: "d2" }, deviceToken: "tok-once-123" }), { status: 201 });
+    if (method === "POST" && path === "/tools/get_laundry_overview/invoke") return new Response(JSON.stringify({ result: {
+      availability: "never_synced", total: 0, active: 0, lostOrDiscarded: 0, recentlyWashed: 0,
+      syncedAt: null, stale: false, warnings: [],
+    } }));
     if (method !== "GET") return new Response('{"ok":true}');
     return new Response(JSON.stringify(data[path] ?? {}));
   }));
