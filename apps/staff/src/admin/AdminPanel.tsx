@@ -5,6 +5,7 @@ import { Residents } from "./Residents";
 import { People } from "./People";
 import { Links } from "./Links";
 import { Devices } from "./Devices";
+import { LaundryAI } from "./LaundryAI";
 
 async function load(api: Api): Promise<AdminData> {
   const [residents, people, links, assignments, devices, rooms] = await Promise.all([
@@ -41,6 +42,7 @@ export function AdminPanel({ api }: { api: Api }) {
   if (!data) return <main className="admin">{error ? <p role="alert">{t("admin.error")}</p> : <p role="status">{t("admin.loading")}</p>}</main>;
   return <main className="admin">
     {error && <p role="alert">{t("admin.error")}</p>}
+    <LaundryAI api={api}/>
     <Residents data={data} run={run}/>
     <People data={data} run={run}/>
     <Links data={data} run={run}/>

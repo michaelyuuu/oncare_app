@@ -142,6 +142,14 @@ test("manager mode remains a presentation hint for a staff principal", async () 
     expect(JSON.parse(sessionStorage.getItem("oncare.staff")!)).toMatchObject({ role: "staff" });
     expect(screen.queryByRole("tab", { name: "Facility admin" })).toBeNull();
 });
+test("staff sessions never fetch laundry manager routes", async () => {
+    render(<App apiBase="http://api"/>);
+    await screen.findByText("SIMULATED ROBOT");
+    await waitFor(() => expect(gets).toContain("/queue"));
+    expect([...gets, ...posts.map((post) => post.path)].filter((path) =>
+        path === "/tools" || path.includes("laundry") || path.includes("find_garments"),
+    )).toEqual([]);
+});
 test("the login response principal grants facility admin access", async () => {
     history.replaceState({}, "", "/?mode=manager");
     sessionStorage.clear();

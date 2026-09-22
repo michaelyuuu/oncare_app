@@ -12,7 +12,7 @@
 body {
   margin:0
 }
-button,input {
+button,input,select {
   font:inherit
 }
 button {
@@ -32,11 +32,11 @@ button:disabled {
   opacity:.5;
   cursor:not-allowed
 }
-button:focus-visible,input:focus-visible {
+button:focus-visible,input:focus-visible,select:focus-visible {
   outline:3px solid #245b78;
   outline-offset:3px
 }
-input {
+input,select {
   display:block;
   width:100%;
   min-height:44px;
@@ -295,4 +295,211 @@ td {
 .location-approval {
   display:block;
   font-weight:400
+}
+
+.admin {
+  width:min(1440px,100%);
+  margin:0 auto;
+  padding:28px
+}
+.laundry-ai {
+  margin-bottom:36px;
+  padding:0 24px 24px;
+  border:1px solid #b8c8d2;
+  border-top:5px solid #245b78;
+  border-radius:5px;
+  background:#fff
+}
+.laundry-heading {
+  display:flex;
+  align-items:stretch;
+  justify-content:space-between;
+  gap:28px;
+  margin:0 -24px 22px;
+  padding-left:24px;
+  border-bottom:1px solid #b8c8d2
+}
+.laundry-heading>div:first-child {
+  align-self:center;
+  padding:18px 0
+}
+.laundry-heading h2 {
+  margin:0
+}
+.laundry-heading p {
+  max-width:62ch;
+  color:#456072
+}
+.laundry-freshness {
+  display:flex;
+  min-width:290px;
+  padding:16px 24px;
+  flex-direction:column;
+  justify-content:center;
+  border-left:1px solid #b8c8d2;
+  background:#e8f0f5;
+  font-variant-numeric:tabular-nums
+}
+.laundry-freshness strong {
+  font-size:18px
+}
+.laundry-freshness span {
+  color:#456072
+}
+.laundry-freshness.freshness-problem {
+  border-left:5px solid #855600;
+  background:#fff8e6;
+  color:#855600
+}
+.laundry-notice,.laundry-warnings {
+  padding:12px 16px;
+  border-left:5px solid #855600;
+  background:#fff8e6;
+  color:#704900
+}
+.laundry-warnings {
+  margin:12px 0;
+  padding-left:36px
+}
+.laundry-question {
+  margin:22px 0
+}
+.laundry-question>label,.laundry-filters label {
+  display:block;
+  font-weight:600
+}
+.laundry-question>div {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  margin-top:6px
+}
+.laundry-answer,.laundry-assistant-error {
+  max-width:78ch;
+  margin-top:12px;
+  padding:12px 16px;
+  border-left:5px solid #245b78;
+  background:#f3f6f8
+}
+.laundry-assistant-error {
+  border-left-color:#855600;
+  color:#704900
+}
+.laundry-ledger {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:0;
+  margin:24px 0;
+  border:1px solid #b8c8d2;
+  background:#f3f6f8
+}
+.laundry-ledger>div {
+  min-width:0;
+  padding:14px 18px;
+  border-right:1px solid #b8c8d2
+}
+.laundry-ledger>div:last-child {
+  border-right:0
+}
+.laundry-ledger dt {
+  color:#456072
+}
+.laundry-ledger dd {
+  font-size:26px;
+  font-weight:700;
+  color:#173044
+}
+.laundry-filters {
+  display:grid;
+  grid-template-columns:1.2fr 1.5fr 1fr 1fr 1fr auto;
+  align-items:end;
+  gap:12px;
+  padding:20px 0;
+  border-top:2px solid #245b78;
+  border-bottom:1px solid #b8c8d2
+}
+.laundry-filters label {
+  min-width:0
+}
+.laundry-filters input,.laundry-filters select {
+  margin-top:6px
+}
+.laundry-results {
+  min-height:92px;
+  padding-top:16px
+}
+.laundry-results table {
+  min-width:980px
+}
+.laundry-results caption {
+  padding:0 0 8px;
+  text-align:left;
+  font-weight:600
+}
+.laundry-result-count,.laundry-empty {
+  color:#456072
+}
+.laundry-results time {
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums
+}
+@media(max-width:1000px) {
+  .laundry-filters {
+    grid-template-columns:repeat(3,1fr)
+  }
+  .laundry-filters button {
+    width:100%
+  }
+}
+@media(max-width:700px) {
+  .admin {
+    padding:16px
+  }
+  .laundry-ai {
+    padding:0 16px 18px
+  }
+  .laundry-heading {
+    display:block;
+    margin:0 -16px 18px;
+    padding:0 16px
+  }
+  .laundry-heading>div:first-child {
+    padding-bottom:14px
+  }
+  .laundry-freshness {
+    min-width:0;
+    margin:0 -16px;
+    border-top:1px solid #b8c8d2;
+    border-left:0
+  }
+  .laundry-freshness.freshness-problem {
+    border-left:5px solid #855600
+  }
+  .laundry-ledger {
+    grid-template-columns:1fr 1fr
+  }
+  .laundry-ledger>div:nth-child(2) {
+    border-right:0
+  }
+  .laundry-ledger>div:nth-child(-n+2) {
+    border-bottom:1px solid #b8c8d2
+  }
+  .laundry-filters {
+    grid-template-columns:1fr
+  }
+}
+@media(max-width:440px) {
+  .laundry-question>div,.laundry-ledger {
+    grid-template-columns:1fr
+  }
+  .laundry-question button {
+    width:100%
+  }
+  .laundry-ledger>div {
+    border-right:0;
+    border-bottom:1px solid #b8c8d2
+  }
+  .laundry-ledger>div:last-child {
+    border-bottom:0
+  }
 }
