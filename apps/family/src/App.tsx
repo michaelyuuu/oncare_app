@@ -46,6 +46,6 @@ export function App({ apiBase, initialVisitId }: { apiBase: string; initialVisit
   if (!session) return <Login api={api} onLoggedIn={(next) => { writeSession(next); setSession(next); }} />;
   if (incomingVisit) return <IncomingVisit api={api} visitId={incomingVisit.id} onAnswered={(id) => { setIncomingVisit(null); setRoute({ name: "visit", id }); }} onDeclined={() => setIncomingVisit(null)} />;
   if (route.name === "visit") return <Visit api={api} apiBase={apiBase} token={session.token} visitId={route.id} onBack={() => setRoute({ name: "residents" })} />;
-  if (route.name === "schedule") return <ScheduleVisit api={api} residentId={route.residentId} residentName={route.residentName} onBack={() => setRoute({ name: "residents" })} onCreated={() => {}} onImmediate={(id) => setRoute({ name: "visit", id })} />;
+  if (route.name === "schedule") return <ScheduleVisit api={api} residentId={route.residentId} residentName={route.residentName} onBack={() => setRoute({ name: "residents" })} onCreated={() => {}} onImmediate={(id) => setRoute({ name: "visit", id })} onVisit={(id) => setRoute({ name: "visit", id })} />;
   return <Residents api={api} displayName={session.displayName} onScheduleVisit={(resident) => setRoute({ name: "schedule", residentId: resident.id, residentName: resident.displayName })} onCallNow={(resident) => startImmediateVisit(resident.id)} onLogout={() => { writeSession(null); setSession(null); }} />;
 }

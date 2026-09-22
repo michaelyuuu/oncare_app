@@ -29,6 +29,7 @@ export function VisitReservationCard({
   suggestion,
   disabled = false,
   onChanged,
+  onVisit,
 }: {
   api: Api;
   reservation: VisitReservationView;
@@ -36,6 +37,7 @@ export function VisitReservationCard({
   suggestion?: VisitSlot | null;
   disabled?: boolean;
   onChanged: () => void;
+  onVisit?: (visitId: string) => void;
 }) {
   const [internalNow, setInternalNow] = useState(Date.now);
   const [busy, setBusy] = useState(false);
@@ -88,6 +90,7 @@ export function VisitReservationCard({
         <button type="button" className="primary" onClick={() => void act("confirm")} disabled={busy || disabled}>{t("family.schedule.confirm")}</button>
         <button type="button" onClick={() => void act("suggest")} disabled={busy || disabled}>{t("family.schedule.suggest")}</button>
       </>}
+      {reservation.visitId && onVisit && <button type="button" className="primary" onClick={() => onVisit(reservation.visitId!)}>{t("family.schedule.open_visit")}</button>}
       <button type="button" onClick={() => void act("cancel")} disabled={busy || disabled}>{t("family.schedule.cancel")}</button>
     </div>}
   </article>;

@@ -166,7 +166,7 @@ export function VisitCalendar({
     }
   };
 
-  return <section className="visit-calendar" aria-label={t("resident.visit.calendar_aria")}>
+  return <section className="visit-calendar" aria-label={t("resident.visit.calendar_aria")} data-testid="resident-visit-calendar">
     <header className="visit-calendar__header">
       <div>
         <p className="visit-calendar__eyebrow">{t("resident.visit.brand")}</p>
@@ -185,6 +185,7 @@ export function VisitCalendar({
             className={`visit-date-rail__day${date === selectedDate ? " visit-date-rail__day--selected" : ""}`}
             aria-pressed={date === selectedDate}
             key={date}
+            data-testid={`resident-date-${date}`}
             onClick={() => { setSelectedDate(date); setSelectedSlot(null); setError(null); }}
           >
             <span>{dateLabel(date)}</span>
@@ -212,6 +213,7 @@ export function VisitCalendar({
               type="button"
               className={`visit-slot${blocked ? " visit-slot--blocked" : ""}${isSelected ? " visit-slot--selected" : ""}`}
               key={`${slot.localDate}-${slot.startMinute}`}
+              data-testid={`resident-slot-${slot.localDate}-${slot.startMinute}`}
               disabled={blocked || requesting}
               aria-pressed={isSelected}
               aria-label={blocked ? `${minuteLabel(slot.startMinute)}, ${slotReason(slot.reason)}` : minuteLabel(slot.startMinute)}
@@ -229,7 +231,7 @@ export function VisitCalendar({
             <p className="visit-calendar__summary-text">{dateLabel(selectedSlot.localDate)} · {minuteLabel(selectedSlot.startMinute)}–{minuteLabel(selectedSlot.endMinute)}</p>
             <p className="visit-calendar__summary-contact">{selectedContact ? t("resident.visit.with_contact", { name: selectedContact.displayName }) : t("resident.visit.choose_contact")}</p>
           </div>
-          <button type="button" className="communication-solid visit-calendar__request" onClick={() => void reserve()} disabled={!contactId || requesting}>
+          <button type="button" data-testid="resident-request-visit" className="communication-solid visit-calendar__request" onClick={() => void reserve()} disabled={!contactId || requesting}>
             {requesting ? t("resident.visit.requesting") : t("resident.visit.request")}
           </button>
         </div>}

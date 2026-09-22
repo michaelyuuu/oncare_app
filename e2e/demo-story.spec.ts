@@ -23,7 +23,7 @@ test("handover section 8: visit, call, item request, tray delivery", async ({ br
     await family.getByLabel("Username").fill("family");
     await family.getByLabel("Password").fill("family-demo-pass");
     await family.getByRole("button", { name: "Sign in" }).click();
-    await family.getByRole("button", { name: "Send the robot to visit" }).click();
+    await family.getByRole("button", { name: "Call now" }).click();
     await expect(family.getByText("Robot is on its way")).toHaveAttribute("aria-current", "step");
 
     const answer = resident.getByRole("button", { name: "Answer" });

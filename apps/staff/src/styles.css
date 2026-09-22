@@ -296,3 +296,7 @@ td {
   display:block;
   font-weight:400
 }
+
+.reservation-row { border-left: .35rem solid #6b9d7b; }
+.dispatch-failure-row { border-left: .35rem solid #b54a3b; background: #fff4f1; }
+.reservation-status { color: #35664a; font-weight: 700; }

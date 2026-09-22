@@ -1,3 +1,4 @@
+import type { VisitReservationView } from "@oncare/web-common";
 export interface Visit {
     id: string;
     residentId: string;
@@ -57,7 +58,18 @@ export interface Robot {
         activeCorrelationId?: string | null;
     } | null;
 }
+export interface DispatchFailure {
+    id: string;
+    reservationId: string;
+    visitId: string | null;
+    residentId: string;
+    residentDisplayName: string;
+    at: string;
+    reason: string;
+}
 export interface QueueData {
+    reservations?: VisitReservationView[];
+    dispatchFailures?: DispatchFailure[];
     visitsAwaitingApproval: Visit[];
     tasksAwaitingApproval: Task[];
     tasksAwaitingLoad: Task[];

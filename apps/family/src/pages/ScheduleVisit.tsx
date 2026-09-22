@@ -43,6 +43,7 @@ export function ScheduleVisit({
   onBack,
   onCreated,
   onImmediate,
+  onVisit,
 }: {
   api: Api;
   residentId: string;
@@ -50,6 +51,7 @@ export function ScheduleVisit({
   onBack: () => void;
   onCreated: (reservationId: string) => void;
   onImmediate: (visitId: string) => void;
+  onVisit?: (visitId: string) => void;
 }) {
   const startingTimeZone = DEMO_VISIT_POLICY.timeZone;
   const [timeZone, setTimeZone] = useState<string>(startingTimeZone);
@@ -79,7 +81,11 @@ export function ScheduleVisit({
     }
   };
 
-  useEffect(() => { void refreshReservations(); }, [api, residentId]);
+  useEffect(() => {
+    void refreshReservations();
+    const timer = setInterval(() => void refreshReservations(), 3000);
+    return () => clearInterval(timer);
+  }, [api, residentId]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -130,7 +136,7 @@ export function ScheduleVisit({
   const activeReservations = reservations.filter((item) => item.status !== "cancelled" && localDateAt(new Date(item.startAt), timeZone) === selectedDate);
   const today = localDateAt(new Date(), timeZone);
 
-  return <main className="family-schedule" aria-label={t("family.schedule.aria")}>
+  return <main className="family-schedule" aria-label={t("family.schedule.aria")} data-testid="family-schedule">
     <header className="family-schedule__header">
       <div><p className="wordmark">{t("family.wordmark")}</p><p className="family-schedule__eyebrow">{t("family.schedule.brand")}</p><h1>{t("family.schedule.title", { name: residentName })}</h1><p className="family-schedule__local-time">{t("family.schedule.local_time", { timeZone })}</p></div>
       <div className="family-schedule__top-actions"><button type="button" className="link" onClick={onBack}>{t("family.schedule.back")}</button><button type="button" onClick={() => void callNow()} disabled={calling}>{calling ? t("family.schedule.calling") : t("family.schedule.call_now")}</button></div>
@@ -140,7 +146,7 @@ export function ScheduleVisit({
       <aside className="family-schedule__rail">
         <p className="family-schedule__eyebrow">{t("family.schedule.dates")}</p>
         <nav aria-label={t("family.schedule.dates")} className="family-date-rail">
-          {dates.map((date) => <button type="button" key={date} className={date === selectedDate ? "family-date-rail__day family-date-rail__day--selected" : "family-date-rail__day"} aria-pressed={date === selectedDate} onClick={() => { setSelectedDate(date); setSelectedSlot(null); }}><span>{dateLabel(date)}</span>{date === today && <small>{t("family.schedule.today")}</small>}</button>)}
+          {dates.map((date) => <button type="button" key={date} data-testid={`family-date-${date}`} className={date === selectedDate ? "family-date-rail__day family-date-rail__day--selected" : "family-date-rail__day"} aria-pressed={date === selectedDate} onClick={() => { setSelectedDate(date); setSelectedSlot(null); }}><span>{dateLabel(date)}</span>{date === today && <small>{t("family.schedule.today")}</small>}</button>)}
         </nav>
       </aside>
       <section className="family-schedule__content">
@@ -148,12 +154,12 @@ export function ScheduleVisit({
         {loading && <p className="loading" role="status">{t("family.schedule.loading")}</p>}
         {!loading && dateSlots.length === 0 && <p className="loading" role="status">{t("family.schedule.no_slots")}</p>}
         <div className="family-slot-grid" aria-label={t("family.schedule.slot_grid")}>
-          {dateSlots.map((slot) => { const blocked = slot.state !== "available"; const selected = selectedSlot?.localDate === slot.localDate && selectedSlot.startMinute === slot.startMinute; return <button type="button" key={`${slot.localDate}-${slot.startMinute}`} className={`family-slot${blocked ? " family-slot--blocked" : ""}${selected ? " family-slot--selected" : ""}`} disabled={blocked || requesting} aria-pressed={selected} aria-label={blocked ? `${minuteLabel(slot.startMinute)}, ${reasonLabel(slot.reason)}` : minuteLabel(slot.startMinute)} onClick={() => { setSelectedSlot(slot); setNotice(null); }}><strong>{minuteLabel(slot.startMinute)}</strong><small>{blocked ? reasonLabel(slot.reason) : t("family.schedule.available")}</small></button>; })}
+          {dateSlots.map((slot) => { const blocked = slot.state !== "available"; const selected = selectedSlot?.localDate === slot.localDate && selectedSlot.startMinute === slot.startMinute; return <button type="button" key={`${slot.localDate}-${slot.startMinute}`} data-testid={`family-slot-${slot.localDate}-${slot.startMinute}`} className={`family-slot${blocked ? " family-slot--blocked" : ""}${selected ? " family-slot--selected" : ""}`} disabled={blocked || requesting} aria-pressed={selected} aria-label={blocked ? `${minuteLabel(slot.startMinute)}, ${reasonLabel(slot.reason)}` : minuteLabel(slot.startMinute)} onClick={() => { setSelectedSlot(slot); setNotice(null); }}><strong>{minuteLabel(slot.startMinute)}</strong><small>{blocked ? reasonLabel(slot.reason) : t("family.schedule.available")}</small></button>; })}
         </div>
-        {selectedSlot && <div className="family-schedule__summary" aria-live="polite"><div><p className="family-schedule__eyebrow">{t("family.schedule.selected_time")}</p><p>{dateLabel(selectedSlot.localDate)} · {minuteLabel(selectedSlot.startMinute)}–{minuteLabel(selectedSlot.endMinute)}</p></div><button type="button" className="primary" onClick={() => void propose()} disabled={requesting}>{requesting ? t("family.schedule.requesting") : t("family.schedule.request")}</button></div>}
+        {selectedSlot && <div className="family-schedule__summary" aria-live="polite"><div><p className="family-schedule__eyebrow">{t("family.schedule.selected_time")}</p><p>{dateLabel(selectedSlot.localDate)} · {minuteLabel(selectedSlot.startMinute)}–{minuteLabel(selectedSlot.endMinute)}</p></div><button type="button" data-testid="family-request-visit" className="primary" onClick={() => void propose()} disabled={requesting}>{requesting ? t("family.schedule.requesting") : t("family.schedule.request")}</button></div>}
         {notice && <p className="family-schedule__notice" role="status">{notice}</p>}
         <p className="family-schedule__hint">{t("family.schedule.blocked_hint")}</p>
-        {activeReservations.length > 0 && <div className="family-schedule__reservations"><h2>{t("family.schedule.your_visits")}</h2>{activeReservations.map((item) => <VisitReservationCard key={item.id} api={api} reservation={item} now={now} suggestion={selectedSlot} disabled={requesting} onChanged={() => { void refreshReservations(); setSlotRefresh((value) => value + 1); }} />)}</div>}
+        {activeReservations.length > 0 && <div className="family-schedule__reservations"><h2>{t("family.schedule.your_visits")}</h2>{activeReservations.map((item) => <VisitReservationCard key={item.id} api={api} reservation={item} now={now} suggestion={selectedSlot} disabled={requesting} onChanged={() => { void refreshReservations(); setSlotRefresh((value) => value + 1); }} {...(onVisit ? { onVisit } : {})} />)}</div>}
       </section>
     </div>
   </main>;

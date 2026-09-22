@@ -6,8 +6,20 @@ import { requireRole } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
 import type { CameraState } from "../services/video";
+import type { ReservationService } from "../services/reservations";
 
 export type QueueVisit = typeof t.visitSession.$inferSelect & { streaming: boolean; cameraState: CameraState | "unknown" };
+
+export type QueueReservation = ReturnType<ReservationService["list"]>[number];
+export type QueueDispatchFailure = {
+  id: string;
+  reservationId: string;
+  visitId: string | null;
+  residentId: string;
+  residentDisplayName: string;
+  at: string;
+  reason: string;
+};
 
 export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: () => Date }) {
   const { db } = opts;
@@ -73,6 +85,34 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const robot = p.facilityId ? db.select().from(t.robot).where(eq(t.robot.facilityId, p.facilityId)).get() : undefined;
     const visits = db.select().from(t.visitSession).all().filter(v => visible.has(v.residentId));
     const tasks = db.select().from(t.taskRequest).all().filter(k => visible.has(k.residentId));
+    const allReservations = app.reservations.list(p);
+    const reservations = allReservations.filter((reservation) =>
+      (reservation.status === "pending" || reservation.status === "confirmed")
+      && Date.parse(reservation.endAt) >= now().getTime(),
+    );
+    const reservationById = new Map(allReservations.map((reservation) => [reservation.id, reservation]));
+    const reservationByVisitId = new Map(allReservations.filter((reservation) => reservation.visitId).map((reservation) => [reservation.visitId!, reservation]));
+    const dispatchFailures: QueueDispatchFailure[] = [];
+    const recordedFailures = new Set<string>();
+    const failureEvents = db.select().from(t.auditEvent).orderBy(desc(t.auditEvent.at), desc(t.auditEvent.id)).all();
+    for (const event of failureEvents) {
+      const reservation = event.entityType === "visit_reservation" && event.reason === "reservation_activation_failed"
+        ? reservationById.get(event.entityId)
+        : event.entityType === "visit" && event.toState === "robot_unavailable"
+          ? reservationByVisitId.get(event.entityId)
+          : undefined;
+      if (!reservation || recordedFailures.has(reservation.id)) continue;
+      recordedFailures.add(reservation.id);
+      dispatchFailures.push({
+        id: `${reservation.id}:${event.id}`,
+        reservationId: reservation.id,
+        visitId: reservation.visitId ?? (event.entityType === "visit" ? event.entityId : null),
+        residentId: reservation.residentId,
+        residentDisplayName: reservation.residentDisplayName,
+        at: event.at,
+        reason: event.reason ?? "dispatch_failed",
+      });
+    }
     const observedKeys = new Set<string>();
     const activeVisits: QueueVisit[] = await Promise.all(visits.filter(v => ["connecting", "active", "ending"].includes(v.state)).map(async v => {
       const device = v.robotId && db.select().from(t.device).where(and(eq(t.device.robotId, v.robotId), eq(t.device.residentId, v.residentId))).get();
@@ -97,6 +137,8 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       tasksAwaitingHandoff: tasks.filter(k => k.state === "placing"),
       assistanceRequests: assistance.requests,
       activeVisits,
+      reservations,
+      dispatchFailures,
       caregiverCalls: db.select().from(t.auditEvent).where(and(eq(t.auditEvent.reason, "call_caregiver"), gte(t.auditEvent.at, new Date(now().getTime() - 30 * 60_000).toISOString()))).orderBy(desc(t.auditEvent.at)).all().map(event => ({
         ...event,
         residentId: event.actorType === "device" ? db.select().from(t.device).where(eq(t.device.id, event.actorId)).get()?.residentId ?? null : null,

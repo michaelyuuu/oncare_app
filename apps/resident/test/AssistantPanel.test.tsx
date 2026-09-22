@@ -42,13 +42,11 @@ function apiFor(inputResult: unknown = {
 const futureExpiry = () => new Date(Date.now() + 60_000).toISOString();
 
 describe("resident assistant surface", () => {
-  test("Home exposes Talk to Ontaru while keeping family and staff actions available", () => {
+  test("Home exposes Talk to Ontaru while keeping the help action available", () => {
     const onAssistant = vi.fn();
-    const onCaregiver = vi.fn();
     const onHelp = vi.fn();
-    render(<Home name="Demo Resident" now={0} onOpenAssistant={onAssistant} onCallCaregiver={onCaregiver} onHelpStaff={onHelp} />);
+    render(<Home name="Demo Resident" now={0} onOpenAssistant={onAssistant} onHelpStaff={onHelp} />);
     expect(screen.getByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Call a caregiver" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "I need help" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Talk to Ontaru" }));
     expect(onAssistant).toHaveBeenCalledTimes(1);
