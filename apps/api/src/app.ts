@@ -68,7 +68,13 @@ export function buildApp(opts: AppOptions): FastifyInstance {
     opts.now ? { now: opts.now } : {},
   ));
   app.decorate("tools", createToolRegistry({
-    db: opts.db, access: app.access, transitions, assistance: app.assistance, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+    db: opts.db,
+    access: app.access,
+    transitions,
+    assistance: app.assistance,
+    reservations: app.reservations,
+    tools: opts.tools ?? BUILTIN_TOOLS,
+    ...(opts.now ? { now: opts.now } : {}),
   }));
   const profile = loadAssistantProfile();
   app.decorate("assistant", createVoiceService({

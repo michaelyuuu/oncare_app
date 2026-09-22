@@ -16,6 +16,40 @@ export const REALTIME_TOOL_DEFINITIONS = [
   },
   {
     type: "function",
+    name: "get_visit_schedule",
+    description: "Read this resident's evidence-based upcoming and recent ON 0 visit reservations.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    type: "function",
+    name: "get_visit_slots",
+    description: "Read authoritative ON 0 visit slot availability starting on one facility-local date.",
+    parameters: {
+      type: "object",
+      properties: {
+        from: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      },
+      required: ["from"],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
+    name: "propose_visit_time",
+    description: "Prepare a one-hour ON 0 robot visit proposal with an approved contact. The resident must confirm it on screen.",
+    parameters: {
+      type: "object",
+      properties: {
+        contactUserId: { type: "string", minLength: 1 },
+        localDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+        startMinute: { type: "integer", minimum: 0, maximum: 1439 },
+      },
+      required: ["contactUserId", "localDate", "startMinute"],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
     name: "request_staff_help",
     description: "Create a staff assistance request when the resident asks for a person or help.",
     parameters: {
@@ -219,6 +253,21 @@ export class FakeVoiceAdapter {
 
   interpret(text: string, lastRequestId: string | null): ToolProposal | null {
     const normalized = text.toLocaleLowerCase();
+    if (/\b(schedule|book|reserve)\b/.test(normalized) && /\bvisit\b/.test(normalized)) {
+      const contactUserId = text.match(/\bcontact(?:\s+id)?\s+([a-z0-9_-]+)\b/i)?.[1];
+      const localDate = text.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1];
+      const time = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\s*(am|pm)?\b/i);
+      if (!contactUserId || !localDate || !time) return null;
+      let hour = Number(time[1]);
+      const minute = Number(time[2]);
+      const meridiem = time[3]?.toLocaleLowerCase();
+      if (meridiem === "am" && hour === 12) hour = 0;
+      if (meridiem === "pm" && hour < 12) hour += 12;
+      return {
+        name: "propose_visit_time",
+        arguments: { contactUserId, localDate, startMinute: hour * 60 + minute },
+      };
+    }
     if ((normalized.includes("staff") && normalized.includes("help")) || ["urgent human", "human help", "a person", "someone"].some((phrase) => normalized.includes(phrase))) {
       return { name: "request_staff_help", arguments: { category: "general_assistance" } };
     }

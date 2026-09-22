@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { type Api, t } from "@oncare/web-common";
 import { createAssistantClient } from "../assistant";
-import { type LiveVoiceEventState } from "../realtime";
+import { extractAssistantActionProposal, type AssistantActionProposal, type LiveVoiceEventState } from "../realtime";
 import { speak, stopSpeaking } from "../speech";
+import { AssistantActionConfirmation } from "./AssistantActionConfirmation";
 
 type PanelState = "connecting" | "listening" | "thinking" | "speaking" | "error";
 type HelpStatus = "idle" | "sending" | "recorded" | "error";
@@ -53,6 +54,21 @@ export function AssistantPanel({
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [action, setAction] = useState<AssistantActionProposal | null>(null);
+
+  const receiveToolResult = useCallback((result: unknown): boolean => {
+    const proposal = extractAssistantActionProposal(result);
+    if (proposal) {
+      setAction(proposal);
+      setNotice(null);
+      return true;
+    }
+    const message = evidenceMessage(result);
+    if (!message) return false;
+    setNotice(message);
+    speak(message);
+    return true;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +111,9 @@ export function AssistantPanel({
             setState(panelState(event));
             if (event.state === "error") setNotice(t("resident.communication.voice_failed"));
           },
+          onToolResult: (result) => {
+            if (!cancelled) receiveToolResult(result);
+          },
           onClosed: () => { if (!cancelled) void beginFallback(); },
         });
         if (cancelled) {
@@ -124,7 +143,7 @@ export function AssistantPanel({
       stopSpeaking();
       if (started) void dispose();
     };
-  }, [client]);
+  }, [client, receiveToolResult]);
 
   const close = async () => {
     stopSpeaking();
@@ -155,9 +174,8 @@ export function AssistantPanel({
     setNotice(null);
     try {
       const result = await client.sendText(value);
-      const message = evidenceMessage(result);
-      if (message) { setNotice(message); speak(message); }
-      else if (typeof result === "object" && result !== null && "result" in result && (result as { result?: { kind?: string } }).result?.kind === "clarification") {
+      const handled = receiveToolResult(result);
+      if (!handled && typeof result === "object" && result !== null && "result" in result && (result as { result?: { kind?: string } }).result?.kind === "clarification") {
         setNotice(t("resident.assistant.clarify"));
       }
       setText("");
@@ -166,6 +184,24 @@ export function AssistantPanel({
       setState("error");
       setFallbackReady(false);
       setNotice(t("resident.assistant.unavailable"));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const resolveAction = async (decision: "confirm" | "cancel") => {
+    if (!action || sending || disabled) return;
+    setSending(true);
+    const success = decision === "confirm" ? "Visit proposal sent." : "Visit proposal cancelled.";
+    try {
+      await api.post("/tools/actions/" + encodeURIComponent(action.actionId) + "/" + decision, {});
+      setAction(null);
+      setNotice(success);
+      speak(success);
+    } catch {
+      const failure = "That visit action could not be completed. Please try again.";
+      setNotice(failure);
+      speak(failure);
     } finally {
       setSending(false);
     }
@@ -215,7 +251,14 @@ export function AssistantPanel({
       </span>
     </div>
     <p className="communication-status" role="status" aria-live="polite">{statusText}</p>
-    {fallbackReady && <form className="communication-fallback" data-testid="assistant-text-fallback" onSubmit={(event) => void send(event)}>
+    {action && <AssistantActionConfirmation
+      actionId={action.actionId}
+      summary={action.summary}
+      expiresAt={action.expiresAt}
+      onConfirm={() => resolveAction("confirm")}
+      onCancel={() => resolveAction("cancel")}
+    />}
+    {fallbackReady && !action && <form className="communication-fallback" data-testid="assistant-text-fallback" onSubmit={(event) => void send(event)}>
       <label htmlFor="assistant-message">{t("resident.communication.fallback")}</label>
       <div className="communication-fallback__row">
         <input id="assistant-message" aria-label={t("resident.assistant.input_label")} value={text} onChange={(event) => setText(event.target.value)} disabled={disabled || sending} autoComplete="off" />

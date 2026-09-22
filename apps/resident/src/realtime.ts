@@ -18,6 +18,45 @@ export interface FunctionCall {
   arguments: Record<string, unknown>;
 }
 
+export interface AssistantActionProposal {
+  actionId: string;
+  summary: string;
+  expiresAt: string;
+}
+
+export function extractAssistantActionProposal(value: unknown): AssistantActionProposal | null {
+  let current = value;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (typeof current !== "object" || current === null || Array.isArray(current)) return null;
+    const record = current as Record<string, unknown>;
+    if (
+      record.needsConfirmation === true
+      && typeof record.actionId === "string"
+      && record.actionId.length > 0
+      && typeof record.summary === "string"
+      && record.summary.length > 0
+      && typeof record.expiresAt === "string"
+      && record.expiresAt.length > 0
+    ) {
+      return {
+        actionId: record.actionId,
+        summary: record.summary,
+        expiresAt: record.expiresAt,
+      };
+    }
+    if ("response" in record) {
+      current = record.response;
+      continue;
+    }
+    if ("result" in record) {
+      current = record.result;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
 export function normalizeSdp(value: string): string {
   const text = String(value || "").replace(/^\uFEFF/, "").trim();
   if (!text) return "";
