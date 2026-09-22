@@ -439,6 +439,19 @@ td {
 .laundry-result-count,.laundry-empty {
   color:#456072
 }
+.laundry-search-freshness {
+  display:flex;
+  justify-content:flex-end;
+  margin-bottom:14px
+}
+.laundry-search-freshness .laundry-freshness {
+  min-width:280px;
+  border:1px solid #b8c8d2;
+  border-left:5px solid #245b78
+}
+.laundry-search-freshness .laundry-freshness.freshness-problem {
+  border-left-color:#855600
+}
 .laundry-results time {
   white-space:nowrap;
   font-variant-numeric:tabular-nums
@@ -474,6 +487,12 @@ td {
   }
   .laundry-freshness.freshness-problem {
     border-left:5px solid #855600
+  }
+  .laundry-search-freshness {
+    display:block
+  }
+  .laundry-search-freshness .laundry-freshness {
+    margin:0
   }
   .laundry-ledger {
     grid-template-columns:1fr 1fr

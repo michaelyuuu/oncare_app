@@ -69,9 +69,10 @@ test("distinguishes stale, valid zero, safe warnings, and never-synced data", as
     warnings: [{ kind: "invalid_data", message: "do not render raw" }],
   } }) });
   const first = render(<LaundryAI api={staleApi.api} />);
-  expect(await screen.findByText("Laundry data is stale.")).toBeInTheDocument();
-  expect(screen.getByText("No garments are recorded in the current data.")).toBeInTheDocument();
-  expect(screen.getByText("Some station data could not be verified.")).toBeInTheDocument();
+  const staleStatus = await screen.findByRole("status", { name: "Laundry overview notices" });
+  expect(within(staleStatus).getByText("Laundry data is stale.")).toBeInTheDocument();
+  expect(within(staleStatus).getByText("No garments are recorded in the current data.")).toBeInTheDocument();
+  expect(within(staleStatus).getByText("Some station data could not be verified.")).toBeInTheDocument();
   expect(screen.queryByText("do not render raw")).toBeNull();
   first.unmount();
 
@@ -85,9 +86,37 @@ test("distinguishes stale, valid zero, safe warnings, and never-synced data", as
     syncedAt: null,
   } }) });
   render(<LaundryAI api={neverApi.api} />);
-  expect(await screen.findByText("Laundry stations have never synced.")).toBeInTheDocument();
+  const neverStatus = await screen.findByRole("status", { name: "Laundry overview notices" });
+  expect(within(neverStatus).getByText("Laundry stations have never synced.")).toBeInTheDocument();
   expect(screen.getByText("Never synced")).toBeInTheDocument();
   expect(screen.queryByText("No garments are recorded in the current data.")).toBeNull();
+});
+
+test("keeps overview freshness on the ledger and search freshness by results", async () => {
+  const searchSyncedAt = "2026-09-22T08:30:00.000Z";
+  const client = fakeApi({ post: async (path: string) => path === "/tools/get_laundry_overview/invoke"
+    ? overview
+    : { result: {
+      availability: "available",
+      syncedAt: searchSyncedAt,
+      stale: true,
+      warnings: [],
+      garments: [{
+        residentId: "r1", residentName: "Ana Bell", name: "Green jumper",
+        category: "jumper", color: "green", status: "active", washCount: 2,
+        lastSeen: null, syncedAt: searchSyncedAt, stale: true,
+      }],
+    } } });
+  render(<LaundryAI api={client.api} />);
+  await screen.findByText("12");
+  await userEvent.click(screen.getByRole("button", { name: "Find garments" }));
+
+  const overviewFreshness = screen.getByLabelText("Overview data freshness");
+  expect(within(overviewFreshness).getByText("Current")).toBeInTheDocument();
+  expect(within(overviewFreshness).getByText("Sep 21, 2026, 12:04 PM")).toBeInTheDocument();
+  const searchFreshness = await screen.findByLabelText("Search result freshness");
+  expect(within(searchFreshness).getByText("Stale")).toBeInTheDocument();
+  expect(within(searchFreshness).getByText("Sep 22, 2026, 8:30 AM")).toBeInTheDocument();
 });
 
 test("submits trimmed filters and preserves API order in the result table", async () => {

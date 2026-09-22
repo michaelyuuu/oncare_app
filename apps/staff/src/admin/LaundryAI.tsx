@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { t, type Api } from "@oncare/web-common";
 import type {
   GarmentResult,
@@ -153,7 +153,10 @@ function warningText(kind: string): string {
   return t(known[kind] ?? "admin.laundry.warning.other");
 }
 
-function FreshnessRail({ value }: { value: LoadState<LaundryFreshness> }) {
+function FreshnessRail({ value, label }: {
+  value: LoadState<LaundryFreshness>;
+  label: string;
+}) {
   let state = t("admin.laundry.freshness.checking");
   let time = t("admin.laundry.freshness.pending");
   let tone = "";
@@ -174,7 +177,7 @@ function FreshnessRail({ value }: { value: LoadState<LaundryFreshness> }) {
       tone = value.value.stale ? " freshness-problem" : "";
     }
   }
-  return <div className={`laundry-freshness${tone}`} aria-label={t("admin.laundry.freshness.aria")}>
+  return <div className={`laundry-freshness${tone}`} aria-label={label}>
     <strong>{state}</strong>
     <span>{time}</span>
   </div>;
@@ -216,13 +219,6 @@ export function LaundryAI({ api }: { api: Api }) {
     });
     return () => { active = false; };
   }, [api]);
-
-  const displayedFreshness = useMemo<LoadState<LaundryFreshness>>(() => {
-    if (search.kind === "ready") return { kind: "ready", value: search.value };
-    if (overview.kind === "ready") return { kind: "ready", value: overview.value };
-    if (overview.kind === "error") return overview;
-    return { kind: "loading" };
-  }, [overview, search]);
 
   function changeFilter(name: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [name]: value } as Filters));
@@ -276,22 +272,24 @@ export function LaundryAI({ api }: { api: Api }) {
         <h2 id="laundry-ai-title">{t("admin.laundry.title")}</h2>
         <p>{t("admin.laundry.intro")}</p>
       </div>
-      <FreshnessRail value={displayedFreshness} />
+      <FreshnessRail value={overview} label={t("admin.laundry.freshness.overview_aria")} />
     </header>
 
     {overview.kind === "loading" && <p role="status">{t("admin.laundry.loading")}</p>}
     {overview.kind === "error" && <p role="alert">{overview.message}</p>}
-    {overview.kind === "ready" && <>
-      {overview.value.availability === "never_synced"
-        ? <p className="laundry-notice">{t("admin.laundry.never_synced")}</p>
-        : <>
-          {overview.value.stale
-            && <p className="laundry-notice">{t("admin.laundry.stale")}</p>}
-          {overview.value.total === 0
-            && <p className="laundry-empty">{t("admin.laundry.zero")}</p>}
-        </>}
-      <SafeWarnings items={overview.value.warnings} />
-    </>}
+    {overview.kind === "ready" && <div className="laundry-overview-notices"
+      role="status" aria-live="polite" aria-atomic="true"
+      aria-label={t("admin.laundry.notices.aria")}>
+        {overview.value.availability === "never_synced"
+          ? <p className="laundry-notice">{t("admin.laundry.never_synced")}</p>
+          : <>
+            {overview.value.stale
+              && <p className="laundry-notice">{t("admin.laundry.stale")}</p>}
+            {overview.value.total === 0
+              && <p className="laundry-empty">{t("admin.laundry.zero")}</p>}
+          </>}
+        <SafeWarnings items={overview.value.warnings} />
+      </div>}
 
     <form className="laundry-question" onSubmit={(event) => void askAssistant(event)}>
       <label htmlFor="laundry-question">{t("admin.laundry.question.label")}</label>
@@ -341,6 +339,10 @@ export function LaundryAI({ api }: { api: Api }) {
       {search.kind === "idle" && <p className="laundry-empty">{t("admin.laundry.results.start")}</p>}
       {search.kind === "error" && <p role="alert">{search.message}</p>}
       {search.kind === "ready" && <>
+        <div className="laundry-search-freshness">
+          <FreshnessRail value={{ kind: "ready", value: search.value }}
+            label={t("admin.laundry.freshness.search_aria")} />
+        </div>
         <SafeWarnings items={search.value.warnings} />
         {search.value.availability === "never_synced"
           ? <p className="laundry-notice">{t("admin.laundry.never_synced")}</p>
