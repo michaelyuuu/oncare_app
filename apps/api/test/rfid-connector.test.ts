@@ -123,7 +123,7 @@ describe("RFID polling connector", () => {
     }) as unknown as typeof fetch;
     const { connector, repository } = await setup(fetchImpl);
 
-    await connector.refreshStation(station);
+    await connector.refreshStation(STATION_ID);
 
     expect(requests).toEqual([{
       input: "https://rfid.local/api/ledger",
@@ -135,6 +135,51 @@ describe("RFID polling connector", () => {
       status: "active",
       washCount: 4,
     })]);
+  });
+
+  test("rejects station config objects and unknown IDs without fetching or mutating the repository", async () => {
+    const fetchImpl = vi.fn(async () => response(ledger())) as unknown as typeof fetch;
+    const { connector, repository } = await setup(fetchImpl);
+
+    await expect((connector.refreshStation as (stationId: unknown) => Promise<void>)({
+      ...station,
+      facilityId: "facility_other",
+    })).rejects.toThrow("rfid_station_not_configured");
+    await expect(connector.refreshStation(OTHER_STATION_ID)).rejects.toThrow("rfid_station_not_configured");
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(repository.overview(SEED_IDS.facility)).toEqual(expect.objectContaining({
+      availability: "never_synced",
+      warnings: [],
+    }));
+  });
+
+  test("captures immutable station authority when the connector is created", async () => {
+    const configured = { ...station };
+    const requests: Array<{ input: string; authorization: string | null }> = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        input: String(input),
+        authorization: new Headers(init?.headers).get("Authorization"),
+      });
+      return response(ledger());
+    }) as unknown as typeof fetch;
+    const db = openDb(":memory:");
+    await seed(db);
+    const repository = createLaundryRepository(db);
+    const connector = createRfidConnector({ repository, stations: [configured], fetch: fetchImpl });
+    configured.facilityId = "facility_other";
+    configured.baseUrl = "https://attacker.invalid";
+    configured.token = "changed-token";
+
+    await connector.refreshStation(STATION_ID);
+
+    expect(requests).toEqual([{
+      input: "https://rfid.local/api/ledger",
+      authorization: `Bearer ${TOKEN}`,
+    }]);
+    expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+    expect(repository.overview("facility_other").availability).toBe("never_synced");
   });
 
   test("rejects a returned station identity mismatch and preserves last-known-good rows", async () => {
@@ -173,6 +218,52 @@ describe("RFID polling connector", () => {
       kind: "invalid_payload",
       message: "RFID station returned invalid ledger data",
     }]);
+  });
+
+  test.each([
+    ["empty registry timestamp", () => ledger({
+      registry: { version: 8, written_at: "", etag: "next-etag" },
+      garments: [{ ...ledger().garments[0], name: "Bad timestamp" }],
+    })],
+    ["invalid registry timestamp", () => ledger({
+      registry: { version: 8, written_at: "yesterday", etag: "next-etag" },
+      garments: [{ ...ledger().garments[0], name: "Bad timestamp" }],
+    })],
+    ["invalid last_seen", () => ledger({
+      garments: [{ ...ledger().garments[0], name: "Bad timestamp", last_seen: "recently" }],
+    })],
+    ["invalid added_at", () => ledger({
+      garments: [{ ...ledger().garments[0], name: "Bad timestamp", added_at: "today" }],
+    })],
+    ["invalid photo_url", () => ledger({
+      garments: [{ ...ledger().garments[0], name: "Bad URL", photo_url: "not a URL" }],
+    })],
+  ])("rejects %s and preserves the last-known-good projection", async (_name, invalidLedger) => {
+    const bodies = [ledger(), invalidLedger()];
+    const fetchImpl = vi.fn(async () => response(bodies.shift())) as unknown as typeof fetch;
+    const { connector, repository } = await setup(fetchImpl);
+    await connector.refreshAll();
+
+    await connector.refreshAll();
+
+    expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+    expect(repository.overview(SEED_IDS.facility).warnings).toEqual([{
+      kind: "invalid_payload",
+      message: "RFID station returned invalid ledger data",
+    }]);
+  });
+
+  test.each([
+    "/photos/E200001.jpg",
+    "https://rfid.local/photos/E200001.jpg",
+  ])("accepts a valid station photo URL without copying it to the projection: %s", async (photoUrl) => {
+    const body = ledger({ garments: [{ ...ledger().garments[0], photo_url: photoUrl }] });
+    const { connector, repository } = await setup(vi.fn(async () => response(body)) as unknown as typeof fetch);
+
+    await connector.refreshAll();
+
+    expect(repository.find(SEED_IDS.facility, {})[0]).toEqual(expect.objectContaining({ name: "Blue cardigan" }));
+    expect(JSON.stringify(repository.find(SEED_IDS.facility, {}))).not.toContain(photoUrl);
   });
 
   test.each([
