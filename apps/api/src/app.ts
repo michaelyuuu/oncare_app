@@ -12,6 +12,7 @@ import { eventsRoutes } from "./routes/events-ws";
 import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
 import { locationRoutes } from "./routes/locations";
+import { reservationRoutes } from "./routes/reservations";
 import { robotRoutes } from "./routes/robots";
 import { staffRoutes } from "./routes/staff";
 import { taskRoutes } from "./routes/tasks";
@@ -23,6 +24,7 @@ import { createAssistanceService, type AssistanceService } from "./services/assi
 import { loadAssistantProfile } from "./services/assistant-profile";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
+import { createReservationService, type ReservationService } from "./services/reservations";
 import { createTransitionService } from "./services/transitions";
 import { createTaskService, type TaskService } from "./services/tasks";
 import { createVisitService, type TransitionService, type VisitService } from "./services/visits";
@@ -38,6 +40,7 @@ export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video
 declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
+    reservations: ReservationService;
     assistance: AssistanceService;
     assistant: VoiceService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
@@ -56,6 +59,12 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
+  app.decorate("reservations", createReservationService(
+    opts.db,
+    app.access,
+    transitions,
+    opts.now ? { now: opts.now } : {},
+  ));
   app.decorate("tools", createToolRegistry({
     db: opts.db, access: app.access, transitions, assistance: app.assistance, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
   }));
@@ -90,6 +99,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);
   app.register(videoRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
+  app.register(reservationRoutes);
   app.register(gatewayRoutes, { db: opts.db });
   app.register(robotRoutes, { db: opts.db });
   app.register(staffRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
