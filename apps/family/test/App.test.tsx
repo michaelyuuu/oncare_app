@@ -38,12 +38,12 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const resident = { id: "resident_demo_01", displayName: "Mom", availability: "available", relationship: { label: "daughter", consentVideo: true, consentRobotVisit: true, consentItemDelivery: true } };
 
-test("login -> residents -> request a visit -> remote presence advances the live stepper", async () => {
+test("login -> residents -> Call now -> remote presence advances the live stepper", async () => {
   let state = "accepted";
   const calls = installFetch((path, init) => {
     if (path === "/auth/login") return init?.body?.toString().includes("family-demo-pass") ? { status: 200, body: { token: "jwt", principal: { kind: "user", id: "family_demo_01", role: "family", displayName: "Demo Daughter" } } } : { status: 401, body: { error: "invalid_credentials" } };
     if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
-    if (path === "/visits" && init?.method === "POST") return { status: 201, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
+    if (path === "/visits/now" && init?.method === "POST") return { status: 201, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
     if (path === "/visits/v1") return { status: 200, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
     if (path === "/visits/v1/token") return { status: 200, body: { url: "wss://video.example", token: "token", room: "v1" } };
     if (path === "/visits/v1/connected") { state = "active"; return { status: 200, body: { visit: { id: "v1", state } } }; }
@@ -59,7 +59,7 @@ test("login -> residents -> request a visit -> remote presence advances the live
   await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(await screen.findByText("Mom")).toBeInTheDocument();
   expect(screen.getByText("Available")).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("button", { name: "Send the robot to visit" }));
+  await userEvent.click(screen.getByRole("button", { name: "Call now" }));
   expect(await screen.findByText("Visit with Mom")).toBeInTheDocument();
   expect(screen.getByText("SIMULATED ROBOT")).toBeInTheDocument();
   expect(screen.getByText("Robot is on its way")).toHaveAttribute("aria-current", "step");
@@ -84,11 +84,12 @@ test("a failed visit shows the reason on the failed step and no robot controls e
   expect(screen.queryByRole("button", { name: "Cancel visit" })).toBeNull();
 });
 
-test("resident not available disables the visit button", async () => {
+test("resident not available disables both visit actions", async () => {
   try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
   installFetch((path) => path === "/me/residents" ? { status: 200, body: { residents: [{ ...resident, availability: "not_available" }] } } : { status: 404, body: {} });
   render(<App apiBase="http://api" />);
-  expect(await screen.findByRole("button", { name: "Send the robot to visit" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "Schedule a visit" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Call now" })).toBeDisabled();
   expect(screen.getByText("Not available")).toBeInTheDocument();
 });
 
@@ -96,11 +97,11 @@ test("an unknown visit API error displays its raw code", async () => {
   try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
   installFetch((path, init) => {
     if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
-    if (path === "/visits" && init?.method === "POST") return { status: 409, body: { error: "future_policy_code" } };
+    if (path === "/visits/now" && init?.method === "POST") return { status: 409, body: { error: "future_policy_code" } };
     return { status: 404, body: {} };
   });
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Call now" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("future_policy_code");
 });
 
@@ -108,11 +109,11 @@ test("a known visit API error retains its localized message", async () => {
   try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
   installFetch((path, init) => {
     if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
-    if (path === "/visits" && init?.method === "POST") return { status: 409, body: { error: "robot_unavailable" } };
+    if (path === "/visits/now" && init?.method === "POST") return { status: 409, body: { error: "robot_unavailable" } };
     return { status: 404, body: {} };
   });
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Call now" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("The robot is not available");
 });
 
@@ -120,11 +121,11 @@ test("a resident-unavailable visit error includes the resident's name", async ()
   try { sessionStorage.setItem("oncare.family", JSON.stringify({ token: "jwt", displayName: "Demo Daughter" })); } catch {}
   installFetch((path, init) => {
     if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
-    if (path === "/visits" && init?.method === "POST") return { status: 409, body: { error: "resident_unavailable" } };
+    if (path === "/visits/now" && init?.method === "POST") return { status: 409, body: { error: "resident_unavailable" } };
     return { status: 404, body: {} };
   });
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("button", { name: "Send the robot to visit" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Call now" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Mom is not available right now");
 });
 
