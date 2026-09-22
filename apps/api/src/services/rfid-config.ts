@@ -45,6 +45,17 @@ export function parseRfidStations(env: Record<string, string | undefined>): Rfid
 }
 
 const DEFAULT_RFID_POLL_INTERVAL_MS = 60_000;
+export function parseRfidRequestTimeoutMs(env: Record<string, string | undefined>): number {
+  const configured = env.ONCARE_RFID_REQUEST_TIMEOUT_MS;
+  if (configured === undefined || configured.trim() === "") return 10_000;
+  const trimmed = configured.trim();
+  const timeoutMs = Number(trimmed);
+  if (!/^[1-9]\d*$/.test(trimmed) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 60_000) {
+    throw new Error("ONCARE_RFID_REQUEST_TIMEOUT_MS is invalid");
+  }
+  return timeoutMs;
+}
+
 const MIN_RFID_POLL_INTERVAL_MS = 250;
 
 export function parseRfidIntervalMs(env: Record<string, string | undefined>): number {

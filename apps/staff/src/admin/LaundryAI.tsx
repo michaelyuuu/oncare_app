@@ -12,6 +12,12 @@ import type {
 
 const RESULT_LIMIT = 20;
 const REQUIRED_TOOLS = new Set(["get_laundry_overview", "find_garments"]);
+type AssistantToolResult =
+  | { name: "get_laundry_overview"; result: LaundryOverview }
+  | { name: "find_garments"; result: LaundrySearch }
+  | { name: "get_laundry_overview" | "find_garments"; result: null };
+type AssistantAnswer = { answer: string; toolResults: AssistantToolResult[] };
+
 
 type Filters = {
   residentId: string;
@@ -130,6 +136,31 @@ function validateTools(value: unknown): void {
   }
 }
 
+function parseAssistant(value: unknown): AssistantAnswer {
+  const response = record(value);
+  if (!response || typeof response.answer !== "string" || !response.answer.trim()
+      || !Array.isArray(response.toolResults)) throw new MalformedLaundryResponse();
+  const toolResults: AssistantToolResult[] = response.toolResults.map((item) => {
+    const entry = record(item);
+    const envelope = entry ? record(entry.result) : null;
+    if (!entry || !envelope || (entry.name !== "get_laundry_overview" && entry.name !== "find_garments")) {
+      throw new MalformedLaundryResponse();
+    }
+    if (envelope.ok === false) {
+      if (![400, 403, 404, 409, 410].includes(envelope.status as number) || typeof envelope.error !== "string") {
+        throw new MalformedLaundryResponse();
+      }
+      // Keep only an unavailable marker; raw error details are never UI data.
+      return { name: entry.name, result: null };
+    }
+    if (envelope.ok !== true) throw new MalformedLaundryResponse();
+    return entry.name === "get_laundry_overview"
+      ? { name: entry.name, result: parseOverview(envelope) }
+      : { name: entry.name, result: parseSearch(envelope) };
+  });
+  return { answer: response.answer, toolResults };
+}
+
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
@@ -195,7 +226,7 @@ function SafeWarnings({ items }: { items: LaundryWarning[] }) {
 export function LaundryAI({ api }: { api: Api }) {
   const [overview, setOverview] = useState<LoadState<LaundryOverview>>({ kind: "loading" });
   const [search, setSearch] = useState<LoadState<LaundrySearch>>({ kind: "idle" });
-  const [assistant, setAssistant] = useState<LoadState<string>>({ kind: "idle" });
+  const [assistant, setAssistant] = useState<LoadState<AssistantAnswer>>({ kind: "idle" });
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [question, setQuestion] = useState("");
 
@@ -249,13 +280,10 @@ export function LaundryAI({ api }: { api: Api }) {
     if (!trimmed) return;
     setAssistant({ kind: "loading" });
     try {
-      const response = record(await api.post<unknown>("/admin/laundry/ask", {
+      const response = await api.post<unknown>("/admin/laundry/ask", {
         question: trimmed,
-      }));
-      if (!response || typeof response.answer !== "string") {
-        throw new MalformedLaundryResponse();
-      }
-      setAssistant({ kind: "ready", value: response.answer });
+      });
+      setAssistant({ kind: "ready", value: parseAssistant(response) });
     } catch (error) {
       setAssistant({
         kind: "error",
@@ -301,13 +329,26 @@ export function LaundryAI({ api }: { api: Api }) {
           {assistant.kind === "loading" ? t("admin.laundry.question.asking") : t("admin.laundry.question.ask")}
         </button>
       </div>
-      {assistant.kind === "ready" && <p className="laundry-answer">{assistant.value}</p>}
+      {assistant.kind === "ready" && <section className="laundry-answer" role="status"
+        aria-live="polite" aria-atomic="true" aria-label={t("admin.laundry.assistant.answer_aria")}>
+        <p>{assistant.value.answer}</p>
+        {assistant.value.toolResults.length === 0
+          && <p className="laundry-notice">{t("admin.laundry.assistant.no_data")}</p>}
+        {assistant.value.toolResults.map((tool, index) => <div key={index} className="laundry-search-freshness">
+          <p>{t(tool.name === "get_laundry_overview"
+            ? "admin.laundry.assistant.overview_source" : "admin.laundry.assistant.search_source")}</p>
+          <FreshnessRail value={tool.result === null
+            ? { kind: "error", message: "" } : { kind: "ready", value: tool.result }}
+            label={t("admin.laundry.freshness.assistant_aria")} />
+          {tool.result !== null && <SafeWarnings items={tool.result.warnings} />}
+        </div>)}
+      </section>}
       {assistant.kind === "error" && <p className="laundry-assistant-error" role="status">
         {assistant.message}
       </p>}
     </form>
 
-    {overview.kind === "ready" && <dl className="laundry-ledger" aria-label={t("admin.laundry.metrics.aria")}>
+    {overview.kind === "ready" && overview.value.availability === "available" && <dl className="laundry-ledger" aria-label={t("admin.laundry.metrics.aria")}>
       <div><dt>{t("admin.laundry.metrics.total")}</dt><dd>{overview.value.total}</dd></div>
       <div><dt>{t("admin.laundry.metrics.active")}</dt><dd>{overview.value.active}</dd></div>
       <div><dt>{t("admin.laundry.metrics.lost")}</dt><dd>{overview.value.lostOrDiscarded}</dd></div>

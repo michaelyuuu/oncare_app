@@ -100,6 +100,14 @@ export function createLaundryRepository(db: Db, opts: { now?: () => Date } = {})
   function replaceStation(input: StationLedgerSnapshot): void {
     const syncedAt = now().toISOString();
     db.transaction((tx) => {
+      // Validate against OnCare authority, never the station's embedded resident details.
+      const allowedResidents = new Set(tx.select({ id: t.resident.id }).from(t.resident)
+        .where(and(eq(t.resident.facilityId, input.facilityId), eq(t.resident.active, true)))
+        .all().map((resident) => resident.id));
+      if (input.garments.some((garment) => !allowedResidents.has(garment.residentId))) {
+        throw new Error("rfid_resident_scope_invalid");
+      }
+
       tx.insert(t.rfidStationSync).values({
         stationId: input.stationId,
         facilityId: input.facilityId,
@@ -179,7 +187,11 @@ export function createLaundryRepository(db: Db, opts: { now?: () => Date } = {})
     const garments = db.select({
       status: t.garmentProjection.status,
       lastSeen: t.garmentProjection.lastSeen,
-    }).from(t.garmentProjection).where(and(...clauses)).all();
+    }).from(t.garmentProjection).innerJoin(t.resident, and(
+      eq(t.resident.id, t.garmentProjection.residentId),
+      eq(t.resident.facilityId, facilityId),
+      eq(t.resident.active, true),
+    )).where(and(...clauses)).all();
     const currentTime = now().getTime();
     const recentlyWashed = garments.filter((garment) => {
       if (garment.lastSeen === null) return false;
@@ -225,7 +237,11 @@ export function createLaundryRepository(db: Db, opts: { now?: () => Date } = {})
       lastSeen: t.garmentProjection.lastSeen,
       syncedAt: t.garmentProjection.syncedAt,
     }).from(t.garmentProjection)
-      .innerJoin(t.resident, eq(t.resident.id, t.garmentProjection.residentId))
+      .innerJoin(t.resident, and(
+        eq(t.resident.id, t.garmentProjection.residentId),
+        eq(t.resident.facilityId, facilityId),
+        eq(t.resident.active, true),
+      ))
       .where(and(...clauses))
       .orderBy(
         asc(t.garmentProjection.residentId),

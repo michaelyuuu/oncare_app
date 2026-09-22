@@ -52,6 +52,21 @@ function allKeys(value: unknown): string[] {
 }
 
 describe("manager laundry tools", () => {
+  test.each(["moved", "inactive"])("unfiltered tools exclude legacy rows for a %s resident", async (change) => {
+    const { app, db, tokens, invoke } = await setup();
+    app.laundry.replaceStation(snapshot);
+    db.insert(t.facility).values({ id: "facility_other", name: "Other", timezone: "UTC" }).run();
+    db.update(t.resident).set(change === "moved" ? { facilityId: "facility_other" } : { active: false })
+      .where(eq(t.resident.id, SEED_IDS.resident)).run();
+    const found = await invoke(tokens.admin, "find_garments", {});
+    const overview = await invoke(tokens.admin, "get_laundry_overview", {});
+    expect(found.statusCode).toBe(200);
+    expect(found.json().result.garments).toEqual([]);
+    expect(overview.json().result).toMatchObject({ total: 0, active: 0, recentlyWashed: 0 });
+    expect(JSON.stringify([found.json(), overview.json()])).not.toMatch(/Demo Resident|resident_demo_01|Blue cardigan/);
+    await app.close();
+  });
+
   test("only admins discover the read-only laundry tools and other roles receive unknown_tool", async () => {
     const { app, tokens, list, invoke } = await setup();
     const toolNames = ["get_laundry_overview", "find_garments"];

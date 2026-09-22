@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { eq } from "drizzle-orm";
 import { openDb } from "../src/db/client";
 import * as t from "../src/db/schema";
 import { SEED_IDS, seed } from "../src/db/seed";
@@ -36,6 +37,32 @@ async function setup(now: () => Date = () => new Date("2026-09-21T12:04:59.999Z"
 }
 
 describe("laundry projection repository", () => {
+  test("rejects a whole snapshot when a resident is outside current facility authority", async () => {
+    const { db, repository } = await setup();
+    repository.replaceStation(snapshot);
+    db.insert(t.facility).values({ id: "facility_other", name: "Other", timezone: "UTC" }).run();
+    db.insert(t.resident).values({ id: "resident_other", facilityId: "facility_other", displayName: "Private resident", roomLocationId: "other_room" }).run();
+    for (const residentId of ["resident_other", "missing_resident"]) {
+      expect(() => repository.replaceStation({ ...snapshot, garments: [
+        { ...snapshot.garments[0]!, name: "New valid item" },
+        { ...snapshot.garments[0]!, sourceKey: "BAD", residentId },
+      ] })).toThrow("rfid_resident_scope_invalid");
+      expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+    }
+    db.update(t.resident).set({ active: false }).where(eq(t.resident.id, SEED_IDS.resident)).run();
+    expect(() => repository.replaceStation(snapshot)).toThrow("rfid_resident_scope_invalid");
+  });
+
+  test.each(["moved", "inactive"])("public unfiltered reads hide a %s resident after projection", async (change) => {
+    const { db, repository } = await setup();
+    repository.replaceStation(snapshot);
+    db.insert(t.facility).values({ id: "facility_other", name: "Other", timezone: "UTC" }).run();
+    db.update(t.resident).set(change === "moved" ? { facilityId: "facility_other" } : { active: false })
+      .where(eq(t.resident.id, SEED_IDS.resident)).run();
+    expect(repository.find(SEED_IDS.facility, {})).toEqual([]);
+    expect(repository.overview(SEED_IDS.facility)).toMatchObject({ availability: "available", total: 0, active: 0, recentlyWashed: 0 });
+  });
+
   test("replaces one station atomically and never exposes its source key", async () => {
     const { db, repository } = await setup();
     repository.replaceStation(snapshot);

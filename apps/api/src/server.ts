@@ -2,7 +2,7 @@ import { buildApp } from "./app";
 import { openDb } from "./db/client";
 import { seed } from "./db/seed";
 import { FakeVideoProvider } from "./services/video";
-import { parseRfidIntervalMs, parseRfidStations } from "./services/rfid-config";
+import { parseRfidIntervalMs, parseRfidRequestTimeoutMs, parseRfidStations } from "./services/rfid-config";
 
 try {
   process.loadEnvFile(new URL("../.env", import.meta.url));
@@ -14,6 +14,7 @@ const DEV_JWT_SECRET = "dev-only-secret-change-me";
 const configuredSecret = process.env.JWT_SECRET;
 const rfidStations = parseRfidStations(process.env);
 const rfidIntervalMs = parseRfidIntervalMs(process.env);
+const rfidRequestTimeoutMs = parseRfidRequestTimeoutMs(process.env);
 
 if (process.env.NODE_ENV === "production" && !configuredSecret) {
   console.error("JWT_SECRET is required in production");
@@ -26,7 +27,7 @@ if (!configuredSecret) {
 
 const db = openDb(process.env.DATABASE_PATH ?? "./oncare.db");
 await seed(db);
-const app = buildApp({ db, jwtSecret: configuredSecret ?? DEV_JWT_SECRET, rfidStations, rfidIntervalMs });
+const app = buildApp({ db, jwtSecret: configuredSecret ?? DEV_JWT_SECRET, rfidStations, rfidIntervalMs, rfidRequestTimeoutMs });
 app.rfid.start();
 console.log(`video provider: ${app.video instanceof FakeVideoProvider ? "fake" : "livekit"}`);
 const port = Number(process.env.PORT ?? 3000);

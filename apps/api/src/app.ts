@@ -48,6 +48,7 @@ export interface AppOptions {
   rfidStations?: RfidStationConfig[];
   rfidFetch?: typeof globalThis.fetch;
   rfidIntervalMs?: number;
+  rfidRequestTimeoutMs?: number;
   managerAssistantClient?: ManagerAssistantClient;
   managerApiKey?: string;
   managerModel?: string;
@@ -109,6 +110,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
     ...(opts.rfidFetch ? { fetch: opts.rfidFetch } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.rfidIntervalMs !== undefined ? { intervalMs: opts.rfidIntervalMs } : {}),
+    ...(opts.rfidRequestTimeoutMs !== undefined ? { requestTimeoutMs: opts.rfidRequestTimeoutMs } : {}),
   }));
   app.decorate("visits", createVisitService(opts.db, transitions, video, {
     ...(opts.now ? { now: opts.now } : {}),

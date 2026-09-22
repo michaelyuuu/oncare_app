@@ -1,4 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import * as t from "../src/db/schema";
 import { openDb } from "../src/db/client";
 import { SEED_IDS, seed } from "../src/db/seed";
 import { createLaundryRepository, type LaundryRepository } from "../src/services/laundry-repository";
@@ -85,6 +87,154 @@ async function setup(fetchImpl: typeof fetch, repositoryOverride?: LaundryReposi
 }
 
 describe("RFID polling connector", () => {
+  test("stop prevents writes even when response completion is already queued", async () => {
+    const db = openDb(":memory:");
+    await seed(db);
+    const repository = createLaundryRepository(db);
+    for (let checkpoint = 0; checkpoint < 10; checkpoint += 1) {
+      db.delete(t.garmentProjection).run();
+      db.delete(t.rfidStationSync).run();
+      const connector = createRfidConnector({
+        repository, stations: [station],
+        fetch: (async () => ({ ok: true, json: async () => ledger() }) as Response) as typeof fetch,
+      });
+      const cycle = connector.refreshAll();
+      for (let step = 0; step < checkpoint; step += 1) await Promise.resolve();
+      const beforeStop = repository.overview(SEED_IDS.facility);
+      connector.stop();
+      await cycle;
+      expect(repository.overview(SEED_IDS.facility), "stop checkpoint " + checkpoint).toEqual(beforeStop);
+    }
+  });
+
+  test.each(["headers", "body"])("bounds stalled %s and permits healthy stations in subsequent cycles", async (phase) => {
+    const db = openDb(":memory:");
+    await seed(db);
+    const repository = createLaundryRepository(db, { now: () => new Date(SOURCE_TIME) });
+    let stall = false;
+    let healthyCount = 0;
+    let stalledSignal: AbortSignal | null = null;
+    let rejectLate!: (reason: Error) => void;
+    const stalled = new Promise<never>((_resolve, reject) => { rejectLate = reject; });
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes("healthy.local")) {
+        healthyCount += 1;
+        return response(ledger({ station_id: OTHER_STATION_ID, garments: [
+          { ...ledger().garments[0], name: "Healthy garment", wash_count: healthyCount },
+        ] }));
+      }
+      if (stall) {
+        stalledSignal = init?.signal ?? null;
+        return phase === "headers" ? stalled : { ok: true, json: () => stalled } as unknown as Response;
+      }
+      return response(ledger());
+    }) as typeof fetch;
+    const connector = createRfidConnector({
+      repository, stations: [station, { ...station, stationId: OTHER_STATION_ID, baseUrl: "https://healthy.local" }],
+      fetch: fetchImpl, requestTimeoutMs: 50,
+    });
+    await connector.refreshAll();
+    vi.useFakeTimers();
+    try {
+      stall = true;
+      let settled = false;
+      const cycle = connector.refreshAll().then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(50);
+      expect(settled).toBe(true);
+      await cycle;
+      expect((stalledSignal as AbortSignal | null)?.aborted).toBe(true);
+      expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan", "Healthy garment"]);
+      expect(db.select().from(t.rfidStationSync).where(eq(t.rfidStationSync.stationId, STATION_ID)).get()).toMatchObject({
+        status: "unavailable", lastSuccessAt: SOURCE_TIME,
+        warnings: [{ kind: "station_unavailable", message: "RFID station request timed out" }],
+      });
+      stall = false;
+      await connector.refreshAll();
+      expect(repository.find(SEED_IDS.facility, {}).find((row) => row.name === "Healthy garment")?.washCount).toBe(3);
+      expect(repository.overview(SEED_IDS.facility).warnings).toEqual([]);
+      rejectLate(new Error("late secret provider detail"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      connector.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  test("stop aborts pending work without late writes and start can immediately resume", async () => {
+    const db = openDb(":memory:");
+    await seed(db);
+    const repository = createLaundryRepository(db);
+    let release!: (value: Response) => void;
+    let signal: AbortSignal | null = null;
+    let requests = 0;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const connector = createRfidConnector({
+      repository, stations: [station], requestTimeoutMs: 50,
+      fetch: (async (_input, init) => {
+        requests += 1;
+        signal = init?.signal ?? null;
+        return requests === 1 ? pending : response(ledger());
+      }) as typeof fetch,
+    });
+    vi.useFakeTimers();
+    try {
+      connector.start();
+      connector.start();
+      expect(requests).toBe(1);
+      let settled = false;
+      const first = connector.refreshAll().then(() => { settled = true; });
+      connector.stop();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(true);
+      await first;
+      expect((signal as AbortSignal | null)?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(repository.overview(SEED_IDS.facility)).toMatchObject({ availability: "never_synced", warnings: [] });
+      connector.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+      release(response(ledger({ garments: [{ ...ledger().garments[0], name: "Late overwrite" }] })));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(requests).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(requests).toBe(3);
+    } finally {
+      connector.stop();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.useRealTimers();
+    }
+  });
+
+  test.each(["cross-facility", "inactive", "unknown", "null", "empty"])("rejects an entire %s resident snapshot with a safe warning and retained good data", async (kind) => {
+    const db = openDb(":memory:");
+    await seed(db);
+    db.insert(t.facility).values({ id: "facility_other", name: "Other", timezone: "UTC" }).run();
+    db.insert(t.resident).values({
+      id: "private_resident", facilityId: kind === "cross-facility" ? "facility_other" : SEED_IDS.facility,
+      displayName: "Private person", roomLocationId: "other_room", active: kind !== "inactive",
+    }).run();
+    const repository = createLaundryRepository(db, { now: () => new Date(SOURCE_TIME) });
+    const residentId = kind === "unknown" ? "unknown_resident" : kind === "null" ? null : kind === "empty" ? "" : "private_resident";
+    const bodies = [ledger(), ledger({ garments: [
+      { ...ledger().garments[0], name: "Changed valid garment" },
+      { ...ledger().garments[0], epc: "BAD", name: "Private garment", resident_id: residentId },
+    ] })];
+    const connector = createRfidConnector({ repository, stations: [station], fetch: (async () => response(bodies.shift())) as typeof fetch });
+    await connector.refreshAll();
+    await connector.refreshAll();
+    expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+    expect(repository.overview(SEED_IDS.facility)).toMatchObject({
+      syncedAt: SOURCE_TIME, total: 1,
+      warnings: [{ kind: "invalid_payload", message: "RFID station returned invalid ledger data" }],
+    });
+    const sync = db.select().from(t.rfidStationSync).where(eq(t.rfidStationSync.stationId, STATION_ID)).get()!;
+    expect(sync.status).toBe("invalid");
+    expect(JSON.stringify(sync.warnings)).not.toMatch(/private_resident|Private person|unknown_resident/);
+  });
+
   test("registers configured ownership before a first refresh can fail", async () => {
     const db = openDb(":memory:");
     await seed(db);
@@ -127,7 +277,7 @@ describe("RFID polling connector", () => {
 
     expect(requests).toEqual([{
       input: "https://rfid.local/api/ledger",
-      init: { method: "GET", headers: { Authorization: `Bearer ${TOKEN}` } },
+      init: { method: "GET", headers: { Authorization: `Bearer ${TOKEN}` }, signal: expect.any(AbortSignal) },
     }]);
     expect(repository.find(SEED_IDS.facility, {})).toEqual([expect.objectContaining({
       residentId: SEED_IDS.resident,

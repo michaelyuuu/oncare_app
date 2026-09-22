@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseRfidIntervalMs, parseRfidStations } from "../src/services/rfid-config";
+import { parseRfidIntervalMs, parseRfidRequestTimeoutMs, parseRfidStations } from "../src/services/rfid-config";
 
 const STATION_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -14,6 +14,17 @@ function encoded(overrides: Record<string, unknown> = {}): string {
 }
 
 describe("RFID station configuration", () => {
+  test.each([undefined, "", " "])("uses a ten-second total station deadline by default", (value) => {
+    expect(parseRfidRequestTimeoutMs({ ONCARE_RFID_REQUEST_TIMEOUT_MS: value })).toBe(10_000);
+  });
+  test.each(["250", "15000", "60000"])("accepts bounded server deadline %s", (value) => {
+    expect(parseRfidRequestTimeoutMs({ ONCARE_RFID_REQUEST_TIMEOUT_MS: value })).toBe(Number(value));
+  });
+  test.each(["0", "249", "60001", "1.5", "Infinity", "250ms"])("rejects unsafe total deadline %s", (value) => {
+    expect(() => parseRfidRequestTimeoutMs({ ONCARE_RFID_REQUEST_TIMEOUT_MS: value }))
+      .toThrow("ONCARE_RFID_REQUEST_TIMEOUT_MS is invalid");
+  });
+
   test.each([undefined, "", "   "])("treats an unset or blank value as no stations", (value) => {
     expect(parseRfidStations({ ONCARE_RFID_STATIONS: value })).toEqual([]);
   });

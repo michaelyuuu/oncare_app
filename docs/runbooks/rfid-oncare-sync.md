@@ -21,6 +21,10 @@ The production poll interval defaults to exactly 60 seconds. `ONCARE_RFID_POLL_I
 
 Restart the OnCare API after any station configuration or token change. Confirm the manager's Facility admin page shows a successful sync before ending maintenance.
 
+Each poll has a total 10-second deadline covering the response headers, full body, and ledger validation. `ONCARE_RFID_REQUEST_TIMEOUT_MS` can override it with a strict integer from 250 to 60,000 ms. This setting remains server-only and does not change the 60-second poll interval. A timeout aborts the request, records a sanitized unavailable warning, and releases the cycle so healthy stations continue in later polls. API shutdown cancels outstanding requests and prevents late responses from writing to the projection.
+
+Before enabling a station, align every garment's `resident_id` with the exact ID of an active OnCare resident in the configured `facilityId`. A station-local number, display name, or embedded resident object is not an identity mapping. This version accepts only assigned garments: null, empty, unknown, inactive, or other-facility resident IDs reject the entire snapshot and keep last-known-good data with a generic invalid-data warning. The warning never reveals the rejected ID. If a resident later moves facility or becomes inactive, both overview totals and searches immediately exclude their existing projection rows. Unassigned garments need an explicit future mapping/schema change before they can sync.
+
 ## Token rotation
 
 Rotate a station token without exposing either credential:
@@ -36,6 +40,8 @@ If the station cannot overlap tokens, expect a temporary unavailable warning bet
 ## Freshness and failure behavior
 
 OnCare records receipt time for each successful poll. Data becomes stale after five minutes without a successful refresh. The UI always shows the last successful sync time and labels stale data; a never-synced station is distinct from a valid empty ledger.
+
+Before any successful sync, the overview shows a missing-data state without numerical totals. A verified empty ledger shows real zero totals. Conversational answers display each validated tool result's own freshness and warnings beside the answer, independently from overview and direct-search freshness. Failed tool results show unavailable, and an answer with no tool results explicitly has no verified laundry data.
 
 A failed connection or non-2xx response produces a sanitized station-unavailable warning. Invalid JSON or schema produces a sanitized invalid-data warning. If the ledger's `station_id` differs from configured `stationId`, OnCare rejects the response and shows a station-identity warning. In all three cases, OnCare preserves the last-known-good garments instead of replacing them with an empty or unverified result. Investigate station health, certificate trust, token validity, and configured identity; do not clear the projection to hide a warning.
 

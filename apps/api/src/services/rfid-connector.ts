@@ -78,6 +78,7 @@ export interface RfidConnectorOptions {
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   intervalMs?: number;
+  requestTimeoutMs?: number;
 }
 
 export function createRfidConnector({
@@ -85,8 +86,13 @@ export function createRfidConnector({
   stations,
   fetch: fetchImpl = globalThis.fetch,
   intervalMs = 60_000,
+  requestTimeoutMs = 10_000,
 }: RfidConnectorOptions) {
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 60_000) {
+    throw new Error("rfid_request_timeout_invalid");
+  }
   let timer: ReturnType<typeof setInterval> | null = null;
+  const activeRequests = new Set<() => void>();
   let pendingRefresh: Promise<void> | null = null;
   const configuredStations = stations.map((station) => Object.freeze({ ...station }));
   const stationById = new Map(configuredStations.map((station) => [station.stationId, station]));
@@ -139,63 +145,99 @@ export function createRfidConnector({
   async function refreshStation(stationId: string): Promise<void> {
     const station = stationById.get(stationId);
     if (!station) throw new Error("rfid_station_not_configured");
-    let response: Response;
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    type Outcome = { snapshot: StationLedgerSnapshot } | "unavailable" | "invalid" | "identity_mismatch" | "timeout" | "stopped";
+    let cancel!: () => void;
+    let stopped = false;
+    let timeout!: ReturnType<typeof setTimeout>;
+    const interrupted = new Promise<Outcome>((resolve) => {
+      cancel = () => {
+        stopped = true;
+        clearTimeout(timeout);
+        resolve("stopped");
+        controller.abort();
+      };
+      timeout = setTimeout(() => {
+        resolve("timeout");
+        controller.abort();
+      }, requestTimeoutMs);
+    });
+    activeRequests.add(cancel);
+    // Only this race's winner may mutate the projection. A late fetch/body result
+    // is still observed by Promise.race, but cannot overwrite or warn after stop.
+    const load = async (): Promise<Outcome> => {
+      let response: Response;
+      try {
+        response = await fetchImpl(`${station.baseUrl.replace(/\/+$/, "")}/api/ledger`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${station.token}` },
+          signal: controller.signal,
+        });
+      } catch {
+        return "unavailable";
+      }
+      if (!response.ok) return "unavailable";
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch {
+        return "invalid";
+      }
+      const snapshot = normalize(station, body);
+      // Synchronous schema work can delay a timer callback; still reject an
+      // over-deadline result instead of installing it as a successful refresh.
+      if (Date.now() - startedAt >= requestTimeoutMs) return "timeout";
+      if (snapshot !== null) return { snapshot };
+      const returnedId = typeof body === "object" && body !== null && "station_id" in body
+        ? (body as { station_id?: unknown }).station_id : undefined;
+      return returnedId !== undefined && returnedId !== station.stationId ? "identity_mismatch" : "invalid";
+    };
     try {
-      response = await fetchImpl(`${station.baseUrl.replace(/\/+$/, "")}/api/ledger`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${station.token}` },
-      });
-    } catch {
-      recordUnavailable(station.stationId);
-      return;
-    }
-    if (!response.ok) {
-      recordUnavailable(station.stationId);
-      return;
-    }
-
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      recordInvalid(station.stationId);
-      return;
-    }
-    const snapshot = normalize(station, body);
-    if (snapshot === null) {
-      const returnedStationId = typeof body === "object" && body !== null && "station_id" in body
-        ? (body as { station_id?: unknown }).station_id
-        : undefined;
-      recordInvalid(station.stationId, returnedStationId !== undefined && returnedStationId !== station.stationId
-        ? {
-            kind: "station_identity_mismatch",
-            message: "RFID station identity did not match configuration",
-          }
-        : undefined);
-      return;
-    }
-    try {
-      repository.replaceStation(snapshot);
-    } catch {
-      recordInvalid(station.stationId);
+      const outcome = await Promise.race([load(), interrupted]);
+      if (stopped || outcome === "stopped") return;
+      if (outcome === "timeout") {
+        controller.abort();
+        repository.recordFailure(stationId, "unavailable", {
+          kind: "station_unavailable", message: "RFID station request timed out",
+        });
+      } else if (outcome === "unavailable") {
+        recordUnavailable(stationId);
+      } else if (outcome === "invalid" || outcome === "identity_mismatch") {
+        recordInvalid(stationId, outcome === "identity_mismatch" ? {
+          kind: "station_identity_mismatch", message: "RFID station identity did not match configuration",
+        } : undefined);
+      } else {
+        try { repository.replaceStation(outcome.snapshot); } catch { recordInvalid(stationId); }
+      }
+    } finally {
+      clearTimeout(timeout);
+      activeRequests.delete(cancel);
     }
   }
 
   function refreshAll(): Promise<void> {
     if (pendingRefresh) return pendingRefresh;
-    pendingRefresh = Promise.all(configuredStations.map((station) => refreshStation(station.stationId)))
+    const cycle = Promise.all(configuredStations.map((station) => refreshStation(station.stationId)))
       .then(() => undefined)
-      .finally(() => { pendingRefresh = null; });
+      .finally(() => { if (pendingRefresh === cycle) pendingRefresh = null; });
+    pendingRefresh = cycle;
     return pendingRefresh;
   }
 
   function start() {
     if (configuredStations.length === 0 || timer) return;
-    void refreshAll();
-    timer = setInterval(() => void refreshAll(), intervalMs);
+    void refreshAll().catch(() => undefined);
+    timer = setInterval(() => void refreshAll().catch(() => undefined), intervalMs);
   }
 
-  function stop() { if (timer) clearInterval(timer); timer = null; }
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    for (const cancel of activeRequests) cancel();
+    activeRequests.clear();
+    pendingRefresh = null;
+  }
 
   return { refreshStation, refreshAll, start, stop };
 }

@@ -43,6 +43,77 @@ function fakeApi(overrides: ApiOverrides = {}) {
 
 afterEach(cleanup);
 
+test("keeps answer provenance independent from current overview and model prose", async () => {
+  const client = fakeApi({ post: async (path) => path === "/tools/get_laundry_overview/invoke" ? overview : {
+    answer: "There are twelve garments.",
+    provider: "provider-secret", arguments: "raw-arguments-secret",
+    toolResults: [
+      { name: "get_laundry_overview", arguments: "raw-arguments-secret", result: { ok: true, result: {
+        ...overview.result, syncedAt: "2026-09-20T10:00:00.000Z", stale: true,
+        warnings: [{ kind: "station_unavailable", message: "station-token-secret" }],
+        sourceKey: "EPC-secret",
+      } } },
+      { name: "find_garments", result: { ok: true, result: {
+        availability: "available", syncedAt: "2026-09-21T11:00:00.000Z", stale: false, warnings: [], garments: [],
+      } } },
+    ],
+  } });
+  render(<LaundryAI api={client.api} />);
+  await screen.findByText("12");
+  await userEvent.type(screen.getByLabelText("Ask about laundry"), "How many?");
+  await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+  const answer = await screen.findByRole("status", { name: "Laundry assistant answer" });
+  expect(within(answer).getByText("There are twelve garments.")).toBeInTheDocument();
+  const rails = within(answer).getAllByLabelText("Assistant result freshness");
+  expect(rails).toHaveLength(2);
+  expect(within(rails[0]!).getByText("Stale")).toBeInTheDocument();
+  expect(within(rails[0]!).getByText("Sep 20, 2026, 10:00 AM")).toBeInTheDocument();
+  expect(within(rails[1]!).getByText("Current")).toBeInTheDocument();
+  expect(within(rails[1]!).getByText("Sep 21, 2026, 11:00 AM")).toBeInTheDocument();
+  expect(within(answer).getByText("Station data is temporarily unavailable.")).toBeInTheDocument();
+  expect(within(screen.getByLabelText("Overview data freshness")).getByText("Current")).toBeInTheDocument();
+  for (const secret of ["provider-secret", "raw-arguments-secret", "station-token-secret", "EPC-secret"]) {
+    expect(document.body.textContent).not.toContain(secret);
+  }
+});
+
+test.each(["never", "failed", "none"])("does not invent verified answer freshness for %s results", async (state) => {
+  const result = state === "never"
+    ? { ok: true, result: { ...overview.result, availability: "never_synced", syncedAt: null, total: 0, active: 0, lostOrDiscarded: 0, recentlyWashed: 0 } }
+    : { ok: false, status: 403, error: "private-error", detail: "private-detail" };
+  const client = fakeApi({ post: async (path) => path === "/tools/get_laundry_overview/invoke" ? overview : {
+    answer: "Please review the records.",
+    toolResults: state === "none" ? [] : [{ name: "get_laundry_overview", result }],
+  } });
+  render(<LaundryAI api={client.api} />);
+  await screen.findByText("12");
+  await userEvent.type(screen.getByLabelText("Ask about laundry"), "Summary?");
+  await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+  const answer = await screen.findByRole("status", { name: "Laundry assistant answer" });
+  expect(within(answer).getByText(state === "never" ? "Never synced"
+    : state === "failed" ? "Unavailable" : "No verified laundry data was used for this answer.")).toBeInTheDocument();
+  expect(within(answer).queryByText("Current")).toBeNull();
+  expect(document.body.textContent).not.toMatch(/private-error|private-detail/);
+});
+
+test.each([
+  [{ name: "get_laundry_overview", result: { ok: true, result: { ...overview.result, syncedAt: "not-a-date" } } }],
+  [{ name: "get_laundry_overview", result: { ok: true, result: { ...overview.result, warnings: "raw-secret" } } }],
+  [{ name: "unknown_tool", result: { ok: true, result: overview.result } }],
+  [{ name: "find_garments", result: { ok: true, result: { ...overview.result, garments: [{ epc: "EPC-secret" }] } } }],
+].map((toolResults) => ({ toolResults })))("rejects malformed assistant result envelopes without rendering unverified prose", async ({ toolResults }) => {
+  const client = fakeApi({ post: async (path) => path === "/tools/get_laundry_overview/invoke" ? overview : {
+    answer: "Unverified answer", toolResults,
+  } });
+  render(<LaundryAI api={client.api} />);
+  await screen.findByText("12");
+  await userEvent.type(screen.getByLabelText("Ask about laundry"), "Summary?");
+  await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+  expect(await screen.findByText("The laundry assistant could not answer. Structured search still works.")).toBeInTheDocument();
+  expect(screen.queryByText("Unverified answer")).toBeNull();
+  expect(document.body.textContent).not.toMatch(/raw-secret|EPC-secret/);
+});
+
 test("loads the tool catalog and overview with exact freshness and one metric ledger", async () => {
   const client = fakeApi();
   render(<LaundryAI api={client.api} />);
@@ -74,6 +145,7 @@ test("distinguishes stale, valid zero, safe warnings, and never-synced data", as
   expect(within(staleStatus).getByText("No garments are recorded in the current data.")).toBeInTheDocument();
   expect(within(staleStatus).getByText("Some station data could not be verified.")).toBeInTheDocument();
   expect(screen.queryByText("do not render raw")).toBeNull();
+  expect(within(screen.getByLabelText("Laundry totals")).getAllByText("0")).toHaveLength(4);
   first.unmount();
 
   const neverApi = fakeApi({ post: async () => ({ result: {
@@ -90,6 +162,7 @@ test("distinguishes stale, valid zero, safe warnings, and never-synced data", as
   expect(within(neverStatus).getByText("Laundry stations have never synced.")).toBeInTheDocument();
   expect(screen.getByText("Never synced")).toBeInTheDocument();
   expect(screen.queryByText("No garments are recorded in the current data.")).toBeNull();
+  expect(screen.queryByLabelText("Laundry totals")).toBeNull();
 });
 
 test("keeps overview freshness on the ledger and search freshness by results", async () => {
