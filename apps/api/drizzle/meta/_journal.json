@@ -29,6 +29,13 @@
       "when": 1789869139585,
       "tag": "0003_flat_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790039921520,
+      "tag": "0004_reserved_visit_calendar",
+      "breakpoints": true
     }
   ]
 }

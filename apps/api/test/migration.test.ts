@@ -85,3 +85,31 @@ describe("migration 0002_foundation", () => {
     expect(typedDb.select().from(t.user).all().length).toBe(before);
   });
 });
+
+describe("migration 0004_reserved_visit_calendar", () => {
+  test("adds reservation persistence and visit scheduling origin columns", () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    migrate(db, { migrationsFolder: real });
+
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'visit_reservation'").get()).toEqual({
+      name: "visit_reservation",
+    });
+
+    const reservationColumns = sqlite.prepare("PRAGMA table_info('visit_reservation')").all() as Array<{ name: string }>;
+    expect(reservationColumns.map((column) => column.name)).toEqual(expect.arrayContaining([
+      "status",
+      "start_at",
+      "end_at",
+      "expires_at",
+      "visit_id",
+    ]));
+
+    const visitColumns = sqlite.prepare("PRAGMA table_info('visit_session')").all() as Array<{ name: string }>;
+    expect(visitColumns.map((column) => column.name)).toEqual(expect.arrayContaining([
+      "scheduled_start_at",
+      "initiator_kind",
+      "initiator_id",
+    ]));
+  });
+});
