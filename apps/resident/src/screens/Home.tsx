@@ -1,11 +1,18 @@
 import { t } from "@oncare/web-common";
+import { VisitContactPicker, type ResidentVisitContact } from "../components/VisitContactPicker";
 type HelpStatus = "idle" | "sending" | "recorded" | "error";
 
 type HomeProps = {
   name: string;
   now: number;
   onOpenAssistant?: () => void;
-  onCallCaregiver: () => void;
+  contacts?: ResidentVisitContact[];
+  selectedContactId?: string | null;
+  onSelectContact?: (contactUserId: string) => void;
+  onScheduleVisit?: () => void;
+  onCallNow?: () => void;
+  /** @deprecated Kept as a source-compatible no-op; the communication home has one help action. */
+  onCallCaregiver?: () => void;
   onHelpStaff?: () => void;
   helpStatus?: HelpStatus;
   disabled?: boolean;
@@ -13,7 +20,19 @@ type HomeProps = {
   error?: boolean;
 };
 
-export function Home({ onOpenAssistant, onCallCaregiver, onHelpStaff, helpStatus = "idle", disabled = false, offline = false, error = false }: HomeProps) {
+export function Home({
+  onOpenAssistant,
+  contacts = [],
+  selectedContactId = null,
+  onSelectContact,
+  onScheduleVisit,
+  onCallNow,
+  onHelpStaff,
+  helpStatus = "idle",
+  disabled = false,
+  offline = false,
+  error = false,
+}: HomeProps) {
   const statusKey = error
     ? "resident.error.retry"
     : offline
@@ -36,11 +55,30 @@ export function Home({ onOpenAssistant, onCallCaregiver, onHelpStaff, helpStatus
     data-card="off"
   >
     <p className="communication-brand">{t("resident.communication.brand")}</p>
-    <div className="communication-zone-corner">
-      <button type="button" className="communication-ghost" onClick={onCallCaregiver} disabled={disabled}>
-        {t("resident.communication.caregiver")}
-      </button>
-    </div>
+
+    {contacts.length > 0 && <div className="communication-zone-meeting">
+      <VisitContactPicker
+        contacts={contacts}
+        selectedContactId={selectedContactId}
+        onSelect={onSelectContact ?? (() => {})}
+        compact
+      />
+      <div className="communication-meeting-actions">
+        <button
+          type="button"
+          className="communication-ghost"
+          onClick={onScheduleVisit}
+          disabled={disabled || !selectedContactId || !onScheduleVisit}
+        >{t("resident.visit.schedule")}</button>
+        <button
+          type="button"
+          className="communication-ghost communication-call-now"
+          onClick={onCallNow}
+          disabled={disabled || !selectedContactId || !onCallNow}
+        >{t("resident.visit.call_now")}</button>
+      </div>
+    </div>}
+
     <button
       type="button"
       className="communication-orb-button"

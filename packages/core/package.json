@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./scheduling": "./src/scheduling.ts"
   },
   "dependencies": {
     "zod": "^3.23.0"

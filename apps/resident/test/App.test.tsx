@@ -31,7 +31,26 @@ beforeEach(() => {
     const path = url.replace("http://api", ""); calls.push(path);
     const auth = path === "/auth/device", getState = path === "/device/state";
     const token = path.endsWith("/token");
-    return new Response(JSON.stringify(auth ? { token: "jwt" } : getState ? state : token ? { url: "wss://x", token: "call-token", room: "v1" } : { ok: true }), { status: (auth ? failAuth : getState ? failState : failAction) ? 500 : 200 });
+    const assistanceCreate = path === "/assistance-requests";
+    const assistanceRead = path.startsWith("/assistance-requests/");
+    const contactList = path === "/visit-reservations/contacts";
+    const reservationList = path === "/visit-reservations";
+    const body = auth
+      ? { token: "jwt" }
+      : getState
+        ? state
+        : assistanceCreate
+          ? { request: { id: "help_" + "a".repeat(32) } }
+          : assistanceRead
+            ? { request: { persistenceState: "recorded", deliveryState: "pending", handlingState: "open" } }
+            : contactList
+              ? { contacts: [{ userId: "family-1", displayName: "Amy", label: "daughter" }] }
+              : reservationList
+                ? { reservations: [] }
+                : token
+                  ? { url: "wss://x", token: "call-token", room: "v1" }
+                  : { ok: true };
+    return new Response(JSON.stringify(body), { status: (auth ? failAuth : getState ? failState : failAction) ? 500 : 200 });
   }));
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -75,13 +94,20 @@ test("the live call survives connecting to active, reports lifecycle, and drives
   await waitFor(() => expect(calls).toContain("/visits/v1/connection_lost"));
   expect(leaveCall).toHaveBeenCalledTimes(1);
 });
-test("caregiver confirmation requires success; errors return home", async () => {
+test("the single help action records a staff request and handles failure", async () => {
   render(<App apiBase="http://api"/>); await screen.findByText("Tap anywhere to talk");
-  failAction = true; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));
-  await screen.findByText("Please try again");
-  expect(screen.queryByText("A caregiver has been notified")).not.toBeInTheDocument();
-  failAction = false; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));
-  expect(await screen.findByText("A caregiver has been notified")).toBeInTheDocument();
+  failAction = true; fireEvent.click(screen.getByRole("button", { name: "I need help" }));
+  await screen.findByText("That didn't go through. Please try again.");
+  expect(screen.queryByRole("button", { name: "Call a caregiver" })).not.toBeInTheDocument();
+  failAction = false; fireEvent.click(screen.getByRole("button", { name: "I need help" }));
+  expect(await screen.findByText("Request recorded. Staff can see it in the queue.")).toBeInTheDocument();
+  expect(calls).toContain("/assistance-requests");
+});
+test("resident can start a video call after choosing an approved contact", async () => {
+  render(<App apiBase="http://api" />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Amy/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Call now" }));
+  await waitFor(() => expect(calls).toContain("/visits/now"));
 });
 test("delivery arrived shows the item and receipt posts before refreshing", async () => {
   state = { ...state, screen: "delivery_arrived", task: { id: "t1", state: "placing", item: { id: "water_bottle", label: "water bottle" } } };
@@ -109,7 +135,7 @@ test("first setup skips PIN, saving exits settings and boots auth", async () => 
 test("failed fetch displays home content and reconnecting feedback", async () => {
   failState = true; render(<App apiBase="http://api"/>);
   expect(await screen.findByText("I can't connect right now")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Call a caregiver" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "I need help" })).toBeDisabled();
 });
 test("transient authentication retries and recovers", async () => {
   vi.useFakeTimers(); failAuth = true; render(<App apiBase="http://api"/>);
