@@ -208,6 +208,7 @@
   "staff.resident": "Resident: {id}",
   "staff.requester": "Requester: {id}",
   "staff.login.title": "Staff sign in",
+  "staff.login.manager_title": "Manager sign in",
   "staff.login.not_staff": "This account is not a staff account",
   "staff.queue.title": "Pending",
   "staff.queue.visit": "Visit request",

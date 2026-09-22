@@ -27,6 +27,7 @@ let response: {
 };
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 beforeEach(() => {
+    history.replaceState({}, "", "/");
     sessionStorage.clear();
     sessionStorage.setItem("oncare.staff", JSON.stringify({ token: "jwt", displayName: "Nurse" }));
     queue = structuredClone(initial);
@@ -127,6 +128,30 @@ test("staff login persists session and logout removes it", async () => {
     expect(sessionStorage.getItem("oncare.staff")).toContain("jwt");
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(sessionStorage.getItem("oncare.staff")).toBeNull();
+});
+test("manager mode remains a presentation hint for a staff principal", async () => {
+    history.replaceState({}, "", "/?mode=manager");
+    sessionStorage.clear();
+    response = { status: 200, body: { token: "jwt", principal: { role: "staff", displayName: "Nurse" } } };
+    render(<App apiBase="http://api"/>);
+    expect(screen.getByRole("heading", { name: "Manager sign in" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Username"), "nurse");
+    await userEvent.type(screen.getByLabelText("Password"), "x");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("SIMULATED ROBOT");
+    expect(JSON.parse(sessionStorage.getItem("oncare.staff")!)).toMatchObject({ role: "staff" });
+    expect(screen.queryByRole("tab", { name: "Facility admin" })).toBeNull();
+});
+test("the login response principal grants facility admin access", async () => {
+    history.replaceState({}, "", "/?mode=manager");
+    sessionStorage.clear();
+    response = { status: 200, body: { token: "jwt", principal: { role: "admin", displayName: "Manager" } } };
+    render(<App apiBase="http://api"/>);
+    await userEvent.type(screen.getByLabelText("Username"), "manager");
+    await userEvent.type(screen.getByLabelText("Password"), "x");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("tab", { name: "Facility admin" })).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem("oncare.staff")!)).toMatchObject({ role: "admin" });
 });
 test("camera pause and resume use media route and unavailable state has no toggle", async () => {
     render(<App apiBase="http://api"/>);

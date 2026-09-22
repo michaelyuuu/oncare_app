@@ -11,6 +11,6 @@ const urls = {
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App urls={urls} />
+    <App demo={import.meta.env.VITE_ONCARE_DEMO === "1"} urls={urls} />
   </React.StrictMode>,
 );

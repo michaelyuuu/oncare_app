@@ -5,6 +5,7 @@ export interface PortalUrls {
 }
 
 interface AppProps {
+  demo?: boolean;
   urls: PortalUrls;
 }
 
@@ -14,11 +15,12 @@ const roles = [
   { key: "staff", label: "Staff", detail: "Coordinate care and respond to requests" },
 ] as const;
 
-export function App({ urls }: AppProps) {
+export function App({ demo = false, urls }: AppProps) {
   return (
     <main className="portal-shell">
       <section className="portal" aria-labelledby="portal-title">
         <header className="portal-heading">
+          {demo && <p className="demo-badge">SIMULATED</p>}
           <p className="wordmark">OnCare</p>
           <h1 id="portal-title">Choose your OnCare space</h1>
           <p className="introduction">Select where you want to go. You will sign in on the next page.</p>

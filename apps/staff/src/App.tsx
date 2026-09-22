@@ -36,7 +36,7 @@ export function App({ apiBase }: {
         setSession(next);
     }
     if (!session)
-        return <Login api={api} onLoggedIn={save}/>;
+        return <Login api={api} managerMode={new URLSearchParams(window.location.search).get("mode") === "manager"} onLoggedIn={save}/>;
     return <>
       <header className="masthead"><h1>{t("staff.title")}</h1>
         {session.role === "admin" && <nav role="tablist">
