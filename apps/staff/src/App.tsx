@@ -69,7 +69,7 @@ export function App({ apiBase }: {
         </header>
         <main className="workspace-main">
           <h1 className="workspace-page-title">{t(destinationLabels[destination])}</h1>
-          <Console api={api} apiBase={apiBase} token={session.token}/>
+          <Console api={api} apiBase={apiBase} token={session.token} activeDestination={destination}/>
           {session.role === "admin" && managerVisited && <div className="workspace-manager" hidden={!managerPage}><AdminPanel api={api}/></div>}
         </main>
       </div>

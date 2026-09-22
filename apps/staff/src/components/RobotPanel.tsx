@@ -1,18 +1,20 @@
 import { useState } from "react";
 import { t } from "@oncare/web-common";
 import type { Action, Robot } from "../types";
-export function RobotPanel({ robot, onAction, pending, knownBusy, stale }: {
+export function RobotPanel({ robot, onAction, pending, knownBusy, stale, errors }: {
     robot: Robot | null;
     onAction: Action;
     pending: string[];
     knownBusy: boolean;
     stale: boolean;
+    errors: Record<string, string>;
 }) {
     const [askPin, setAskPin] = useState(false);
     const [pin, setPin] = useState("");
     const hb = robot?.lastHeartbeat;
     const base = `/robots/${robot?.robotId}`;
     const busy = pending.includes(base);
+    const error = errors[`${base}/stop`] ?? errors[base];
     const unknown = t("staff.unknown");
     const navLabels: Record<string, string> = {
         idle: "idle", navigating: "navigating", active: "navigating",
@@ -32,6 +34,7 @@ export function RobotPanel({ robot, onAction, pending, knownBusy, stale }: {
             disabled={!robot || pending.includes(`${base}/stop`)}
             onClick={() => void onAction(`${base}/stop`)}
         >{t("staff.robot.stop")}</button>
+        {error && <p className="row-error" role="alert">{error}</p>}
         <dl>
             <dt>{t("staff.robot.nav")}</dt>
             <dd>{t(navLabel ? `staff.nav.${navLabel}` : "staff.unknown")}</dd>

@@ -3,6 +3,7 @@ export interface Visit {
     residentId: string;
     requesterId: string;
     state: string;
+    createdAt?: string;
     streaming?: boolean;
     cameraState?: "on" | "paused" | "unavailable" | "unknown";
 }
@@ -10,6 +11,7 @@ export interface Task {
     id: string;
     residentId: string;
     state: string;
+    createdAt?: string;
     proposal?: {
         item?: string;
     } | null;

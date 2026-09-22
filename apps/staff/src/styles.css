@@ -744,3 +744,136 @@ td {
     border-bottom:0
   }
 }
+
+/* Staff workboard: persistent safety controls beside one active destination. */
+.console {
+  grid-template-columns:minmax(230px,300px) minmax(0,1fr);
+  max-width:1440px;
+  padding:0;
+  gap:20px;
+  align-items:start
+}
+.console>.notices {
+  grid-column:1/-1
+}
+.console-safety {
+  position:sticky;
+  top:96px;
+  grid-column:1;
+  grid-row:2;
+  min-width:0
+}
+.console-view {
+  grid-column:2;
+  grid-row:2;
+  min-width:0;
+  padding:22px 24px;
+  border:1px solid var(--line);
+  border-radius:5px;
+  background:var(--white)
+}
+.console-view[hidden] {
+  display:none
+}
+.workboard-toolbar {
+  display:grid;
+  grid-template-columns:minmax(170px,220px) minmax(220px,1fr);
+  gap:14px;
+  margin-bottom:20px;
+  padding:16px;
+  border:1px solid var(--line);
+  background:#f7faf9
+}
+.workboard-toolbar label {
+  min-width:0;
+  color:var(--muted);
+  font-size:14px;
+  font-weight:700
+}
+.workboard-toolbar input,.workboard-toolbar select {
+  margin-top:5px;
+  color:var(--ink)
+}
+.work-rows {
+  border-top:2px solid var(--teal)
+}
+.rows.work-rows>li {
+  margin:0;
+  padding:20px 0;
+  border-bottom:1px solid var(--line)
+}
+.work-row-heading {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px
+}
+.work-row-heading>strong {
+  font-size:18px
+}
+.work-status {
+  flex:0 0 auto;
+  padding:4px 9px;
+  border-radius:3px;
+  background:#e7f2ef;
+  color:var(--teal-deep);
+  font-size:13px;
+  font-weight:700
+}
+.work-facts {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px 20px;
+  margin:14px 0
+}
+.work-facts>div {
+  min-width:0
+}
+.work-facts dt {
+  color:var(--muted);
+  font-size:12px;
+  letter-spacing:.04em;
+  text-transform:uppercase
+}
+.work-facts dd,.work-facts time {
+  color:var(--ink);
+  font-variant-numeric:tabular-nums
+}
+.work-note {
+  margin:12px 0;
+  padding-left:12px;
+  border-left:3px solid var(--line)
+}
+.row-error {
+  margin:12px 0
+}
+.calls-view .call-row {
+  padding:0 0 20px
+}
+@media(max-width:900px) {
+  .console {
+    grid-template-columns:1fr;
+    gap:16px
+  }
+  .console-safety,.console-view {
+    position:static;
+    grid-column:1;
+    grid-row:auto
+  }
+}
+@media(max-width:600px) {
+  .console {
+    display:grid;
+    padding:0
+  }
+  .console-view {
+    padding:18px 16px
+  }
+  .workboard-toolbar,.work-facts {
+    grid-template-columns:1fr
+  }
+  .work-row-heading {
+    flex-direction:column;
+    gap:8px
+  }
+}
