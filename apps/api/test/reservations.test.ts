@@ -163,6 +163,22 @@ describe("visit reservation contacts and slots", () => {
     }));
   });
 
+  test("caps a shifted slot query at the facility-local fourteen-day horizon", async () => {
+    const timer = clock();
+    const { app, tokens } = await makeTestApp({ now: timer.now });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/visit-reservations/slots?residentId=${SEED_IDS.resident}&from=2026-10-03`,
+      headers: auth(tokens.family),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const slots = response.json().slots as Array<{ localDate: string }>;
+    expect(slots).toHaveLength(2 * 9);
+    expect([...new Set(slots.map((slot) => slot.localDate))]).toEqual(["2026-10-03", "2026-10-04"]);
+  });
+
   test("rejects blocked starts and dates outside the facility-local fourteen-day window", async () => {
     const timer = clock();
     const { app, db, tokens } = await makeTestApp({ now: timer.now });
@@ -463,6 +479,49 @@ describe("visit reservation lifecycle", () => {
       startMinute: 540,
     });
     expect(oldSlotReused.statusCode).toBe(201);
+  });
+
+  test("a replacement checks conflicts against the resident's reassigned robot", async () => {
+    const timer = clock();
+    const { app, db, tokens } = await makeTestApp({ now: timer.now });
+    db.insert(t.robot).values({
+      id: "robot_reassigned",
+      facilityId: SEED_IDS.facility,
+      name: "Reassigned Robot",
+      tokenHash: "unused",
+    }).run();
+    addResidentUsingRobot(db, { id: "resident_reassigned_robot", robotId: "robot_reassigned" });
+    const competingFamily = await addFamily(app, db, {
+      id: "family_reassigned_robot",
+      username: "family-reassigned-robot",
+      residentId: "resident_reassigned_robot",
+    });
+    const original = await propose(app, tokens.device, {
+      contactUserId: SEED_IDS.familyUser,
+      localDate: firstDate,
+      startMinute: 540,
+    });
+    const competing = await propose(app, competingFamily, {
+      residentId: "resident_reassigned_robot",
+      localDate: firstDate,
+      startMinute: 600,
+    });
+    expect(original.statusCode).toBe(201);
+    expect(competing.statusCode).toBe(201);
+
+    db.update(t.device).set({ robotId: "robot_reassigned", assignmentVersion: 2 })
+      .where(eq(t.device.id, SEED_IDS.device)).run();
+    const suggested = await app.inject({
+      method: "POST",
+      url: `/visit-reservations/${original.json().reservation.id}/suggest`,
+      headers: auth(tokens.family),
+      payload: { localDate: firstDate, startMinute: 600 },
+    });
+
+    expect(suggested.statusCode).toBe(409);
+    expect(suggested.json()).toEqual({ error: "conflict" });
+    expect(db.select().from(t.visitReservation).where(eq(t.visitReservation.id, original.json().reservation.id)).get()?.status).toBe("pending");
+    expect(db.select().from(t.visitReservation).all()).toHaveLength(2);
   });
 
   test("either participant and scoped staff can cancel while nonparticipants cannot", async () => {

@@ -200,7 +200,7 @@ export function createReservationService(
     at: Date = now(),
   ): AuditEvent {
     return makeTransitionEvent({
-      entityType: "visit",
+      entityType: "visit_reservation",
       entityId: reservationId,
       fromState,
       toState,
@@ -344,6 +344,7 @@ export function createReservationService(
       .where(inArray(t.visitReservation.status, ["pending", "confirmed"]))
       .all();
     const definitions = Array.from({ length: DEMO_VISIT_POLICY.windowDays }, (_, offset) => addLocalDays(input.from, offset))
+      .filter((localDate) => isVisitDateInWindow(localDate, today))
       .flatMap((localDate) => buildVisitSlotDefinitions(localDate));
     const value = definitions.map((definition) => {
       const startAt = localSlotToIso(definition.localDate, definition.startMinute, context.timeZone);
@@ -476,7 +477,7 @@ export function createReservationService(
       if (hasConflict(tx, {
         residentId: current.residentId,
         familyUserId: current.familyUserId,
-        robotId: current.robotId,
+        robotId: context.robotId,
         ...slot,
         excludeId: current.id,
       })) return false;

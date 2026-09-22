@@ -129,6 +129,11 @@ export function createAccess(db: Db) {
         if (!v || !visible.has(v.residentId)) return false;
         return p.kind === "device" || isStaffLike || v.requesterId === p.id;
       }
+      case "visit_reservation": {
+        const reservation = db.select().from(t.visitReservation).where(eq(t.visitReservation.id, ev.entityId)).get();
+        if (!reservation || !visible.has(reservation.residentId)) return false;
+        return p.kind === "device" || isStaffLike || reservation.familyUserId === p.id;
+      }
       case "task": {
         const k = db.select().from(t.taskRequest).where(eq(t.taskRequest.id, ev.entityId)).get();
         if (!k || !visible.has(k.residentId)) return false;
