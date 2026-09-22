@@ -76,6 +76,27 @@ export function createLaundryRepository(db: Db, opts: { now?: () => Date } = {})
     return !Number.isFinite(elapsed) || elapsed >= STALE_AFTER_MS;
   }
 
+  function registerStation(input: { stationId: string; facilityId: string }): void {
+    db.transaction((tx) => {
+      const existing = tx.select({ facilityId: t.rfidStationSync.facilityId })
+        .from(t.rfidStationSync)
+        .where(eq(t.rfidStationSync.stationId, input.stationId)).get();
+      if (existing) {
+        if (existing.facilityId !== input.facilityId) throw new Error("rfid_station_facility_conflict");
+        return;
+      }
+      tx.insert(t.rfidStationSync).values({
+        stationId: input.stationId,
+        facilityId: input.facilityId,
+        sourceVersion: null,
+        lastAttemptAt: now().toISOString(),
+        lastSuccessAt: null,
+        status: "stale",
+        warnings: [],
+      }).run();
+    });
+  }
+
   function replaceStation(input: StationLedgerSnapshot): void {
     const syncedAt = now().toISOString();
     db.transaction((tx) => {
@@ -215,7 +236,7 @@ export function createLaundryRepository(db: Db, opts: { now?: () => Date } = {})
       .map((row) => ({ ...row, stale: isStale(row.syncedAt, currentTime) }));
   }
 
-  return { replaceStation, recordFailure, overview, find };
+  return { registerStation, replaceStation, recordFailure, overview, find };
 }
 
 export type LaundryRepository = ReturnType<typeof createLaundryRepository>;

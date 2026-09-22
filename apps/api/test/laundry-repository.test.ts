@@ -183,6 +183,58 @@ describe("laundry projection repository", () => {
     }));
   });
 
+  test("records failure state for a registered station that has never succeeded", async () => {
+    let current = new Date("2026-09-21T12:00:00.000Z");
+    const { db, repository } = await setup(() => current);
+    repository.registerStation({ stationId: STATION_ID, facilityId: SEED_IDS.facility });
+    current = new Date("2026-09-21T12:01:00.000Z");
+
+    repository.recordFailure(STATION_ID, "invalid", {
+      kind: "invalid_payload",
+      message: "Ledger response was malformed",
+    });
+
+    expect(repository.overview(SEED_IDS.facility)).toEqual({
+      availability: "never_synced",
+      total: 0,
+      active: 0,
+      lostOrDiscarded: 0,
+      recentlyWashed: 0,
+      syncedAt: null,
+      stale: false,
+      warnings: [{ kind: "invalid_payload", message: "Ledger response was malformed" }],
+    });
+    expect(db.select().from(t.rfidStationSync).get()).toEqual({
+      stationId: STATION_ID,
+      facilityId: SEED_IDS.facility,
+      sourceVersion: null,
+      lastAttemptAt: "2026-09-21T12:01:00.000Z",
+      lastSuccessAt: null,
+      status: "invalid",
+      warnings: [{ kind: "invalid_payload", message: "Ledger response was malformed" }],
+    });
+  });
+
+  test("registration validates ownership without changing a successful projection", async () => {
+    const { db, repository } = await setup();
+    repository.replaceStation(snapshot);
+
+    repository.registerStation({ stationId: STATION_ID, facilityId: SEED_IDS.facility });
+
+    expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+    expect(db.select().from(t.rfidStationSync).get()).toEqual(expect.objectContaining({
+      facilityId: SEED_IDS.facility,
+      sourceVersion: 7,
+      lastSuccessAt: "2026-09-21T12:04:59.999Z",
+      status: "healthy",
+    }));
+    expect(() => repository.registerStation({
+      stationId: STATION_ID,
+      facilityId: "facility_other",
+    })).toThrow("rfid_station_facility_conflict");
+    expect(repository.find(SEED_IDS.facility, {}).map((row) => row.name)).toEqual(["Blue cardigan"]);
+  });
+
   test("distinguishes never-synced data from a valid no-match and turns stale at five minutes", async () => {
     let current = new Date("2026-09-21T12:04:59.999Z");
     const { repository } = await setup(() => current);
