@@ -56,6 +56,12 @@ describe("migration 0002_foundation", () => {
     expect(sqlite.prepare("SELECT active FROM resident ORDER BY id").all()).toEqual([{ active: 1 }, { active: 1 }]);
     expect(sqlite.prepare("SELECT count(*) AS n FROM pending_action").get()).toEqual({ n: 0 });
     expect(sqlite.prepare("SELECT count(*) AS n FROM assistance_request").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('garment_projection', 'rfid_station_sync') ORDER BY name").all()).toEqual([
+      { name: "garment_projection" },
+      { name: "rfid_station_sync" },
+    ]);
+    expect(sqlite.prepare("SELECT count(*) AS n FROM garment_projection").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT count(*) AS n FROM rfid_station_sync").get()).toEqual({ n: 0 });
   });
 
   test("seed inserts the demo admin into an existing facility_demo database that predates it", async () => {
