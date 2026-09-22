@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { type Api, t } from "@oncare/web-common";
+import { ApiError, type Api, t } from "@oncare/web-common";
 import { createAssistantClient } from "../assistant";
 import { extractAssistantActionProposal, type AssistantActionProposal, type LiveVoiceEventState } from "../realtime";
 import { speak, stopSpeaking } from "../speech";
@@ -7,6 +7,7 @@ import { AssistantActionConfirmation } from "./AssistantActionConfirmation";
 
 type PanelState = "connecting" | "listening" | "thinking" | "speaking" | "error";
 type HelpStatus = "idle" | "sending" | "recorded" | "error";
+const EXPIRED_ACTION_NOTICE = "That visit confirmation has expired. Please choose a new time.";
 
 function evidenceMessage(result: unknown): string | null {
   if (typeof result !== "object" || result === null || !("result" in result)) return null;
@@ -166,6 +167,12 @@ export function AssistantPanel({
     setNotice(t("resident.assistant.stopped"));
   };
 
+  const expireAction = useCallback(() => {
+    setAction(null);
+    setNotice(EXPIRED_ACTION_NOTICE);
+    speak(EXPIRED_ACTION_NOTICE);
+  }, []);
+
   const send = async (event: FormEvent) => {
     event.preventDefault();
     const value = text.trim();
@@ -198,7 +205,11 @@ export function AssistantPanel({
       setAction(null);
       setNotice(success);
       speak(success);
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 410) {
+        expireAction();
+        return;
+      }
       const failure = "That visit action could not be completed. Please try again.";
       setNotice(failure);
       speak(failure);
@@ -255,8 +266,10 @@ export function AssistantPanel({
       actionId={action.actionId}
       summary={action.summary}
       expiresAt={action.expiresAt}
+      disabled={disabled || sending}
       onConfirm={() => resolveAction("confirm")}
       onCancel={() => resolveAction("cancel")}
+      onExpire={expireAction}
     />}
     {fallbackReady && !action && <form className="communication-fallback" data-testid="assistant-text-fallback" onSubmit={(event) => void send(event)}>
       <label htmlFor="assistant-message">{t("resident.communication.fallback")}</label>

@@ -4,6 +4,26 @@ import { defineTool, ToolConflict, ToolForbidden, ToolInputError, ToolNotFound, 
 import { buildCapabilities } from "../services/capabilities";
 import type { AssistanceRequest } from "../services/assistance";
 
+const LOCAL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function isCalendarDate(value: string): boolean {
+  const match = LOCAL_DATE_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
+const localDateInput = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isCalendarDate, "Invalid calendar date");
+
 function requireDevice(ctx: Parameters<NonNullable<ToolDef["run"]>>[0]) {
   if (ctx.principal.kind !== "device") throw new ToolForbidden();
   return ctx.principal;
@@ -112,7 +132,7 @@ export const getVisitSlots = defineTool({
   roles: ["device"],
   effect: "read",
   input: z.object({
-    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    from: localDateInput,
   }).strict(),
   run: (ctx, input) => {
     const principal = requireDevice(ctx);
@@ -133,7 +153,7 @@ export const proposeVisitTime = defineTool({
   effect: "write",
   input: z.object({
     contactUserId: z.string().min(1),
-    localDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    localDate: localDateInput,
     startMinute: z.number().int().min(0).max(1439),
   }).strict(),
   summarize: (ctx, input) => {

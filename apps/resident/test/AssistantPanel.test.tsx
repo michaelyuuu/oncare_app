@@ -1,13 +1,15 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { Api } from "@oncare/web-common";
+import { ApiError, type Api } from "@oncare/web-common";
 import * as assistantModule from "../src/assistant";
+import { AssistantActionConfirmation } from "../src/components/AssistantActionConfirmation";
 import { AssistantPanel } from "../src/components/AssistantPanel";
 import { requestStaffHelp } from "../src/assistant";
 import { Home } from "../src/screens/Home";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -37,6 +39,8 @@ function apiFor(inputResult: unknown = {
   return { api, post };
 }
 
+const futureExpiry = () => new Date(Date.now() + 60_000).toISOString();
+
 describe("resident assistant surface", () => {
   test("Home exposes Talk to Ontaru while keeping family and staff actions available", () => {
     const onAssistant = vi.fn();
@@ -48,6 +52,29 @@ describe("resident assistant surface", () => {
     expect(screen.getByRole("button", { name: "I need help" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Talk to Ontaru" }));
     expect(onAssistant).toHaveBeenCalledTimes(1);
+  });
+
+  test("confirmation visuals and handlers respect the parent disabled state", () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    render(<AssistantActionConfirmation
+      actionId="act_disabled"
+      summary="Propose a visit?"
+      expiresAt={futureExpiry()}
+      disabled
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      onExpire={vi.fn()}
+    />);
+
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(confirm).toBeDisabled();
+    expect(cancel).toBeDisabled();
+    fireEvent.click(confirm);
+    fireEvent.click(cancel);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   test("Talk uses the communication shell and keeps text fallback when live voice is unavailable", async () => {
@@ -73,7 +100,7 @@ describe("resident assistant surface", () => {
         needsConfirmation: true,
         actionId: "act_schedule_1",
         summary: "Propose a one-hour ON 0 visit with Demo Daughter on September 22, 2026 at 9:00 AM local time?",
-        expiresAt: "2026-09-21T00:02:00.000Z",
+        expiresAt: futureExpiry(),
       },
     });
     render(<AssistantPanel api={api} residentName="Demo Resident" disabled={false} onClose={vi.fn()} />);
@@ -89,6 +116,81 @@ describe("resident assistant surface", () => {
     expect(post.mock.calls.filter(([path, body]) => path === "/assistant/sessions" && (body as { mode?: string } | undefined)?.mode === "live")).toHaveLength(1);
   });
 
+  test("a scheduling confirmation expires on screen, is cleared, and does not open another microphone", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
+    let realtimeOptions: assistantModule.AssistantRealtimeOptions | undefined;
+    const startRealtime = vi.fn(async (options?: assistantModule.AssistantRealtimeOptions) => {
+      realtimeOptions = options;
+      return { sessionId: "live_expiry", state: "listening", mode: "live", provider: "openai_realtime" };
+    });
+    vi.spyOn(assistantModule, "createAssistantClient").mockReturnValue({
+      startFakeSession: vi.fn(),
+      startRealtime,
+      sendText: vi.fn(),
+      interrupt: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      reset: vi.fn(),
+    });
+    const post = vi.fn();
+    const api = { get: vi.fn(), post, patch: vi.fn(), del: vi.fn() } as unknown as Api;
+    render(<AssistantPanel api={api} residentName="Demo Resident" disabled={false} onClose={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    act(() => realtimeOptions?.onToolResult?.({
+      result: {
+        ok: true,
+        needsConfirmation: true,
+        actionId: "act_expiring",
+        summary: "Propose a one-hour ON 0 visit with Demo Daughter?",
+        expiresAt: "2026-09-22T00:00:01.000Z",
+      },
+    }));
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeEnabled();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.queryByRole("group", { name: "Visit scheduling confirmation" })).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("expired");
+    expect(post).not.toHaveBeenCalled();
+    expect(startRealtime).toHaveBeenCalledTimes(1);
+  });
+
+  test("HTTP 410 clears the stale confirmation and announces that it expired", async () => {
+    let realtimeOptions: assistantModule.AssistantRealtimeOptions | undefined;
+    const startRealtime = vi.fn(async (options?: assistantModule.AssistantRealtimeOptions) => {
+      realtimeOptions = options;
+      return { sessionId: "live_410", state: "listening", mode: "live", provider: "openai_realtime" };
+    });
+    vi.spyOn(assistantModule, "createAssistantClient").mockReturnValue({
+      startFakeSession: vi.fn(),
+      startRealtime,
+      sendText: vi.fn(),
+      interrupt: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      reset: vi.fn(),
+    });
+    const post = vi.fn(async () => { throw new ApiError(410, "expired"); });
+    const api = { get: vi.fn(), post, patch: vi.fn(), del: vi.fn() } as unknown as Api;
+    render(<AssistantPanel api={api} residentName="Demo Resident" disabled={false} onClose={vi.fn()} />);
+    await waitFor(() => expect(startRealtime).toHaveBeenCalledTimes(1));
+
+    act(() => realtimeOptions?.onToolResult?.({
+      result: {
+        ok: true,
+        needsConfirmation: true,
+        actionId: "act_server_expired",
+        summary: "Propose a one-hour ON 0 visit with Demo Daughter?",
+        expiresAt: futureExpiry(),
+      },
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("expired"));
+    expect(screen.queryByRole("group", { name: "Visit scheduling confirmation" })).toBeNull();
+    expect(post).toHaveBeenCalledWith("/tools/actions/act_server_expired/confirm", {});
+    expect(startRealtime).toHaveBeenCalledTimes(1);
+  });
+
   test("simulated scheduling cancellation calls the cancel endpoint and announces the result", async () => {
     const { api, post } = apiFor({
       kind: "tool_result",
@@ -99,7 +201,7 @@ describe("resident assistant surface", () => {
         needsConfirmation: true,
         actionId: "act_schedule_2",
         summary: "Propose a one-hour ON 0 visit with Demo Daughter tomorrow at 10:00 AM local time?",
-        expiresAt: "2026-09-21T00:02:00.000Z",
+        expiresAt: futureExpiry(),
       },
     });
     render(<AssistantPanel api={api} residentName="Demo Resident" disabled={false} onClose={vi.fn()} />);
@@ -136,7 +238,7 @@ describe("resident assistant surface", () => {
         needsConfirmation: true,
         actionId: "act_realtime_1",
         summary: "Propose a one-hour ON 0 visit with Demo Daughter at 11:00 AM local time?",
-        expiresAt: "2026-09-21T00:02:00.000Z",
+        expiresAt: futureExpiry(),
       },
     }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));

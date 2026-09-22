@@ -158,6 +158,20 @@ describe("tool registry", () => {
     })).statusCode).toBe(404);
   });
 
+  test("scheduling rejects an impossible localDate as controlled bad input", async () => {
+    const { db, tokens, invoke } = await setup(() => new Date("2026-09-21T00:00:00.000Z"));
+    const response = await invoke(tokens.device, "propose_visit_time", {
+      contactUserId: SEED_IDS.familyUser,
+      localDate: "2026-13-01",
+      startMinute: 540,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "bad_input", detail: expect.stringContaining("localDate") });
+    expect(db.select().from(t.pendingAction).all()).toEqual([]);
+    expect(db.select().from(t.visitReservation).all()).toEqual([]);
+  });
+
   test("unknown tools, tools of another role and bad input are rejected", async () => {
     const { tokens, invoke } = await setup();
     expect((await invoke(tokens.family, "nope")).statusCode).toBe(404);
