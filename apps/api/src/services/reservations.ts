@@ -517,6 +517,8 @@ export function createReservationService(
     const principalActor = actor(input.principal);
     const event = eventFor(current.id, current.status, "cancelled", "reservation_cancelled", principalActor.type, principalActor.id, actionAt);
     const changed = db.transaction((tx) => {
+      const visit = current.visitId ? tx.select().from(t.visitSession).where(eq(t.visitSession.id, current.visitId)).get() : undefined;
+      if (!staffLike && visit && (visit.connectedAt !== null || ["connecting", "active", "ending", "completed"].includes(visit.state))) return false;
       const result = tx.update(t.visitReservation).set({
         status: "cancelled",
         cancelledAt: actionAt.toISOString(),
@@ -537,7 +539,7 @@ export function createReservationService(
     return { ok: true as const, value: view(current.id)! };
   }
 
-  return { contacts, slots, list, createProposal, confirm, suggest, cancel, expirePending };
+  return { contacts, slots, list, createProposal, confirm, suggest, cancel, expirePending, relationshipError };
 }
 
 export type ReservationService = ReturnType<typeof createReservationService>;

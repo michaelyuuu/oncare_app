@@ -95,16 +95,19 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       ? db.select().from(t.taskRequest).where(eq(t.taskRequest.id, ev.entityId)).get()?.correlationId
       : ev.entityId;
     if (!correlationId) return;
+    cancelCommand(correlationId);
+  }
+
+  function cancelCommand(correlationId: string) {
     const cmd = db.select().from(t.robotCommand).where(eq(t.robotCommand.correlationId, correlationId)).get();
     if (!cmd || ["expired", "rejected", "busy", "stale", "cancelled"].includes(cmd.result ?? "")) return;
-    if (hub.send(cmd.robotId, { type: "cancel", correlationId })) return;
-    // The robot is offline, so it never learned about this visit or its
-    // cancellation. Settle the row here: an unsettled row would be flushed
-    // to the robot the moment it reconnects, sending it to a resident whose
-    // family already called the visit off.
-    if (cmd.result === null) {
+    // Settle before transport I/O: an offline or broken connection must not
+    // leave a cancelled command available for replay or block the safety exit.
+    if (cmd.result === null || cmd.result === "accepted") {
       db.update(t.robotCommand).set({ result: "cancelled" }).where(eq(t.robotCommand.id, cmd.id)).run();
     }
+    try { hub.send(cmd.robotId, { type: "cancel", correlationId }); }
+    catch { /* The local safety decision remains effective if delivery fails. */ }
   }
 
   const unsubTransitions = transitions.subscribe((ev) => {
@@ -246,9 +249,10 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
       }
       return;
     }
-    const to = STATE_EVENT_TO_VISIT[msg.event];
-    if (!to) return;
     const visit = db.select().from(t.visitSession).where(eq(t.visitSession.id, cmd.visitId)).get();
+    const to = msg.event === "arrived" && visit?.initiatorKind === "device" && !visit.scheduledStartAt
+      ? "awaiting_family_consent" : STATE_EVENT_TO_VISIT[msg.event];
+    if (!to) return;
     if (to === "cancelled" && visit?.state === "cancelled") return;
     robotApply(robotId, "visit", cmd.visitId, to, reasonCode(msg.detail?.["reason"]) ?? msg.event);
   }
@@ -311,5 +315,5 @@ export function createDispatchService(db: Db, transitions: TransitionService, hu
     return n;
   }
 
-  return { flushPending, sweepExpired, sendStop, sendResume, sendStandby, auditRobot, stop() { unsubTransitions(); unsubHub(); } };
+  return { flushPending, sweepExpired, sendStop, sendResume, sendStandby, auditRobot, cancelVisit: cancelCommand, stop() { unsubTransitions(); unsubHub(); } };
 }

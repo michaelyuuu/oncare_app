@@ -25,6 +25,7 @@ import { loadAssistantProfile } from "./services/assistant-profile";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createReservationService, type ReservationService } from "./services/reservations";
+import { createReservationScheduler } from "./services/reservation-scheduler";
 import { createTransitionService } from "./services/transitions";
 import { createTaskService, type TaskService } from "./services/tasks";
 import { createVisitService, type TransitionService, type VisitService } from "./services/visits";
@@ -41,6 +42,7 @@ declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
     reservations: ReservationService;
+    reservationScheduler: ReturnType<typeof createReservationScheduler>;
     assistance: AssistanceService;
     assistant: VoiceService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
@@ -86,12 +88,19 @@ export function buildApp(opts: AppOptions): FastifyInstance {
     ...(opts.now ? { now: opts.now } : {}),
     onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
   }));
+  app.decorate("reservationScheduler", createReservationScheduler({
+    db: opts.db, reservations: app.reservations, visits: app.visits, transitions, dispatch: app.dispatch,
+    ...(opts.now ? { now: opts.now } : {}),
+  }));
+  app.addHook("onReady", async () => app.reservationScheduler.start());
+  app.addHook("onClose", async () => app.reservationScheduler.stop());
+  app.addHook("onClose", async () => app.dispatch.stop());
   app.addHook("onClose", async () => app.visits.stop());
   app.addHook("onClose", async () => app.assistant.stop());
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
-  app.register(deviceRoutes, { db: opts.db });
+  app.register(deviceRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(assistanceRoutes);
   app.register(capabilitiesRoutes);
   app.register(assistantRoutes);

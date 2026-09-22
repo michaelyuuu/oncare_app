@@ -2,6 +2,7 @@ import { buildApp } from "./app";
 import { openDb } from "./db/client";
 import { seedDemo } from "./db/seed";
 import { FakeVideoProvider } from "./services/video";
+import { createServerClock } from "./services/server-clock";
 
 try {
   process.loadEnvFile(new URL("../.env", import.meta.url));
@@ -23,7 +24,8 @@ if (!configuredSecret) {
 
 const db = openDb(process.env.DATABASE_PATH ?? "./oncare.db");
 await seedDemo(db, process.env);
-const app = buildApp({ db, jwtSecret: configuredSecret ?? DEV_JWT_SECRET });
+const now = createServerClock(process.env);
+const app = buildApp({ db, jwtSecret: configuredSecret ?? DEV_JWT_SECRET, now });
 console.log(`video provider: ${app.video instanceof FakeVideoProvider ? "fake" : "livekit"}`);
 const port = Number(process.env.PORT ?? 3000);
 await app.listen({ port, host: "0.0.0.0" });

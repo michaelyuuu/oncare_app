@@ -9,13 +9,15 @@ import * as t from "../db/schema";
 
 export type DeviceScreen = "home" | "incoming" | "in_call" | "delivery_arrived";
 
-export function screenForVisitState(state: string | null): DeviceScreen {
+export function screenForVisitState(state: string | null, scheduledStartAt: string | null = null, now: Date = new Date(), initiatorKind: string | null = null): DeviceScreen {
+  if (scheduledStartAt && now.getTime() < Date.parse(scheduledStartAt)) return "home";
+  if (state === "awaiting_family_consent" && initiatorKind === "device") return "in_call";
   if (state === "awaiting_resident_consent") return "incoming";
   if (state === "connecting" || state === "active" || state === "ending") return "in_call";
   return "home";
 }
 
-export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
+export async function deviceRoutes(app: FastifyInstance, opts: { db: Db; now?: () => Date }) {
   const { db } = opts;
 
   function audit(deviceId: string, robotId: string | null, residentId: string, reason: string) {
@@ -53,7 +55,7 @@ export async function deviceRoutes(app: FastifyInstance, opts: { db: Db }) {
     const itemId = task ? (task.proposal as { item: string }).item : null;
     const item = itemId ? db.select().from(t.item).where(eq(t.item.id, itemId)).get() ?? null : null;
     const status = principal.robotId ? app.hub.status(principal.robotId) : { connected: false, lastHeartbeat: null, lastSeenAt: null };
-    const visitScreen = screenForVisitState(visit?.state ?? null);
+    const visitScreen = screenForVisitState(visit?.state ?? null, visit?.scheduledStartAt ?? null, opts.now?.() ?? new Date(), visit?.initiatorKind ?? null);
     const screen = visitScreen !== "home" ? visitScreen : task?.state === "placing" ? "delivery_arrived" : "home";
 
     return {

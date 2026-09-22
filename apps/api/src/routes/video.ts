@@ -44,9 +44,12 @@ export async function videoRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     if (!app.visits.canView(req.principal, visit)) return reply.code(403).send({ error: "forbidden" });
 
     const principal = req.principal;
+    if (!app.visits.hasCallConsent(visit)) return reply.code(403).send({ error: "forbidden" });
+    if (visit.scheduledStartAt && (opts.now?.() ?? new Date()).getTime() < Date.parse(visit.scheduledStartAt)) return reply.code(409).send({ error: "not_callable" });
     const role = actionRole(principal);
     const callable = role === "device"
       ? ["awaiting_resident_consent", "connecting", "active"].includes(visit.state)
+        || (visit.state === "awaiting_family_consent" && visit.initiatorKind === "device" && visit.initiatorId === principal.id)
       : ["connecting", "active"].includes(visit.state);
     if (!callable) return reply.code(409).send({ error: "not_callable" });
 
