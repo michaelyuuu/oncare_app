@@ -8,6 +8,10 @@ import { makeTestApp } from "./helpers";
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 const STATION_ID = "33333333-3333-4333-8333-333333333333";
 const SYNCED_AT = "2026-09-21T12:00:00.000Z";
+const GENERIC_PUBLIC_WARNING = {
+  kind: "laundry_data_warning",
+  message: "Some laundry data may be incomplete.",
+};
 
 const snapshot: StationLedgerSnapshot = {
   stationId: STATION_ID,
@@ -147,7 +151,7 @@ describe("manager laundry tools", () => {
       recentlyWashed: 1,
       syncedAt: SYNCED_AT,
       stale: false,
-      warnings: snapshot.warnings,
+      warnings: [GENERIC_PUBLIC_WARNING],
     });
 
     const found = await invoke(tokens.admin, "find_garments", {
@@ -162,7 +166,7 @@ describe("manager laundry tools", () => {
       availability: "available",
       syncedAt: SYNCED_AT,
       stale: false,
-      warnings: snapshot.warnings,
+      warnings: [GENERIC_PUBLIC_WARNING],
       garments: [{
         residentId: SEED_IDS.resident,
         residentName: "Demo Resident",
@@ -197,6 +201,56 @@ describe("manager laundry tools", () => {
         correlationId: SEED_IDS.facility,
       }),
     ]);
+    await app.close();
+  });
+
+  test("sanitizes warning kinds, messages, and counts at the tool boundary", async () => {
+    const { app, tokens, invoke } = await setup();
+    const secrets = [
+      "E200-RAW-EPC-SECRET",
+      "station-token-secret-123",
+      "sk-provider-key-secret-456",
+      "https://rfid.internal/photos/private-garment.jpg",
+      "scan-journal-fragment-resident-42",
+    ];
+    app.laundry.replaceStation({
+      ...snapshot,
+      warnings: [
+        { kind: "missing_scan_log", message: `source leaked ${secrets[0]}`, count: 3 },
+        { kind: "station_unavailable", message: `source leaked ${secrets[1]}` },
+        { kind: "invalid_payload", message: `source leaked ${secrets[2]}` },
+        { kind: "station_identity_mismatch", message: `source leaked ${secrets[3]}` },
+        ...secrets.map((secret, index) => ({
+          kind: `legacy:${secret}`,
+          message: `legacy warning ${secret}`,
+          count: [7, 1_000_000, -1, 1.5, Number.NaN][index]!,
+        })),
+      ],
+    });
+
+    const overview = await invoke(tokens.admin, "get_laundry_overview");
+    const found = await invoke(tokens.admin, "find_garments");
+    expect(overview.statusCode).toBe(200);
+    expect(found.statusCode).toBe(200);
+    const expectedWarnings = [
+      { kind: "wash_history_unavailable", message: "Laundry wash history is temporarily unavailable.", count: 3 },
+      { kind: "station_unavailable", message: "Laundry station data is temporarily unavailable." },
+      { kind: "invalid_data", message: "Laundry station data could not be verified." },
+      { kind: "station_identity_mismatch", message: "Laundry station identity could not be verified." },
+      { ...GENERIC_PUBLIC_WARNING, count: 7 },
+      { ...GENERIC_PUBLIC_WARNING, count: 10_000 },
+      GENERIC_PUBLIC_WARNING,
+      GENERIC_PUBLIC_WARNING,
+      GENERIC_PUBLIC_WARNING,
+    ];
+    expect(overview.json().result.warnings).toEqual(expectedWarnings);
+    expect(found.json().result.warnings).toEqual(expectedWarnings);
+
+    const serializedResults = JSON.stringify([overview.json().result, found.json().result]);
+    for (const secret of secrets) expect(serializedResults).not.toContain(secret);
+    for (const result of [overview.json().result, found.json().result]) {
+      expect(allKeys(result).filter((key) => /epc|sourceKey|token|photo|scan|stationId/i.test(key))).toEqual([]);
+    }
     await app.close();
   });
 });
