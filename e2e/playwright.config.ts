@@ -17,7 +17,7 @@ export default defineConfig({
       reuseExistingServer,
       timeout: 120_000,
       cwd: "..",
-      env: { ...process.env, ONCARE_VIDEO_PROVIDER: "fake" },
+      env: { ...process.env, ONCARE_VIDEO_PROVIDER: "fake", VITE_ONCARE_DEMO: "1" },
     },
     { command: "node e2e/start-gateway.mjs", url: "http://127.0.0.1:3031/health", reuseExistingServer: false, timeout: 120_000, cwd: ".." },
   ],
