@@ -4,5 +4,6 @@ export * from "./task-state";
 export * from "./intent";
 export * from "./policy";
 export * from "./audit";
+export * from "./scheduling";
 export * from "./parser/types";
 export * from "./parser/keyword";
