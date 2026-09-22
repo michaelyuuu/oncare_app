@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { z } from "zod";
 import type { Principal } from "../auth/plugin";
 import type { ToolRegistry, ToolResult } from "../tools/registry";
 
@@ -100,11 +101,24 @@ const SYSTEM_PROMPT = [
   "Do not request or reveal credentials, raw RFID identifiers, hidden reasoning, or private provider data.",
 ].join(" ");
 
-function parseArguments(value: string | undefined): Record<string, unknown> {
+const overviewInputSchema = z.object({
+  residentId: z.string().min(1).optional(),
+}).strict();
+
+const findInputSchema = z.object({
+  residentId: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  category: z.string().trim().min(1).max(50).optional(),
+  color: z.string().trim().min(1).max(50).optional(),
+  status: z.enum(["active", "lost", "discarded"]).optional(),
+}).strict();
+
+function parseArguments(name: LaundryToolName, value: string | undefined): Record<string, unknown> {
   if (value === undefined) throw new Error("invalid_tool_call");
   const parsed: unknown = JSON.parse(value);
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("invalid_tool_call");
-  return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== null));
+  const normalized = Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== null));
+  return (name === "get_laundry_overview" ? overviewInputSchema : findInputSchema).parse(normalized);
 }
 
 function isAllowed(name: string | undefined): name is LaundryToolName {
@@ -160,6 +174,9 @@ export function createLaundryAssistant(opts: {
           tools: PROVIDER_TOOLS,
           ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         });
+        if (typeof response.id !== "string" || response.id.trim().length === 0) {
+          throw new Error("assistant_unavailable");
+        }
         const calls = response.output.filter((item) => item.type === "function_call");
         if (calls.length === 0) {
           const answer = response.output_text.trim();
@@ -169,7 +186,7 @@ export function createLaundryAssistant(opts: {
 
         const parsedCalls = calls.map((call) => {
           if (!isAllowed(call.name) || !call.call_id) throw new Error("assistant_unavailable");
-          return { name: call.name, callId: call.call_id, input: parseArguments(call.arguments) };
+          return { name: call.name, callId: call.call_id, input: parseArguments(call.name, call.arguments) };
         });
         const outputs: ManagerInputItem[] = [];
         for (const call of parsedCalls) {

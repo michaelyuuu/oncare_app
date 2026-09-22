@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { buildApp } from "../src/app";
 import { openDb } from "../src/db/client";
 import { SEED_IDS, SEED_SECRETS, seed } from "../src/db/seed";
@@ -256,6 +256,63 @@ describe("manager laundry assistant", () => {
 
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ error: "assistant_unavailable" });
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.actorType, "ai")).all()).toEqual([]);
+    await app.close();
+  });
+
+  test("prevalidates every allowed call schema before invoking any registry tool", async () => {
+    const mixed = toolResponse("get_laundry_overview", "call_valid", { residentId: null });
+    mixed.output.push({
+      type: "function_call",
+      call_id: "call_invalid",
+      name: "find_garments",
+      arguments: JSON.stringify({
+        residentId: null,
+        name: "x".repeat(101),
+        category: null,
+        color: null,
+        status: null,
+      }),
+    });
+    const client = new FakeManagerClient([mixed]);
+    const { app, db, tokens } = await setup({ client });
+    const invoke = vi.spyOn(app.tools, "invoke");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/laundry/ask",
+      headers: auth(tokens.admin),
+      payload: { question: "Run this invalid mixed batch." },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "assistant_unavailable" });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.actorType, "ai")).all()).toEqual([]);
+    await app.close();
+  });
+
+  test.each([
+    ["missing", undefined],
+    ["blank", "   "],
+  ])("rejects a %s provider response id before invoking tools", async (_label, id) => {
+    const providerResponse = toolResponse("get_laundry_overview", "call_overview", { residentId: null });
+    if (id === undefined) delete (providerResponse as Partial<ProviderResponse>).id;
+    else providerResponse.id = id;
+    const client = new FakeManagerClient([providerResponse]);
+    const { app, db, tokens } = await setup({ client });
+    const invoke = vi.spyOn(app.tools, "invoke");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/laundry/ask",
+      headers: auth(tokens.admin),
+      payload: { question: "Give me an overview." },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "assistant_unavailable" });
+    expect(invoke).not.toHaveBeenCalled();
     expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.actorType, "ai")).all()).toEqual([]);
     await app.close();
   });
