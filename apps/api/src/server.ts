@@ -1,6 +1,6 @@
 import { buildApp } from "./app";
 import { openDb } from "./db/client";
-import { seed } from "./db/seed";
+import { seedDemo } from "./db/seed";
 import { FakeVideoProvider } from "./services/video";
 
 try {
@@ -22,7 +22,7 @@ if (!configuredSecret) {
 }
 
 const db = openDb(process.env.DATABASE_PATH ?? "./oncare.db");
-await seed(db);
+await seedDemo(db, process.env);
 const app = buildApp({ db, jwtSecret: configuredSecret ?? DEV_JWT_SECRET });
 console.log(`video provider: ${app.video instanceof FakeVideoProvider ? "fake" : "livekit"}`);
 const port = Number(process.env.PORT ?? 3000);

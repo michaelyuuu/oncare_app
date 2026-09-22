@@ -14,6 +14,17 @@ export const SEED_SECRETS = {
   deviceToken: "device-demo-token", robotToken: "robot-demo-token",
 } as const;
 
+export function shouldSeedDemo(env: NodeJS.ProcessEnv): boolean {
+  if (env.NODE_ENV === "production") return false;
+  return env.ONCARE_SEED_DEMO !== "0";
+}
+
+export async function seedDemo(db: Db, env: NodeJS.ProcessEnv): Promise<boolean> {
+  if (!shouldSeedDemo(env)) return false;
+  await seed(db);
+  return true;
+}
+
 /** Inserts just the demo admin, same values as the fresh seed below. */
 async function seedAdmin(db: Db): Promise<void> {
   db.insert(t.user).values({

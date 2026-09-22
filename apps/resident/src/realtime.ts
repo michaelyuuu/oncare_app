@@ -148,6 +148,7 @@ export interface LiveVoiceClientOptions {
   peerConnectionFactory?: typeof RTCPeerConnection;
   mediaDevices?: MediaDevices;
   secureContext?: boolean;
+  signal?: AbortSignal;
 }
 
 type RealtimeCallResponse = { session: { sessionId: string }; sdp: string };
@@ -170,6 +171,21 @@ export class RealtimeVoiceClient {
   }
 
   async connect(): Promise<RealtimeCallResponse> {
+    const signal = this.options.signal;
+    if (signal?.aborted) {
+      await this.close();
+      throw new Error("Live voice was cancelled");
+    }
+    const abort = () => { void this.close(); };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      return await this.connectActive();
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
+  }
+
+  private async connectActive(): Promise<RealtimeCallResponse> {
     const secureOptions = typeof this.options.secureContext === "boolean" ? { secureContext: this.options.secureContext } : {};
     if (!isSecureVoiceOrigin(secureOptions)) throw new Error("Microphone access requires HTTPS.");
     const Peer = this.options.peerConnectionFactory ?? globalThis.RTCPeerConnection;

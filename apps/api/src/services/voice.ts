@@ -9,11 +9,13 @@ import type { ToolRegistry, ToolResult } from "../tools/registry";
 
 export const REALTIME_TOOL_DEFINITIONS = [
   {
+    type: "function",
     name: "get_approved_contacts",
     description: "List the resident's server-approved family contacts.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    type: "function",
     name: "request_staff_help",
     description: "Create a staff assistance request when the resident asks for a person or help.",
     parameters: {
@@ -27,6 +29,7 @@ export const REALTIME_TOOL_DEFINITIONS = [
     },
   },
   {
+    type: "function",
     name: "get_my_request_status",
     description: "Read the current evidence-based status of one assistance request.",
     parameters: {
@@ -37,6 +40,7 @@ export const REALTIME_TOOL_DEFINITIONS = [
     },
   },
   {
+    type: "function",
     name: "request_withdrawal",
     description: "Request withdrawal of one assistance request when the resident asks to cancel it.",
     parameters: {
@@ -47,6 +51,7 @@ export const REALTIME_TOOL_DEFINITIONS = [
     },
   },
   {
+    type: "function",
     name: "get_service_status",
     description: "Explain the current assistant, family-call, staff-assistance, and robot capability states.",
     parameters: { type: "object", properties: {}, additionalProperties: false },

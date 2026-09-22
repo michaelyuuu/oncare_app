@@ -6,7 +6,7 @@ export default defineConfig({
       {
         test: {
           name: "node",
-          include: ["packages/core/test/**/*.test.ts", "packages/contracts/test/**/*.test.ts", "apps/api/test/**/*.test.ts"],
+          include: ["packages/core/test/**/*.test.ts", "packages/contracts/test/**/*.test.ts", "apps/api/test/**/*.test.ts", "e2e/**/*.test.ts"],
           environment: "node",
         },
       },

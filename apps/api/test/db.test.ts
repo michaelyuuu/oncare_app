@@ -2,9 +2,24 @@ import { describe, expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDb } from "../src/db/client";
 import * as t from "../src/db/schema";
-import { SEED_IDS, seed } from "../src/db/seed";
+import { SEED_IDS, seed, seedDemo, shouldSeedDemo } from "../src/db/seed";
 
 describe("database and seed", () => {
+  test("never enables public demo credentials in production", () => {
+    expect(shouldSeedDemo({ NODE_ENV: "production" })).toBe(false);
+    expect(shouldSeedDemo({ NODE_ENV: "production", ONCARE_SEED_DEMO: "1" })).toBe(false);
+    expect(shouldSeedDemo({ NODE_ENV: "development" })).toBe(true);
+    expect(shouldSeedDemo({ NODE_ENV: "development", ONCARE_SEED_DEMO: "0" })).toBe(false);
+  });
+
+  test("the guarded seed entry point writes nothing in production", async () => {
+    const db = openDb(":memory:");
+    expect(await seedDemo(db, { NODE_ENV: "production", ONCARE_SEED_DEMO: "1" })).toBe(false);
+    expect(db.select().from(t.user).all()).toHaveLength(0);
+    expect(db.select().from(t.device).all()).toHaveLength(0);
+    expect(db.select().from(t.robot).all()).toHaveLength(0);
+  });
+
   test("seed creates one facility, resident, family + staff + admin users, robot, device, three locations and the catalogue", async () => {
     const db = openDb(":memory:");
     await seed(db);

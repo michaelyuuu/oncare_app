@@ -56,26 +56,40 @@ export function AssistantPanel({
 
   useEffect(() => {
     let cancelled = false;
+    let started = false;
+    let startTimer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const dispose = async () => {
+      try {
+        await client.close();
+      } finally {
+        client.reset();
+      }
+    };
     const beginFallback = async () => {
+      if (cancelled) return;
       client.reset();
       try {
         await client.startFakeSession();
-        if (!cancelled) {
-          setFallbackReady(true);
-          setState("error");
-          setNotice(t("resident.communication.voice_failed"));
+        if (cancelled) {
+          await dispose();
+          return;
         }
+        setFallbackReady(true);
+        setState("error");
+        setNotice(t("resident.communication.voice_failed"));
       } catch {
-        if (!cancelled) {
-          setFallbackReady(false);
-          setState("error");
-          setNotice(t("resident.assistant.unavailable"));
-        }
+        if (cancelled) return;
+        setFallbackReady(false);
+        setState("error");
+        setNotice(t("resident.assistant.unavailable"));
       }
     };
     const start = async () => {
+      if (cancelled) return;
       try {
         await client.startRealtime({
+          signal: controller.signal,
           onState: (event) => {
             if (cancelled) return;
             setState(panelState(event));
@@ -83,19 +97,32 @@ export function AssistantPanel({
           },
           onClosed: () => { if (!cancelled) void beginFallback(); },
         });
-        if (!cancelled) {
-          setState("listening");
-          setNotice(null);
+        if (cancelled) {
+          await dispose();
+          return;
         }
+        setState("listening");
+        setNotice(null);
       } catch {
-        if (!cancelled) await beginFallback();
+        if (cancelled) {
+          await dispose();
+          return;
+        }
+        await beginFallback();
       }
     };
-    void start();
+    // Deferring one turn lets React StrictMode replay and cancel its probe
+    // effect before any microphone or server session is opened.
+    startTimer = setTimeout(() => {
+      started = true;
+      void start();
+    }, 0);
     return () => {
       cancelled = true;
+      controller.abort();
+      clearTimeout(startTimer);
       stopSpeaking();
-      void client.close().finally(() => client.reset());
+      if (started) void dispose();
     };
   }, [client]);
 

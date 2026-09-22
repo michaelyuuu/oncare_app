@@ -11,7 +11,7 @@ OnCare is the AGI Carehouse demo platform: a family member requests a resident v
 ```bash
 npm install
 python -m venv robot_gateway/.venv
-robot_gateway/.venv/Scripts/python -m pip install -r robot_gateway/requirements.txt
+robot_gateway/.venv/Scripts/python -m pip install -e "robot_gateway[dev]"
 npm run dev
 ```
 
@@ -28,7 +28,7 @@ The resident kiosk includes a touch-first **Talk to Ontaru** assistant. With no 
 ```bash
 npx vitest run
 npx tsc -b
-pytest -q robot_gateway
+robot_gateway/.venv/Scripts/python -m pytest -q robot_gateway
 npm run demo:check
 npm run bench:visit     # requires a running API and mock gateway; writes real dated evidence only
 npm run e2e              # requires optional @playwright/test + Chromium; see e2e/README.md
@@ -50,4 +50,4 @@ The visit benchmark targets notification median under 3 seconds and at least 95%
 
 ## Safety and scope
 
-The code enforces schema validation before task persistence, approved-item and approved-surface policy, explicit family confirmation and staff approval before dispatch, authenticated gateway/device roles, and staff STOP/safety-stopped transitions. The mock adapter simulates travel and labels every UI with `SIMULATED ROBOT`; it does not exercise motors, perception, grasping, tray sensors, or an arm. Browser speech is optional and deterministic keyword parsing remains the offline fallback. Native iPad signing, production auth, real ROS/arm manipulation, and unattended physical execution are out of scope for this demo build. Follow [the Jetson gateway setup](docs/jetson-gateway-setup.md) before any real-robot run.
+The code enforces schema validation before task persistence, approved-item and approved-surface policy, explicit family confirmation and staff approval before dispatch, authenticated gateway/device roles, and staff STOP/safety-stopped transitions. Demo credentials are seeded only outside `NODE_ENV=production`; set `ONCARE_SEED_DEMO=0` to disable them in another environment. The mock adapter simulates travel and labels every UI with `SIMULATED ROBOT`; it does not exercise motors, perception, grasping, tray sensors, or an arm. Browser speech is optional and deterministic keyword parsing remains the offline fallback. Native iPad signing, production auth, real ROS/arm manipulation, and unattended physical execution are out of scope for this demo build. Follow [the Jetson gateway setup](docs/jetson-gateway-setup.md) before any real-robot run.
