@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
 import { adminRoutes } from "./routes/admin";
+import { laundryAssistantRoutes } from "./routes/laundry-assistant";
 import { assistanceRoutes } from "./routes/assistance";
 import { capabilitiesRoutes } from "./routes/capabilities";
 import { assistantRoutes } from "./routes/assistant";
@@ -35,6 +36,7 @@ import { createVoiceService, type OpenAIRealtimeProvider, type VoiceService } fr
 import { createLaundryRepository, type LaundryRepository } from "./services/laundry-repository";
 import { createRfidConnector, type RfidConnector } from "./services/rfid-connector";
 import type { RfidStationConfig } from "./services/rfid-config";
+import { createLaundryAssistant, type LaundryAssistant, type ManagerAssistantClient } from "./services/laundry-assistant";
 
 export interface AppOptions {
   db: Db;
@@ -46,6 +48,9 @@ export interface AppOptions {
   rfidStations?: RfidStationConfig[];
   rfidFetch?: typeof globalThis.fetch;
   rfidIntervalMs?: number;
+  managerAssistantClient?: ManagerAssistantClient;
+  managerApiKey?: string;
+  managerModel?: string;
 }
 
 declare module "fastify" {
@@ -60,6 +65,7 @@ declare module "fastify" {
     tools: ToolRegistry;
     laundry: LaundryRepository;
     rfid: RfidConnector;
+    laundryAssistant: LaundryAssistant;
   }
 }
 
@@ -75,6 +81,13 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("laundry", laundry);
   app.decorate("tools", createToolRegistry({
     db: opts.db, access: app.access, transitions, assistance: app.assistance, laundry, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+  }));
+  const managerApiKey = opts.managerApiKey ?? process.env.OPENAI_API_KEY;
+  app.decorate("laundryAssistant", createLaundryAssistant({
+    tools: app.tools,
+    model: opts.managerModel ?? process.env.ONCARE_MANAGER_MODEL ?? "gpt-5.4",
+    ...(managerApiKey !== undefined ? { apiKey: managerApiKey } : {}),
+    ...(opts.managerAssistantClient ? { client: opts.managerAssistantClient } : {}),
   }));
   const profile = loadAssistantProfile();
   app.decorate("assistant", createVoiceService({
@@ -122,6 +135,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(benchmarkRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(eventsRoutes, { db: opts.db });
   app.register(adminRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
+  app.register(laundryAssistantRoutes);
   app.register(toolRoutes);
   app.get("/health", async () => ({ ok: true }));
   return app;
