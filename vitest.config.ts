@@ -13,7 +13,7 @@ export default defineConfig({
       {
         test: {
           name: "web",
-          include: ["packages/web-common/test/**/*.test.ts", "apps/resident/test/**/*.test.{ts,tsx}", "apps/family/test/**/*.test.{ts,tsx}", "apps/staff/test/**/*.test.{ts,tsx}"],
+          include: ["packages/web-common/test/**/*.test.ts", "apps/portal/test/**/*.test.{ts,tsx}", "apps/resident/test/**/*.test.{ts,tsx}", "apps/family/test/**/*.test.{ts,tsx}", "apps/staff/test/**/*.test.{ts,tsx}"],
           environment: "jsdom",
           setupFiles: ["./vitest.setup.web.ts"],
         },
