@@ -26,3 +26,20 @@ test("labels explicitly configured demo portals without changing role destinatio
   expect(screen.getByRole("link", { name: "Staff" })).toHaveAttribute("href", "http://s");
   expect(screen.getByRole("link", { name: "Manager" })).toHaveAttribute("href", "http://s?mode=manager");
 });
+
+test.each([
+  [
+    "existing query parameters",
+    "https://staff.example/sign-in?lang=en",
+    "https://staff.example/sign-in?lang=en&mode=manager",
+  ],
+  [
+    "a fragment",
+    "https://staff.example/sign-in#credentials",
+    "https://staff.example/sign-in?mode=manager#credentials",
+  ],
+])("adds the manager hint while preserving %s", (_case, staff, expected) => {
+  render(<App urls={{ resident: "http://r", family: "http://f", staff }} />);
+
+  expect(screen.getByRole("link", { name: "Manager" })).toHaveAttribute("href", expected);
+});

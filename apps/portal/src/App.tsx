@@ -15,6 +15,15 @@ const roles = [
   { key: "staff", label: "Staff", detail: "Coordinate care and respond to requests" },
 ] as const;
 
+function managerDestination(staffUrl: string) {
+  const url = new URL(staffUrl);
+  url.searchParams.set("mode", "manager");
+
+  const suffixIndexes = [staffUrl.indexOf("?"), staffUrl.indexOf("#")].filter((index) => index >= 0);
+  const baseEnd = suffixIndexes.length > 0 ? Math.min(...suffixIndexes) : staffUrl.length;
+  return `${staffUrl.slice(0, baseEnd)}${url.search}${url.hash}`;
+}
+
 export function App({ demo = false, urls }: AppProps) {
   return (
     <main className="portal-shell">
@@ -35,7 +44,7 @@ export function App({ demo = false, urls }: AppProps) {
               </li>
             ))}
             <li className="role">
-              <a href={`${urls.staff}?mode=manager`}>Manager</a>
+              <a href={managerDestination(urls.staff)}>Manager</a>
               <p>Open the staff app for management access</p>
             </li>
           </ul>
