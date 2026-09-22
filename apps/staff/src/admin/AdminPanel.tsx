@@ -39,13 +39,13 @@ export function AdminPanel({ api }: { api: Api }) {
     finally { await reload(); }
   }, [api, reload]);
 
-  if (!data) return <main className="admin">{error ? <p role="alert">{t("admin.error")}</p> : <p role="status">{t("admin.loading")}</p>}</main>;
-  return <main className="admin">
+  if (!data) return <div className="admin">{error ? <p role="alert">{t("admin.error")}</p> : <p role="status">{t("admin.loading")}</p>}</div>;
+  return <div className="admin">
     {error && <p role="alert">{t("admin.error")}</p>}
     <LaundryAI api={api}/>
     <Residents data={data} run={run}/>
     <People data={data} run={run}/>
     <Links data={data} run={run}/>
     <Devices data={data} run={run}/>
-  </main>;
+  </div>;
 }

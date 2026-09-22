@@ -43,6 +43,11 @@ beforeEach(() => {
         }
         gets.push(path);
         if (path === "/locations") return new Response('{"locations":[]}');
+        if (path === "/admin/residents") return new Response('{"residents":[]}');
+        if (path === "/admin/users") return new Response('{"users":[]}');
+        if (path === "/admin/family-links") return new Response('{"links":[]}');
+        if (path === "/admin/staff-assignments") return new Response('{"assignments":[]}');
+        if (path === "/admin/devices") return new Response('{"devices":[]}');
         return new Response(JSON.stringify(path === "/queue" ? queue : { events: [{ id: "a1", at: "2026-09-17T00:00:00Z", actorType: "staff", actorId: "s1", entityType: "visit", entityId: "v2", fromState: null, toState: null, reason: 'a,"b"\nnext', correlationId: "v2" }] }));
     }));
 });
@@ -158,7 +163,7 @@ test("the login response principal grants facility admin access", async () => {
     await userEvent.type(screen.getByLabelText("Username"), "manager");
     await userEvent.type(screen.getByLabelText("Password"), "x");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("tab", { name: "Facility admin" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Laundry" })).toBeInTheDocument();
     expect(JSON.parse(sessionStorage.getItem("oncare.staff")!)).toMatchObject({ role: "admin" });
 });
 test("camera pause and resume use media route and unavailable state has no toggle", async () => {
@@ -413,4 +418,26 @@ test("pose capture expires independently of pending queue refresh and rejects st
     seen = new Date(Date.now()).toISOString();
     await act(async () => finish(new Response(JSON.stringify(snapshot()))));
     expect(capture()).toBeEnabled();
+});
+
+test("staff workspace exposes only staff-safe navigation destinations", async () => {
+    render(<App apiBase="http://api"/>);
+    expect(await screen.findByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Calls" })).toBeInTheDocument();
+    for (const name of ["Laundry", "Residents", "Family links", "People", "Devices"])
+        expect(screen.queryByRole("button", { name })).toBeNull();
+});
+
+test("manager navigation preserves the console controller and global STOP", async () => {
+    sessionStorage.setItem("oncare.staff", JSON.stringify({ token: "jwt", displayName: "Manager", role: "admin" }));
+    render(<App apiBase="http://api"/>);
+    expect(await screen.findByText("SIMULATED ROBOT")).toBeInTheDocument();
+    const queueReads = gets.filter(path => path === "/queue").length;
+    const socket = Socket.current;
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
+    await userEvent.click(screen.getByRole("button", { name: "Laundry" }));
+    expect(screen.getByRole("button", { name: "Laundry" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "STOP ROBOT" })).toBeInTheDocument();
+    expect(Socket.current).toBe(socket);
+    expect(gets.filter(path => path === "/queue")).toHaveLength(queueReads);
 });

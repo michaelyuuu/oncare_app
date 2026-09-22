@@ -119,7 +119,7 @@ export function Console({ api, apiBase, token }: {
             }
         }
     }
-    return <main className="console">
+    return <div className="console">
     <div className="notices">{refreshError && <p role="alert">{t("staff.error.refresh")}</p>}{Object.entries(errors).map(([key, error]) => <p role="alert" key={key}>{error}</p>)}</div>
     {!queue ? <p role="status">{t("staff.loading")}</p> : <>
       <section className="column queue-column"><h2>{t("staff.queue.title")}</h2><Queue queue={queue} onAction={action} pending={pending}/></section>
@@ -132,5 +132,5 @@ export function Console({ api, apiBase, token }: {
       <section className="column"><h2>{t("staff.streaming.title")}</h2><Streaming visits={queue.activeVisits} onAction={action} pending={pending}/></section>
     </>}
     <footer className="audit"><h2>{t("staff.audit.title")}</h2><AuditTable api={api} revision={revision}/></footer>
-  </main>;
+  </div>;
 }
