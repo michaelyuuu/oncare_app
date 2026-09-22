@@ -23,11 +23,10 @@ function findLocalSchedulingDeclarations(_fileName: string, _sourceText: string)
   ];
   const declarations: string[] = [];
 
-  const matchingContract = (values: string[]) => {
+  const matchingContracts = (values: string[]) => {
     const valueSet = new Set(values);
-    return contracts.find((contract) =>
-      valueSet.size === contract.values.size
-      && [...valueSet].every((value) => contract.values.has(value))
+    return contracts.filter((contract) =>
+      [...contract.values].every((value) => valueSet.has(value))
     );
   };
 
@@ -53,23 +52,22 @@ function findLocalSchedulingDeclarations(_fileName: string, _sourceText: string)
 
   const recordMatch = (
     node: ts.Node,
-    kind: "union" | "array",
+    kind: "union" | "array" | "object" | "enum",
     values: Array<string | undefined>,
   ) => {
-    if (values.some((value) => value === undefined)) return;
-    const contract = matchingContract(values as string[]);
-    if (!contract) return;
-
     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-    declarations.push(`${contract.label} ${kind} at line ${line}`);
+    const stringValues = values.filter((value): value is string => value !== undefined);
+    for (const contract of matchingContracts(stringValues)) {
+      declarations.push(`${contract.label} ${kind} at line ${line}`);
+    }
   };
 
   const visit = (node: ts.Node) => {
-    if (ts.isTypeAliasDeclaration(node) && ts.isUnionTypeNode(node.type)) {
+    if (ts.isUnionTypeNode(node)) {
       recordMatch(
         node,
         "union",
-        node.type.types.map((member) =>
+        node.types.map((member) =>
           ts.isLiteralTypeNode(member) ? stringValue(member.literal) : undefined
         ),
       );
@@ -84,6 +82,27 @@ function findLocalSchedulingDeclarations(_fileName: string, _sourceText: string)
           initializer.elements.map((element) => stringValue(unwrapExpression(element))),
         );
       }
+      if (ts.isObjectLiteralExpression(initializer)) {
+        recordMatch(
+          node,
+          "object",
+          initializer.properties.map((property) =>
+            ts.isPropertyAssignment(property)
+              ? stringValue(unwrapExpression(property.initializer))
+              : undefined
+          ),
+        );
+      }
+    }
+
+    if (ts.isEnumDeclaration(node)) {
+      recordMatch(
+        node,
+        "enum",
+        node.members.map((member) =>
+          member.initializer ? stringValue(unwrapExpression(member.initializer)) : undefined
+        ),
+      );
     }
 
     ts.forEachChild(node, visit);
@@ -119,6 +138,55 @@ describe("shared scheduling contracts", () => {
       "apps/family/src/visit.ts",
       `const isConfirmed = reservation.status === "confirmed";`,
     )).toEqual([]);
+  });
+
+  test("detects object-valued scheduling contract declarations", () => {
+    const sourceText = `
+      const LocalReservationStatus = {
+        Pending: "pending",
+        Confirmed: "confirmed",
+        Expired: "expired",
+        Cancelled: "cancelled",
+      } as const;
+    `;
+
+    expect(findLocalSchedulingDeclarations("apps/family/src/scheduling.ts", sourceText)).toEqual([
+      "reservation status object at line 2",
+    ]);
+  });
+
+  test("detects string-valued scheduling contract enums", () => {
+    const sourceText = `
+      enum LocalVisitSlotState {
+        Available = "available",
+        Blocked = "blocked",
+        Pending = "pending",
+        Confirmed = "confirmed",
+      }
+    `;
+
+    expect(findLocalSchedulingDeclarations("apps/family/src/scheduling.ts", sourceText)).toEqual([
+      "visit slot state enum at line 2",
+    ]);
+  });
+
+  test("detects scheduling contract declaration supersets", () => {
+    const sourceText = `
+      const localSlotStates = ["available", "blocked", "pending", "confirmed", "unknown"] as const;
+    `;
+
+    expect(findLocalSchedulingDeclarations("apps/family/src/scheduling.ts", sourceText)).toEqual([
+      "visit slot state array at line 2",
+    ]);
+  });
+
+  test("allows ordinary single-value scheduling comparisons", () => {
+    const sourceText = `
+      const isConfirmed = reservation.status === "confirmed";
+      const isAvailable = slot.state === "available";
+    `;
+
+    expect(findLocalSchedulingDeclarations("apps/family/src/visit.ts", sourceText)).toEqual([]);
   });
 
   test("apps do not redeclare shared scheduling contracts", () => {
