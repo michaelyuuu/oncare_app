@@ -90,11 +90,12 @@ export function Console({ api, apiBase, token, activeDestination }: {
         const isEnd = path.startsWith("/visits/") && path.endsWith("/end");
         const isCamera = path.startsWith("/visits/") && path.endsWith("/camera");
         const key = base + (path.endsWith("/stop") ? "/stop" : isEnd ? "/end" : isCamera ? "/camera" : "");
+        const errorKey = path.startsWith("/robots/") ? path : key;
         if (actions.has(key) || (isCamera && actions.has(`${base}/end`)))
             return;
         actions.add(key);
         setPending([...actions]);
-        setErrors(old => { const next = { ...old }; delete next[key]; return next; });
+        setErrors(old => { const next = { ...old }; delete next[errorKey]; return next; });
         let succeeded = false;
         try {
             const result = await api.post<{
@@ -108,7 +109,7 @@ export function Console({ api, apiBase, token, activeDestination }: {
             const code = error instanceof ApiError ? error.code : "request";
             const supported = ["invalid_pin", "busy", "robot_unavailable", "not_delivered", "camera_control_failed", "camera_unavailable", "not_callable", "forbidden", "not_found", "version_conflict", "invalid_transition"];
             if (alive.current && inFlight.current === actions)
-                setErrors(old => ({ ...old, [key]: t(`staff.error.${supported.includes(code) ? code : "request"}`) }));
+                setErrors(old => ({ ...old, [errorKey]: t(`staff.error.${supported.includes(code) ? code : "request"}`) }));
         }
         finally {
             // A successful end is irreversible for this visit. Retain its lock

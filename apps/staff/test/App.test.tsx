@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "../src/App";
 import { AuditTable } from "../src/components/AuditTable";
+import { RobotPanel } from "../src/components/RobotPanel";
 import { createApi } from "@oncare/web-common";
+import type { Robot } from "../src/types";
 class Socket {
     static current: Socket;
     onmessage?: (event: {
@@ -235,8 +237,14 @@ test("a failed end can retry while camera is pending, and late old-session actio
     await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
     response = { status: 503, body: { error: "request" } };
     await userEvent.click(screen.getByRole("button", { name: "End call" }));
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await act(async () => finish(new Response('{"error":"camera_control_failed"}', { status: 503 })));
+    const callRow = screen.getByText("Resident: r1").closest("li")!;
+    expect(within(callRow).getAllByRole("alert")).toHaveLength(2);
+    expect(within(callRow).getByText(/Action failed/)).toBeInTheDocument();
+    expect(within(callRow).getByText(/Camera control failed/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "End call" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Pause camera" }));
     response = { status: 200, body: { ok: true } };
     await userEvent.click(screen.getByRole("button", { name: "End call" }));
     expect(posts.filter(p => p.path === "/visits/v2/end")).toHaveLength(2);
@@ -245,6 +253,61 @@ test("a failed end can retry while camera is pending, and late old-session actio
     await act(async () => finish(new Response('{"error":"camera_control_failed"}', { status: 503 })));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Pause camera" })).toBeEnabled();
+});
+
+test("robot keeps STOP and secondary action errors beside their controls", () => {
+    render(<RobotPanel
+        robot={queue.robot! as Robot}
+        onAction={vi.fn(async () => {})}
+        pending={[]}
+        knownBusy={false}
+        stale={false}
+        errors={{
+            "/robots/robot1/stop": "STOP failed independently",
+            "/robots/robot1/resume": "Release failed independently",
+            "/robots/robot1/standby": "Standby failed independently",
+        }}
+    />);
+    const stop = screen.getByRole("button", { name: "STOP ROBOT" });
+    const release = screen.getByRole("button", { name: "Release stop" });
+    const standby = screen.getByRole("button", { name: "Return to standby" });
+    expect(stop.nextElementSibling).toHaveTextContent("STOP failed independently");
+    expect(release.nextElementSibling).toHaveTextContent("Release failed independently");
+    expect(standby.nextElementSibling).toHaveTextContent("Standby failed independently");
+    expect(screen.getAllByRole("alert")).toHaveLength(3);
+});
+
+test("robot request failures stay keyed beside each exact action", async () => {
+    queue.activeVisits = [];
+    queue.tasksAwaitingLoad = [];
+    queue.tasksAwaitingHandoff = [];
+    render(<App apiBase="http://api"/>);
+    const stop = await screen.findByRole("button", { name: "STOP ROBOT" });
+
+    response = { status: 503, body: { error: "busy" } };
+    const standby = screen.getByRole("button", { name: "Return to standby" });
+    await userEvent.click(standby);
+    expect(await screen.findByText(/robot is busy/)).toBeInTheDocument();
+
+    response = { status: 403, body: { error: "invalid_pin" } };
+    await userEvent.click(screen.getByRole("button", { name: "Release stop" }));
+    await userEvent.type(screen.getByLabelText("Staff PIN"), "2468{enter}");
+    const releaseError = await screen.findByText(/PIN not accepted/);
+
+    response = { status: 503, body: { error: "not_delivered" } };
+    await userEvent.click(stop);
+    const stopError = await screen.findByText(/not delivered/);
+
+    const release = screen.getByRole("button", { name: "Release stop" });
+    expect(stop.nextElementSibling).toBe(stopError);
+    expect(release.nextElementSibling).toBe(releaseError);
+    expect(standby.nextElementSibling).toHaveTextContent(/robot is busy/);
+    expect(screen.getAllByRole("alert")).toHaveLength(3);
+    expect(posts).toEqual([
+        { path: "/robots/robot1/standby", body: undefined },
+        { path: "/robots/robot1/resume", body: { pin: "2468" } },
+        { path: "/robots/robot1/stop", body: undefined },
+    ]);
 });
 test("CSV export preserves commas, quotes and newlines and reports export failures", async () => {
     let blob: Blob | undefined;
