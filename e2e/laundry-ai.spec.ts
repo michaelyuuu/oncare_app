@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
-const API_BASE = "http://127.0.0.1:3000";
-const FIXTURE_BASE = "http://127.0.0.1:3101";
+const API_BASE = process.env.ONCARE_API_E2E_BASE ?? "http://127.0.0.1:3000";
+const FIXTURE_BASE = process.env.ONCARE_RFID_FIXTURE_E2E_BASE ?? "http://127.0.0.1:3101";
 const STAFF_BASE = process.env.ONCARE_STAFF_E2E_BASE ?? "http://127.0.0.1:5175";
 const LAUNDRY_TOOLS = ["find_garments", "get_laundry_overview"];
 
