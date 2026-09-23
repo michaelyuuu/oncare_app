@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const reuseExistingServer = process.env.ONCARE_E2E_REUSE_SERVER === "1";
-const gatewayFreeSpecs = ["laundry-ai.spec.ts", "unified-entrance.spec.ts"];
+const gatewayFreeSpecs = ["laundry-ai.spec.ts", "staff-console.spec.ts", "unified-entrance.spec.ts"];
 const selectedSpecs = process.argv.map((value) => value.replaceAll("\\", "/"))
   .filter((value) => value.endsWith(".spec.ts"));
 const focusedGatewayFreeRun = selectedSpecs.length > 0

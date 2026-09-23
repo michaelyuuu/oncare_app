@@ -321,40 +321,6 @@ export function LaundryAI({ api }: { api: Api }) {
         <SafeWarnings items={overview.value.warnings} />
       </div>}
 
-    <aside className="laundry-assistant" aria-label={t("admin.laundry.assistant.panel_aria")}>
-    <details open>
-      <summary>{t("admin.laundry.assistant.title")}</summary>
-      <form className="laundry-question" onSubmit={(event) => void askAssistant(event)}>
-      <label htmlFor="laundry-question">{t("admin.laundry.question.label")}</label>
-      <div>
-        <input id="laundry-question" value={question} maxLength={500}
-          onChange={(event) => setQuestion(event.target.value)}
-          placeholder={t("admin.laundry.question.placeholder")} />
-        <button disabled={!question.trim() || assistant.kind === "loading"}>
-          {assistant.kind === "loading" ? t("admin.laundry.question.asking") : t("admin.laundry.question.ask")}
-        </button>
-      </div>
-      {assistant.kind === "ready" && <section className="laundry-answer" role="status"
-        aria-live="polite" aria-atomic="true" aria-label={t("admin.laundry.assistant.answer_aria")}>
-        <p>{assistant.value.answer}</p>
-        {assistant.value.toolResults.length === 0
-          && <p className="laundry-notice">{t("admin.laundry.assistant.no_data")}</p>}
-        {assistant.value.toolResults.map((tool, index) => <div key={index} className="laundry-search-freshness">
-          <p>{t(tool.name === "get_laundry_overview"
-            ? "admin.laundry.assistant.overview_source" : "admin.laundry.assistant.search_source")}</p>
-          <FreshnessRail value={tool.result === null
-            ? { kind: "error", message: "" } : { kind: "ready", value: tool.result }}
-            label={t("admin.laundry.freshness.assistant_aria")} />
-          {tool.result !== null && <SafeWarnings items={tool.result.warnings} />}
-        </div>)}
-      </section>}
-      {assistant.kind === "error" && <p className="laundry-assistant-error" role="status">
-        {assistant.message}
-      </p>}
-      </form>
-    </details>
-    </aside>
-
     {overview.kind === "ready" && overview.value.availability === "available" && <dl className="laundry-ledger" aria-label={t("admin.laundry.metrics.aria")}>
       <div><dt>{t("admin.laundry.metrics.total")}</dt><dd>{overview.value.total}</dd></div>
       <div><dt>{t("admin.laundry.metrics.active")}</dt><dd>{overview.value.active}</dd></div>
@@ -425,6 +391,40 @@ export function LaundryAI({ api }: { api: Api }) {
             </>}
       </>}
     </div>
+
+    <aside className="laundry-assistant" aria-label={t("admin.laundry.assistant.panel_aria")}>
+    <details open>
+      <summary>{t("admin.laundry.assistant.title")}</summary>
+      <form className="laundry-question" onSubmit={(event) => void askAssistant(event)}>
+      <label htmlFor="laundry-question">{t("admin.laundry.question.label")}</label>
+      <div>
+        <input id="laundry-question" value={question} maxLength={500}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder={t("admin.laundry.question.placeholder")} />
+        <button disabled={!question.trim() || assistant.kind === "loading"}>
+          {assistant.kind === "loading" ? t("admin.laundry.question.asking") : t("admin.laundry.question.ask")}
+        </button>
+      </div>
+      {assistant.kind === "ready" && <section className="laundry-answer" role="status"
+        aria-live="polite" aria-atomic="true" aria-label={t("admin.laundry.assistant.answer_aria")}>
+        <p>{assistant.value.answer}</p>
+        {assistant.value.toolResults.length === 0
+          && <p className="laundry-notice">{t("admin.laundry.assistant.no_data")}</p>}
+        {assistant.value.toolResults.map((tool, index) => <div key={index} className="laundry-search-freshness">
+          <p>{t(tool.name === "get_laundry_overview"
+            ? "admin.laundry.assistant.overview_source" : "admin.laundry.assistant.search_source")}</p>
+          <FreshnessRail value={tool.result === null
+            ? { kind: "error", message: "" } : { kind: "ready", value: tool.result }}
+            label={t("admin.laundry.freshness.assistant_aria")} />
+          {tool.result !== null && <SafeWarnings items={tool.result.warnings} />}
+        </div>)}
+      </section>}
+      {assistant.kind === "error" && <p className="laundry-assistant-error" role="status">
+        {assistant.message}
+      </p>}
+      </form>
+    </details>
+    </aside>
     </div>
   </section>;
 }

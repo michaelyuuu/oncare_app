@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const API_BASE = "http://127.0.0.1:3000";
 const FIXTURE_BASE = "http://127.0.0.1:3101";
+const STAFF_BASE = process.env.ONCARE_STAFF_E2E_BASE ?? "http://127.0.0.1:5175";
 const LAUNDRY_TOOLS = ["find_garments", "get_laundry_overview"];
 
 type ToolEnvelope = {
@@ -60,11 +61,11 @@ async function waitForHealthyLedger(request: APIRequestContext, token: string) {
 }
 
 async function loginAsAdmin(page: Page) {
-  await page.goto("http://127.0.0.1:5175/?mode=manager");
+  await page.goto(`${STAFF_BASE}/?mode=manager`);
   await page.getByLabel("Username").fill("admin");
   await page.getByLabel("Password").fill("admin-demo-pass");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("tab", { name: "Facility admin" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Laundry", exact: true })).toBeVisible();
 }
 
 function formatSyncTime(value: string): string {
@@ -75,12 +76,12 @@ function formatSyncTime(value: string): string {
   }).format(new Date(value));
 }
 
-async function openFacilityAdmin(page: Page): Promise<ToolEnvelope> {
+async function openLaundry(page: Page): Promise<ToolEnvelope> {
   const overview = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith("/tools/get_laundry_overview/invoke")
       && response.request().method() === "POST", { timeout: 15_000 });
-  await page.getByRole("tab", { name: "Facility admin" }).click();
-  await expect(page.getByRole("heading", { name: "Laundry AI" })).toBeVisible();
+  await page.getByRole("button", { name: "Laundry", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Laundry records" })).toBeVisible();
   return await (await overview).json() as ToolEnvelope;
 }
 
@@ -105,7 +106,7 @@ test.afterEach(async ({ request }) => {
 
 test("manager sees the fixture summary, blue cardigan, and exact visible sync time", async ({ page }) => {
   await loginAsAdmin(page);
-  const overview = await openFacilityAdmin(page);
+  const overview = await openLaundry(page);
   const overviewSyncedAt = overview.result?.syncedAt;
   expect(typeof overviewSyncedAt).toBe("string");
 
@@ -131,7 +132,7 @@ test("manager sees the fixture summary, blue cardigan, and exact visible sync ti
 test("an unavailable poll preserves the last-known-good cardigan with a safe warning", async ({ page, request }) => {
   const token = await adminToken(request);
   await loginAsAdmin(page);
-  await openFacilityAdmin(page);
+  await openLaundry(page);
   await searchBlueCardigan(page);
 
   await setFixtureUnavailable(request);

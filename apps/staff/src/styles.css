@@ -227,11 +227,21 @@ body {
   .workspace-navigation {
     grid-template-columns:repeat(2,minmax(0,1fr))
   }
+  .workspace-topbar {
+    align-items:stretch;
+    flex-direction:column;
+    gap:8px
+  }
   .workspace-identity,.workspace-account {
+    width:100%;
+    justify-content:space-between;
     gap:8px
   }
   .workspace-role {
     padding:3px 7px
+  }
+  .workspace-role,.workspace-session {
+    white-space:nowrap
   }
 }
 button,input,select {
@@ -762,6 +772,24 @@ td {
     width:100%
   }
 }
+@media(max-width:900px) {
+  .laundry-heading {
+    display:block;
+    padding-right:24px
+  }
+  .laundry-heading>div:first-child {
+    padding-bottom:14px
+  }
+  .laundry-freshness {
+    min-width:0;
+    margin:0 -24px;
+    border-top:1px solid #b8c8d2;
+    border-left:0
+  }
+  .laundry-freshness.freshness-problem {
+    border-left:5px solid #855600
+  }
+}
 @media(max-width:700px) {
   .admin {
     padding:16px
@@ -939,7 +967,7 @@ td {
 .calls-view .call-row {
   padding:0 0 20px
 }
-@media(max-width:900px) {
+@media(max-width:1100px) {
   .console {
     grid-template-columns:1fr;
     gap:16px
