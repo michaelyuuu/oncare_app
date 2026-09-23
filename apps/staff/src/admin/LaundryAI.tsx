@@ -294,7 +294,7 @@ export function LaundryAI({ api }: { api: Api }) {
     }
   }
 
-  return <section className="laundry-ai" aria-labelledby="laundry-ai-title">
+  return <section className="laundry-ai" aria-label={t("admin.laundry.workspace_aria")}>
     <header className="laundry-heading">
       <div>
         <h2 id="laundry-ai-title">{t("admin.laundry.title")}</h2>
@@ -303,6 +303,8 @@ export function LaundryAI({ api }: { api: Api }) {
       <FreshnessRail value={overview} label={t("admin.laundry.freshness.overview_aria")} />
     </header>
 
+    <div className="laundry-workspace" role="region"
+      aria-label={t("admin.laundry.records_aria")}>
     {overview.kind === "loading" && <p role="status">{t("admin.laundry.loading")}</p>}
     {overview.kind === "error" && <p role="alert">{overview.message}</p>}
     {overview.kind === "ready" && <div className="laundry-overview-notices"
@@ -319,7 +321,10 @@ export function LaundryAI({ api }: { api: Api }) {
         <SafeWarnings items={overview.value.warnings} />
       </div>}
 
-    <form className="laundry-question" onSubmit={(event) => void askAssistant(event)}>
+    <aside className="laundry-assistant" aria-label={t("admin.laundry.assistant.panel_aria")}>
+    <details open>
+      <summary>{t("admin.laundry.assistant.title")}</summary>
+      <form className="laundry-question" onSubmit={(event) => void askAssistant(event)}>
       <label htmlFor="laundry-question">{t("admin.laundry.question.label")}</label>
       <div>
         <input id="laundry-question" value={question} maxLength={500}
@@ -346,7 +351,9 @@ export function LaundryAI({ api }: { api: Api }) {
       {assistant.kind === "error" && <p className="laundry-assistant-error" role="status">
         {assistant.message}
       </p>}
-    </form>
+      </form>
+    </details>
+    </aside>
 
     {overview.kind === "ready" && overview.value.availability === "available" && <dl className="laundry-ledger" aria-label={t("admin.laundry.metrics.aria")}>
       <div><dt>{t("admin.laundry.metrics.total")}</dt><dd>{overview.value.total}</dd></div>
@@ -417,6 +424,7 @@ export function LaundryAI({ api }: { api: Api }) {
               </table></div>
             </>}
       </>}
+    </div>
     </div>
   </section>;
 }

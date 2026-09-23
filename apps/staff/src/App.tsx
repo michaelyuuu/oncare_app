@@ -2,10 +2,14 @@ import { useMemo, useState } from "react";
 import { createApi, t } from "@oncare/web-common";
 import { Login } from "./pages/Login";
 import { Console } from "./pages/Console";
-import { AdminPanel } from "./admin/AdminPanel";
-type Destination = "today" | "calls" | "robot" | "activity" | "laundry" | "residents" | "family_links" | "people" | "devices";
+import { AdminPanel, type AdminSection } from "./admin/AdminPanel";
+type StaffDestination = "today" | "calls" | "robot" | "activity";
+type Destination = StaffDestination | AdminSection;
 const staffDestinations: readonly Destination[] = ["today", "calls", "robot", "activity"];
-const managerDestinations: readonly Destination[] = ["laundry", "residents", "family_links", "people", "devices"];
+const managerDestinations: readonly AdminSection[] = ["laundry", "residents", "family_links", "people", "devices"];
+function isAdminSection(value: Destination): value is AdminSection {
+    return managerDestinations.includes(value as AdminSection);
+}
 const destinationLabels: Record<Destination, string> = {
     today: "staff.workspace.today", calls: "staff.workspace.calls", robot: "staff.workspace.robot", activity: "staff.workspace.activity",
     laundry: "staff.workspace.laundry", residents: "staff.workspace.residents", family_links: "staff.workspace.family_links",
@@ -47,12 +51,13 @@ export function App({ apiBase }: {
     }
     function navigate(next: Destination) {
         setDestination(next);
-        if (managerDestinations.includes(next)) setManagerVisited(true);
+        if (isAdminSection(next)) setManagerVisited(true);
     }
     if (!session)
         return <Login api={api} managerMode={new URLSearchParams(window.location.search).get("mode") === "manager"} onLoggedIn={save}/>;
     const destinations = session.role === "admin" ? [...staffDestinations, ...managerDestinations] : staffDestinations;
-    const managerPage = session.role === "admin" && managerDestinations.includes(destination);
+    const managerPage = session.role === "admin" && isAdminSection(destination);
+    const activeManagerSection = managerPage ? destination as AdminSection : null;
     return <div className="staff-workspace">
       <aside className="workspace-rail">
         <div className="workspace-brand"><span aria-hidden="true">OC</span><strong>{t("staff.title")}</strong></div>
@@ -70,7 +75,7 @@ export function App({ apiBase }: {
         <main className="workspace-main">
           <h1 className="workspace-page-title">{t(destinationLabels[destination])}</h1>
           <Console api={api} apiBase={apiBase} token={session.token} activeDestination={destination}/>
-          {session.role === "admin" && managerVisited && <div className="workspace-manager" hidden={!managerPage}><AdminPanel api={api}/></div>}
+          {session.role === "admin" && managerVisited && <div className="workspace-manager" hidden={!managerPage}><AdminPanel api={api} activeSection={activeManagerSection}/></div>}
         </main>
       </div>
     </div>;

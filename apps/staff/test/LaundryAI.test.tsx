@@ -114,11 +114,29 @@ test.each([
   expect(document.body.textContent).not.toMatch(/raw-secret|EPC-secret/);
 });
 
+test("keeps structured records primary and the assistant in a collapsible secondary panel", async () => {
+  const client = fakeApi();
+  render(<LaundryAI api={client.api} />);
+  await screen.findByText("12");
+
+  const records = screen.getByRole("region", { name: "Laundry records" });
+  expect(within(records).getByLabelText("Laundry totals")).toBeInTheDocument();
+  expect(within(records).getByRole("button", { name: "Find garments" })).toBeInTheDocument();
+  const assistant = screen.getByRole("complementary", { name: "Laundry assistant" });
+  const disclosure = within(assistant).getByText("AI assistant").closest("details");
+  expect(disclosure).toHaveAttribute("open");
+  expect(within(assistant).getByLabelText("Ask about laundry")).toBeInTheDocument();
+  await userEvent.click(within(assistant).getByText("AI assistant"));
+  expect(disclosure).not.toHaveAttribute("open");
+  await userEvent.click(within(assistant).getByText("AI assistant"));
+  expect(within(assistant).getByLabelText("Ask about laundry")).toBeVisible();
+});
+
 test("loads the tool catalog and overview with exact freshness and one metric ledger", async () => {
   const client = fakeApi();
   render(<LaundryAI api={client.api} />);
 
-  expect(await screen.findByRole("heading", { name: "Laundry AI" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Laundry records" })).toBeInTheDocument();
   expect(client.getMock).toHaveBeenCalledWith("/tools");
   expect(client.postMock).toHaveBeenCalledWith("/tools/get_laundry_overview/invoke", {});
   expect(screen.getByText("Sep 21, 2026, 12:04 PM")).toBeInTheDocument();
@@ -190,6 +208,7 @@ test("keeps overview freshness on the ledger and search freshness by results", a
   const searchFreshness = await screen.findByLabelText("Search result freshness");
   expect(within(searchFreshness).getByText("Stale")).toBeInTheDocument();
   expect(within(searchFreshness).getByText("Sep 22, 2026, 8:30 AM")).toBeInTheDocument();
+  expect(client.postMock).toHaveBeenLastCalledWith("/tools/find_garments/invoke", {});
 });
 
 test("submits trimmed filters and preserves API order in the result table", async () => {
