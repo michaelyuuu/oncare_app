@@ -887,3 +887,81 @@ td {
     gap:8px
   }
 }
+
+/* Focused robot and activity destinations. */
+.console-safety>h2 {
+  margin-bottom:12px;
+  font-size:18px
+}
+.robot-summary .pills {
+  gap:6px
+}
+.robot-summary .pills span,.robot-summary .simulated {
+  padding:3px 7px;
+  font-size:13px
+}
+.console-safety .robot-summary .stop {
+  min-height:64px;
+  margin:14px 0 0;
+  font-size:20px
+}
+.robot-view {
+  border-top:3px solid var(--teal)
+}
+.robot-facts {
+  grid-template-columns:minmax(130px,180px) minmax(0,1fr);
+  gap:0;
+  margin:0 0 22px;
+  border-top:1px solid var(--line)
+}
+.robot-facts dt,.robot-facts dd {
+  padding:11px 0;
+  border-bottom:1px solid var(--line)
+}
+.robot-facts dt {
+  color:var(--muted)
+}
+.robot-details>button {
+  margin:0 10px 10px 0
+}
+.robot-details form {
+  display:grid;
+  grid-template-columns:minmax(180px,1fr) auto auto;
+  align-items:end;
+  gap:10px;
+  margin:0 0 14px;
+  padding:14px;
+  border:1px solid var(--line);
+  background:#f7faf9
+}
+.robot-details form label {
+  min-width:0;
+  color:var(--muted);
+  font-size:14px;
+  font-weight:700
+}
+.robot-details form input {
+  margin-top:5px;
+  color:var(--ink)
+}
+.activity-view {
+  border-top:3px solid var(--teal)
+}
+.activity-view .audit-controls label {
+  min-width:210px;
+  color:var(--muted);
+  font-size:14px;
+  font-weight:700
+}
+.activity-view .audit-controls input {
+  margin-top:5px;
+  color:var(--ink)
+}
+@media(max-width:600px) {
+  .robot-facts,.robot-details form {
+    grid-template-columns:1fr
+  }
+  .robot-details form button,.activity-view .audit-controls>* {
+    width:100%
+  }
+}

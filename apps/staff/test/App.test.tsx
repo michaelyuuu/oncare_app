@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "../src/App";
 import { AuditTable } from "../src/components/AuditTable";
-import { RobotPanel } from "../src/components/RobotPanel";
+import { RobotDetails, RobotPanel } from "../src/components/RobotPanel";
 import { createApi } from "@oncare/web-common";
 import type { Robot } from "../src/types";
 class Socket {
@@ -99,11 +99,13 @@ test.each([["active", "Navigating"], ["succeeded", "Arrived"], ["canceled", "Can
         queue.robot!.lastHeartbeat.adapter = "navweb";
         queue.robot!.lastHeartbeat.navState = status;
         render(<App apiBase="http://api"/>);
+        await userEvent.click(screen.getByRole("button", { name: "Robot" }));
         expect(await screen.findByText(label)).toBeInTheDocument();
     },
 );
 test("PIN is reentered each time and a control failure survives refresh", async () => {
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
     await userEvent.click(await screen.findByRole("button", { name: "Release stop" }));
     response = { status: 403, body: { error: "invalid_pin" } };
     await userEvent.type(screen.getByLabelText("Staff PIN"), "2468{enter}");
@@ -255,19 +257,21 @@ test("a failed end can retry while camera is pending, and late old-session actio
     expect(screen.getByRole("button", { name: "Pause camera" })).toBeEnabled();
 });
 
-test("robot keeps STOP and secondary action errors beside their controls", () => {
-    render(<RobotPanel
-        robot={queue.robot! as Robot}
-        onAction={vi.fn(async () => {})}
-        pending={[]}
-        knownBusy={false}
-        stale={false}
-        errors={{
+test("robot keeps STOP, release, and standby errors beside their controls", () => {
+    const props = {
+        robot: queue.robot! as Robot,
+        onAction: vi.fn(async () => {}),
+        pending: [],
+        errors: {
             "/robots/robot1/stop": "STOP failed independently",
             "/robots/robot1/resume": "Release failed independently",
             "/robots/robot1/standby": "Standby failed independently",
-        }}
-    />);
+        },
+    };
+    render(<>
+        <RobotPanel {...props}/>
+        <RobotDetails {...props} knownBusy={false} stale={false}/>
+    </>);
     const stop = screen.getByRole("button", { name: "STOP ROBOT" });
     const release = screen.getByRole("button", { name: "Release stop" });
     const standby = screen.getByRole("button", { name: "Return to standby" });
@@ -283,6 +287,7 @@ test("robot request failures stay keyed beside each exact action", async () => {
     queue.tasksAwaitingHandoff = [];
     render(<App apiBase="http://api"/>);
     const stop = await screen.findByRole("button", { name: "STOP ROBOT" });
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
 
     response = { status: 503, body: { error: "busy" } };
     const standby = screen.getByRole("button", { name: "Return to standby" });
@@ -345,6 +350,7 @@ test("offline, busy and missing robot disable standby", async () => {
     queue.activeVisits = []; queue.tasksAwaitingLoad = []; queue.tasksAwaitingHandoff = [];
     queue.robot!.lastHeartbeat.activeCorrelationId = "task1" as unknown as null;
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
     expect(await screen.findByRole("button", { name: "Return to standby" })).toBeDisabled();
     queue.robot = null;
     act(() => Socket.current.onmessage?.({ data: '{"id":"e4"}' }));
@@ -354,6 +360,7 @@ test("offline, busy and missing robot disable standby", async () => {
 test("standby sends the command when ready but respects offline and not-ready status", async () => {
     queue.activeVisits = []; queue.tasksAwaitingLoad = []; queue.tasksAwaitingHandoff = [];
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
     await userEvent.click(await screen.findByRole("button",{name:"Return to standby"}));
     expect(posts[0]?.path).toBe("/robots/robot1/standby");
     queue.robot!.connected=false;act(()=>Socket.current.onmessage?.({data:'{"id":"offline"}'}));
@@ -499,6 +506,60 @@ test("staff workspace exposes only staff-safe navigation destinations", async ()
     expect(screen.getByRole("button", { name: "Calls" })).toBeInTheDocument();
     for (const name of ["Laundry", "Residents", "Family links", "People", "Devices"])
         expect(screen.queryByRole("button", { name })).toBeNull();
+});
+
+test("the compact safety summary keeps one STOP while Robot owns technical controls", async () => {
+    render(<App apiBase="http://api"/>);
+    const safety = await screen.findByRole("region", { name: "Robot" });
+    expect(within(safety).getByRole("button", { name: "STOP ROBOT" })).toBeVisible();
+    expect(within(safety).queryByRole("button", { name: "Release stop" })).toBeNull();
+    expect(within(safety).queryByRole("button", { name: "Return to standby" })).toBeNull();
+    expect(within(safety).queryByText("Pose")).toBeNull();
+    expect(within(safety).queryByText("Current correlation id")).toBeNull();
+
+    for (const destination of ["Calls", "Activity"]) {
+        await userEvent.click(screen.getByRole("button", { name: destination }));
+        expect(within(safety).getByRole("button", { name: "STOP ROBOT" })).toBeVisible();
+    }
+
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
+    const robotView = screen.getByRole("region", { name: "Robot operations" });
+    expect(within(robotView).getByText("Pose")).toBeInTheDocument();
+    expect(within(robotView).getByText("Current correlation id")).toBeInTheDocument();
+    expect(within(robotView).getByRole("button", { name: "Release stop" })).toBeInTheDocument();
+    expect(within(robotView).getByRole("button", { name: "Return to standby" })).toBeInTheDocument();
+    expect(within(robotView).getByRole("region", { name: "Locations" })).toBeInTheDocument();
+    expect(within(robotView).queryByRole("button", { name: "STOP ROBOT" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "STOP ROBOT" })).toHaveLength(1);
+});
+
+test("Activity distinguishes loading, empty results, and a failed audit refresh", async () => {
+    const original = fetch;
+    let finishAudit!: (response: Response) => void;
+    let failAudit = false;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+        const value = String(url);
+        if (value.startsWith("http://api/audit")) {
+            if (failAudit) return Promise.resolve(new Response('{"error":"request"}', { status: 503 }));
+            return new Promise<Response>(resolve => { finishAudit = resolve; });
+        }
+        return original(url, init);
+    }));
+    render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
+    const activity = screen.getByRole("region", { name: "Activity log" });
+    expect(within(activity).getByRole("status")).toHaveTextContent("Loading activity");
+    expect(within(activity).queryByText("No audit events match these filters.")).toBeNull();
+
+    await act(async () => finishAudit(new Response('{"events":[]}')));
+    expect(await within(activity).findByText("No audit events match these filters.")).toBeInTheDocument();
+    expect(within(activity).getByRole("button", { name: "Export CSV" })).toBeEnabled();
+
+    failAudit = true;
+    fireEvent.change(within(activity).getByLabelText("Resident id"), { target: { value: "resident-9" } });
+    expect(await within(activity).findByRole("alert")).toHaveTextContent("Audit refresh failed");
+    expect(within(activity).queryByText("No audit events match these filters.")).toBeNull();
+    expect(within(activity).getByRole("button", { name: "Export CSV" })).toBeDisabled();
 });
 
 test("Today filters truthful queue facts and preserves the filter while visiting Calls", async () => {

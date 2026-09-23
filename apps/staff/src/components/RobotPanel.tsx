@@ -1,30 +1,23 @@
 import { useState } from "react";
 import { t } from "@oncare/web-common";
 import type { Action, Robot } from "../types";
-export function RobotPanel({ robot, onAction, pending, knownBusy, stale, errors }: {
+
+const navLabels: Record<string, string> = {
+    idle: "idle", navigating: "navigating", active: "navigating",
+    arrived: "arrived", succeeded: "arrived", failed: "failed",
+    stopped: "stopped", canceled: "canceled",
+};
+
+export function RobotPanel({ robot, onAction, pending, errors }: {
     robot: Robot | null;
     onAction: Action;
     pending: string[];
-    knownBusy: boolean;
-    stale: boolean;
     errors: Record<string, string>;
 }) {
-    const [askPin, setAskPin] = useState(false);
-    const [pin, setPin] = useState("");
     const hb = robot?.lastHeartbeat;
     const base = `/robots/${robot?.robotId}`;
-    const busy = pending.includes(base);
     const stopError = errors[`${base}/stop`];
-    const resumeError = errors[`${base}/resume`];
-    const standbyError = errors[`${base}/standby`];
-    const unknown = t("staff.unknown");
-    const navLabels: Record<string, string> = {
-        idle: "idle", navigating: "navigating", active: "navigating",
-        arrived: "arrived", succeeded: "arrived", failed: "failed",
-        stopped: "stopped", canceled: "canceled",
-    };
-    const navLabel = navLabels[hb?.navState ?? ""];
-    return <div className="robot-panel">
+    return <div className="robot-panel robot-summary">
         {!robot && <p>{t("staff.robot.none")}</p>}
         <div className="pills">
             <span>{t(robot?.connected ? "staff.robot.connected" : "staff.robot.disconnected")}</span>
@@ -37,7 +30,29 @@ export function RobotPanel({ robot, onAction, pending, knownBusy, stale, errors 
             onClick={() => void onAction(`${base}/stop`)}
         >{t("staff.robot.stop")}</button>
         {stopError && <p className="row-error" role="alert">{stopError}</p>}
-        <dl>
+    </div>;
+}
+
+export function RobotDetails({ robot, onAction, pending, knownBusy, stale, errors }: {
+    robot: Robot | null;
+    onAction: Action;
+    pending: string[];
+    knownBusy: boolean;
+    stale: boolean;
+    errors: Record<string, string>;
+}) {
+    const [askPin, setAskPin] = useState(false);
+    const [pin, setPin] = useState("");
+    if (!robot) return null;
+    const hb = robot.lastHeartbeat;
+    const base = `/robots/${robot.robotId}`;
+    const busy = pending.includes(base);
+    const resumeError = errors[`${base}/resume`];
+    const standbyError = errors[`${base}/standby`];
+    const unknown = t("staff.unknown");
+    const navLabel = navLabels[hb?.navState ?? ""];
+    return <div className="robot-details">
+        <dl className="robot-facts">
             <dt>{t("staff.robot.nav")}</dt>
             <dd>{t(navLabel ? `staff.nav.${navLabel}` : "staff.unknown")}</dd>
             <dt>{t("staff.robot.estop")}</dt>
