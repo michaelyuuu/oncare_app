@@ -2,16 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, connectEvents, t, type Api } from "@oncare/web-common";
 import type { QueueData } from "../types";
 import { Queue } from "../components/Queue";
-import { RobotPanel } from "../components/RobotPanel";
+import { RobotDetails, RobotPanel } from "../components/RobotPanel";
 import { Streaming } from "../components/Streaming";
 import { AuditTable } from "../components/AuditTable";
 import { Locations } from "../components/Locations";
 // Matches the source heartbeat bus STALE_SEC; scoped to pose capture only.
 const POSE_CAPTURE_MAX_AGE_MS = 6000;
-export function Console({ api, apiBase, token }: {
+export function Console({ api, apiBase, token, activeDestination }: {
     api: Api;
     apiBase: string;
     token: string;
+    activeDestination: string;
 }) {
     const [queue, setQueue] = useState<QueueData | null>(null);
     const [freshPoseAt, setFreshPoseAt] = useState<string | null>(null);
@@ -89,11 +90,12 @@ export function Console({ api, apiBase, token }: {
         const isEnd = path.startsWith("/visits/") && path.endsWith("/end");
         const isCamera = path.startsWith("/visits/") && path.endsWith("/camera");
         const key = base + (path.endsWith("/stop") ? "/stop" : isEnd ? "/end" : isCamera ? "/camera" : "");
+        const errorKey = path.startsWith("/robots/") ? path : key;
         if (actions.has(key) || (isCamera && actions.has(`${base}/end`)))
             return;
         actions.add(key);
         setPending([...actions]);
-        setErrors(old => { const next = { ...old }; delete next[key]; return next; });
+        setErrors(old => { const next = { ...old }; delete next[errorKey]; return next; });
         let succeeded = false;
         try {
             const result = await api.post<{
@@ -107,7 +109,7 @@ export function Console({ api, apiBase, token }: {
             const code = error instanceof ApiError ? error.code : "request";
             const supported = ["invalid_pin", "busy", "robot_unavailable", "not_delivered", "camera_control_failed", "camera_unavailable", "not_callable", "forbidden", "not_found", "version_conflict", "invalid_transition"];
             if (alive.current && inFlight.current === actions)
-                setErrors(old => ({ ...old, [key]: t(`staff.error.${supported.includes(code) ? code : "request"}`) }));
+                setErrors(old => ({ ...old, [errorKey]: t(`staff.error.${supported.includes(code) ? code : "request"}`) }));
         }
         finally {
             // A successful end is irreversible for this visit. Retain its lock
@@ -119,18 +121,27 @@ export function Console({ api, apiBase, token }: {
             }
         }
     }
-    return <main className="console">
-    <div className="notices">{refreshError && <p role="alert">{t("staff.error.refresh")}</p>}{Object.entries(errors).map(([key, error]) => <p role="alert" key={key}>{error}</p>)}</div>
+    return <div className="console">
+    <div className="notices">{refreshError && <p role="alert">{t("staff.error.refresh")}</p>}</div>
     {!queue ? <p role="status">{t("staff.loading")}</p> : <>
-      <section className="column queue-column"><h2>{t("staff.queue.title")}</h2><Queue queue={queue} onAction={action} pending={pending}/></section>
-      <section className="column robot-column"><h2>{t("staff.robot.title")}</h2><RobotPanel robot={queue.robot} stale={refreshError} knownBusy={queue.activeVisits.length > 0 || queue.tasksAwaitingLoad.length > 0 || queue.tasksAwaitingHandoff.length > 0} onAction={action} pending={pending}/>
+      <section className="console-safety robot-column" aria-label={t("staff.robot.title")}>
+        <h2>{t("staff.robot.title")}</h2><RobotPanel robot={queue.robot} onAction={action} pending={pending} errors={errors}/>
+      </section>
+      <section className="console-view workboard-view" aria-label={t("staff.workboard.aria")} hidden={activeDestination !== "today"}>
+        <h2>{t("staff.queue.title")}</h2><Queue queue={queue} onAction={action} pending={pending} errors={errors}/>
+      </section>
+      <section className="console-view calls-view" aria-label={t("staff.calls.aria")} hidden={activeDestination !== "calls"}>
+        <h2>{t("staff.streaming.title")}</h2><Streaming visits={queue.activeVisits} onAction={action} pending={pending} errors={errors}/>
+      </section>
+      <section className="console-view robot-view" aria-label={t("staff.robot.operations_aria")} hidden={activeDestination !== "robot"}>
+        <h2>{t("staff.robot.details")}</h2>
+        <RobotDetails robot={queue.robot} stale={refreshError} knownBusy={queue.activeVisits.length > 0 || queue.tasksAwaitingLoad.length > 0 || queue.tasksAwaitingHandoff.length > 0} onAction={action} pending={pending} errors={errors}/>
         <Locations api={api} pose={!refreshError && queue.robot?.connected && freshPoseAt !== null
             && freshPoseAt === lastSeenAt && Date.now() >= Date.parse(freshPoseAt)
             && Date.now() - Date.parse(freshPoseAt) < POSE_CAPTURE_MAX_AGE_MS
             ? queue.robot.lastHeartbeat?.pose ?? null : null}/>
       </section>
-      <section className="column"><h2>{t("staff.streaming.title")}</h2><Streaming visits={queue.activeVisits} onAction={action} pending={pending}/></section>
     </>}
-    <footer className="audit"><h2>{t("staff.audit.title")}</h2><AuditTable api={api} revision={revision}/></footer>
-  </main>;
+    <section className="console-view audit activity-view" aria-label={t("staff.activity.aria")} hidden={activeDestination !== "activity"}><h2>{t("staff.audit.title")}</h2><AuditTable api={api} revision={revision}/></section>
+  </div>;
 }

@@ -158,3 +158,29 @@ export const benchmarkTrial = sqliteTable("benchmark_trial", {
   id: text("id").primaryKey(), runId: text("run_id").notNull().references(() => benchmarkRun.id),
   name: text("name").notNull(), value: real("value"), unit: text("unit"), at: text("at").notNull(),
 });
+
+export const rfidStationSync = sqliteTable("rfid_station_sync", {
+  stationId: text("station_id").primaryKey(),
+  facilityId: text("facility_id").notNull().references(() => facility.id),
+  sourceVersion: integer("source_version"),
+  lastAttemptAt: text("last_attempt_at").notNull(),
+  lastSuccessAt: text("last_success_at"),
+  status: text("status", { enum: ["healthy", "stale", "unavailable", "invalid"] }).notNull(),
+  warnings: text("warnings", { mode: "json" }).$type<Array<{ kind: string; message?: string; count?: number }>>().notNull(),
+});
+
+export const garmentProjection = sqliteTable("garment_projection", {
+  id: text("id").primaryKey(),
+  sourceKey: text("source_key").notNull(),
+  stationId: text("station_id").notNull().references(() => rfidStationSync.stationId),
+  facilityId: text("facility_id").notNull().references(() => facility.id),
+  residentId: text("resident_id").notNull().references(() => resident.id),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  color: text("color").notNull(),
+  status: text("status", { enum: ["active", "lost", "discarded"] }).notNull(),
+  washCount: integer("wash_count").notNull(),
+  lastSeen: text("last_seen"),
+  sourceUpdatedAt: text("source_updated_at").notNull(),
+  syncedAt: text("synced_at").notNull(),
+}, (table) => [uniqueIndex("garment_projection_station_source").on(table.stationId, table.sourceKey)]);

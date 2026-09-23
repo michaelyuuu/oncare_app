@@ -5,6 +5,9 @@ import { Residents } from "./Residents";
 import { People } from "./People";
 import { Links } from "./Links";
 import { Devices } from "./Devices";
+import { LaundryAI } from "./LaundryAI";
+
+export type AdminSection = "laundry" | "residents" | "family_links" | "people" | "devices";
 
 async function load(api: Api): Promise<AdminData> {
   const [residents, people, links, assignments, devices, rooms] = await Promise.all([
@@ -22,7 +25,7 @@ async function load(api: Api): Promise<AdminData> {
   };
 }
 
-export function AdminPanel({ api }: { api: Api }) {
+export function AdminPanel({ api, activeSection }: { api: Api; activeSection: AdminSection | null }) {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState(false);
   // Reloading after a change must never clear a mutation error: it only reports its own failures.
@@ -38,12 +41,23 @@ export function AdminPanel({ api }: { api: Api }) {
     finally { await reload(); }
   }, [api, reload]);
 
-  if (!data) return <main className="admin">{error ? <p role="alert">{t("admin.error")}</p> : <p role="status">{t("admin.loading")}</p>}</main>;
-  return <main className="admin">
+  if (!data) return <div className="admin">{error ? <p role="alert">{t("admin.error")}</p> : <p role="status">{t("admin.loading")}</p>}</div>;
+  return <div className="admin">
     {error && <p role="alert">{t("admin.error")}</p>}
-    <Residents data={data} run={run}/>
-    <People data={data} run={run}/>
-    <Links data={data} run={run}/>
-    <Devices data={data} run={run}/>
-  </main>;
+    <div className="admin-section" hidden={activeSection !== "laundry"}>
+      <LaundryAI api={api}/>
+    </div>
+    <div className="admin-section" hidden={activeSection !== "residents"}>
+      <Residents data={data} run={run}/>
+    </div>
+    <div className="admin-section" hidden={activeSection !== "family_links"}>
+      <Links data={data} run={run}/>
+    </div>
+    <div className="admin-section" hidden={activeSection !== "people"}>
+      <People data={data} run={run}/>
+    </div>
+    <div className="admin-section" hidden={activeSection !== "devices"}>
+      <Devices data={data} run={run}/>
+    </div>
+  </div>;
 }

@@ -31,9 +31,10 @@ test("staff can acknowledge a recorded assistance request with its current versi
     }],
   } as QueueData;
 
-  render(<Queue queue={queue} onAction={onAction} pending={[]} />);
+  render(<Queue queue={queue} onAction={onAction} pending={[]} errors={{}} />);
   expect(screen.getByText("Request recorded")).toBeInTheDocument();
-  expect(screen.getByText("Resident: resident_1")).toBeInTheDocument();
+  expect(screen.getByText("Resident ID")).toBeInTheDocument();
+  expect(screen.getByText("resident_1")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Acknowledge request" }));
   expect(onAction).toHaveBeenCalledWith("/staff/assistance-requests/help_1/acknowledge", { version: 1 });
 });

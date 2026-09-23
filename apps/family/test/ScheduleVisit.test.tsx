@@ -45,9 +45,11 @@ const reservation: VisitReservationView = {
   updatedAt: "2026-09-22T00:00:00.000Z",
 };
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 test("renders the family landscape calendar and proposes one selected slot", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
   const post = vi.fn().mockResolvedValue({ reservation });
   const api = {
     get: vi.fn().mockImplementation(async (path: string) => path === "/visit-reservations"

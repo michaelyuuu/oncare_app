@@ -13,6 +13,7 @@ const data = {
   "/locations": { locations: [{ id: "room1", name: "Room 101", kind: "resident_room" }, { id: "pick", name: "Station", kind: "pickup_station" }] },
   "/queue": { visitsAwaitingApproval: [], tasksAwaitingApproval: [], tasksAwaitingLoad: [], tasksAwaitingHandoff: [], caregiverCalls: [], activeVisits: [], robot: null },
   "/audit": { events: [] },
+  "/tools": { tools: [{ name: "get_laundry_overview" }, { name: "find_garments" }] },
 } as Record<string, unknown>;
 let requests: Array<{ method: string; path: string; body: unknown }>;
 
@@ -26,6 +27,10 @@ beforeEach(() => {
     const method = init?.method ?? "GET";
     requests.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (method === "POST" && path === "/admin/devices") return new Response(JSON.stringify({ device: { id: "d2" }, deviceToken: "tok-once-123" }), { status: 201 });
+    if (method === "POST" && path === "/tools/get_laundry_overview/invoke") return new Response(JSON.stringify({ result: {
+      availability: "never_synced", total: 0, active: 0, lostOrDiscarded: 0, recentlyWashed: 0,
+      syncedAt: null, stale: false, warnings: [],
+    } }));
     if (method !== "GET") return new Response('{"ok":true}');
     return new Response(JSON.stringify(data[path] ?? {}));
   }));
@@ -33,30 +38,61 @@ beforeEach(() => {
 
 const asAdmin = () => sessionStorage.setItem("oncare.staff", JSON.stringify({ token: "jwt", displayName: "Manager", role: "admin" }));
 
-test("the facility admin tab is shown to admins only", async () => {
+test("manager destinations and requests are unavailable to staff sessions", async () => {
   sessionStorage.setItem("oncare.staff", JSON.stringify({ token: "jwt", displayName: "Nurse" }));
   render(<App apiBase="http://api" />);
   await screen.findByText("Staff console");
-  expect(screen.queryByRole("tab", { name: "Facility admin" })).toBeNull();
+  for (const name of ["Laundry", "Residents", "Family links", "People", "Devices"]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+  await waitFor(() => expect(requests.some((request) => request.path === "/queue")).toBe(true));
+  expect(requests.filter((request) => request.path.startsWith("/admin/") || request.path === "/tools")).toEqual([]);
 });
 
-test("an admin sees residents, people, links and iPads", async () => {
+test("an admin sees existing data in its selected manager section", async () => {
   asAdmin();
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  await userEvent.click(screen.getByRole("button", { name: "Residents" }));
   const residents = await screen.findByRole("region", { name: "Residents" });
   expect(within(residents).getByText("Grandma Lin")).toBeInTheDocument();
   expect(within(residents).getByRole("cell", { name: "Room 101" })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "People" }));
   expect(within(screen.getByRole("region", { name: "Staff and family" })).getByText("Nurse Chen")).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "Family links" }));
   const links = screen.getByRole("region", { name: "Family links and nurse assignments" });
   expect(within(links).getByText(/Amy.*daughter.*Grandma Lin/)).toBeInTheDocument();
   expect(within(links).getByText(/Nurse Chen.*Grandma Lin/)).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "Devices" }));
+  expect(within(screen.getByRole("region", { name: "Resident iPads" })).getByText("d1")).toBeInTheDocument();
+});
+
+test("manager subsections hide inactive content and retain entered state across round trips", async () => {
+  asAdmin();
+  render(<App apiBase="http://api" />);
+  await userEvent.click(screen.getByRole("button", { name: "Laundry" }));
+  await screen.findByRole("heading", { name: "Laundry records" });
+  await userEvent.type(screen.getByLabelText("Color"), "violet");
+  expect(screen.queryByRole("region", { name: "Residents" })).toBeNull();
+
+  await userEvent.click(screen.getByRole("button", { name: "Residents" }));
+  const residents = await screen.findByRole("region", { name: "Residents" });
+  expect(screen.queryByRole("heading", { name: "Laundry records" })).toBeNull();
+  await userEvent.type(within(residents).getByLabelText("Name"), "New resident");
+
+  await userEvent.click(screen.getByRole("button", { name: "Laundry" }));
+  expect(await screen.findByLabelText("Color")).toHaveValue("violet");
+  expect(screen.queryByRole("region", { name: "Residents" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Residents" }));
+  expect(await screen.findByLabelText("Name")).toHaveValue("New resident");
 });
 
 test("registering an iPad reveals its token once and removing a link calls DELETE", async () => {
   asAdmin();
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  await userEvent.click(screen.getByRole("button", { name: "Devices" }));
   const devices = await screen.findByRole("region", { name: "Resident iPads" });
   await userEvent.selectOptions(within(devices).getByLabelText("Resident"), "r1");
   await userEvent.click(within(devices).getByRole("button", { name: "Register iPad" }));
@@ -66,6 +102,7 @@ test("registering an iPad reveals its token once and removing a link calls DELET
   await userEvent.click(within(dialog).getByRole("button", { name: "I have saved it" }));
   expect(screen.queryByText("tok-once-123")).toBeNull();
 
+  await userEvent.click(screen.getByRole("button", { name: "Family links" }));
   const links = screen.getByRole("region", { name: "Family links and nurse assignments" });
   await userEvent.click(within(links).getAllByRole("button", { name: "Remove" })[0]!);
   expect(requests).toContainEqual({ method: "DELETE", path: "/admin/family-links/l1", body: undefined });
@@ -74,7 +111,7 @@ test("registering an iPad reveals its token once and removing a link calls DELET
 test("linking a family member defaults video, robot-visit and item consent all on", async () => {
   asAdmin();
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  await userEvent.click(screen.getByRole("button", { name: "Family links" }));
   const links = screen.getByRole("region", { name: "Family links and nurse assignments" });
   await userEvent.selectOptions(within(links).getByLabelText("Family member"), "fam1");
   await userEvent.selectOptions(within(links).getAllByLabelText("Resident")[0]!, "r1");
@@ -89,7 +126,7 @@ test("linking a family member defaults video, robot-visit and item consent all o
 test("unticking a family-link consent checkbox sends it as false", async () => {
   asAdmin();
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  await userEvent.click(screen.getByRole("button", { name: "Family links" }));
   const links = screen.getByRole("region", { name: "Family links and nurse assignments" });
   await userEvent.selectOptions(within(links).getByLabelText("Family member"), "fam1");
   await userEvent.selectOptions(within(links).getAllByLabelText("Resident")[0]!, "r1");
@@ -105,12 +142,13 @@ test("unticking a family-link consent checkbox sends it as false", async () => {
 test("deactivating a person and an iPad posts to the exact routes", async () => {
   asAdmin();
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  await userEvent.click(screen.getByRole("button", { name: "People" }));
   const people = await screen.findByRole("region", { name: "Staff and family" });
   await userEvent.click(within(people).getAllByRole("button", { name: "Deactivate" })[0]!);
+  await userEvent.click(screen.getByRole("button", { name: "Devices" }));
   const devices = screen.getByRole("region", { name: "Resident iPads" });
   await userEvent.click(within(devices).getByRole("button", { name: "Deactivate" }));
-  expect(requests.filter((r) => r.method === "POST").map((r) => r.path)).toEqual(["/admin/users/s1/deactivate", "/admin/devices/d1/deactivate"]);
+  expect(requests.filter((r) => r.method === "POST" && r.path.startsWith("/admin/")).map((r) => r.path)).toEqual(["/admin/users/s1/deactivate", "/admin/devices/d1/deactivate"]);
 });
 
 test("a failed change keeps the error banner up after the follow-up reload, and a later success clears it", async () => {
@@ -121,11 +159,15 @@ test("a failed change keeps the error banner up after the follow-up reload, and 
     requests.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (method === "POST" && path === "/admin/users") return new Response(JSON.stringify({ error: "username_taken" }), { status: 409 });
     if (method === "POST" && path === "/admin/devices") return new Response(JSON.stringify({ device: { id: "d2" }, deviceToken: "tok-once-123" }), { status: 201 });
+    if (method === "POST" && path === "/tools/get_laundry_overview/invoke") return new Response(JSON.stringify({ result: {
+      availability: "never_synced", total: 0, active: 0, lostOrDiscarded: 0, recentlyWashed: 0,
+      syncedAt: null, stale: false, warnings: [],
+    } }));
     if (method !== "GET") return new Response('{"ok":true}');
     return new Response(JSON.stringify(data[path] ?? {}));
   }));
   render(<App apiBase="http://api" />);
-  await userEvent.click(await screen.findByRole("tab", { name: "Facility admin" }));
+  await userEvent.click(screen.getByRole("button", { name: "People" }));
   const people = await screen.findByRole("region", { name: "Staff and family" });
 
   await userEvent.type(within(people).getByLabelText("Username"), "newnurse");

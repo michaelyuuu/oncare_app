@@ -59,7 +59,7 @@ test("staff sees upcoming reservations, can cancel one, and sees dispatch failur
     robot: null,
   } as unknown as QueueData;
 
-  render(<Queue queue={queue} onAction={onAction} pending={[]} />);
+  render(<Queue queue={queue} onAction={onAction} pending={[]} errors={{}} />);
   expect(screen.getByText("Upcoming visit")).toBeInTheDocument();
   expect(screen.getAllByText("Resident: Demo Resident")).toHaveLength(2);
   expect(screen.getByText("Family: Demo Daughter")).toBeInTheDocument();

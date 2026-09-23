@@ -48,6 +48,8 @@ const reservation: VisitReservationView = {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 test("renders a landscape date rail, blocked periods, and one-contact request action", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
   const post = vi.fn().mockResolvedValue({ reservation });
   const api = {
     get: vi.fn().mockResolvedValue({ timeZone: "Asia/Taipei", slots: [slot(540), slot(720, "blocked", "lunch"), slot(780)] }),
@@ -84,6 +86,8 @@ test("renders a landscape date rail, blocked periods, and one-contact request ac
 });
 
 test("does not duplicate a pending reservation request", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
   let resolve: (value: unknown) => void = () => {};
   const post = vi.fn(() => new Promise((done) => { resolve = done; }));
   const api = {

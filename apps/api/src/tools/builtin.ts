@@ -3,6 +3,49 @@ import { z } from "zod";
 import { defineTool, ToolConflict, ToolForbidden, ToolInputError, ToolNotFound, type ToolDef } from "./registry";
 import { buildCapabilities } from "../services/capabilities";
 import type { AssistanceRequest } from "../services/assistance";
+import type { LaundryWarning } from "../services/laundry-repository";
+
+const MAX_PUBLIC_WARNING_COUNT = 10_000;
+
+type PublicLaundryWarning = {
+  kind: "wash_history_unavailable" | "station_unavailable" | "invalid_data" | "station_identity_mismatch" | "laundry_data_warning";
+  message: string;
+  count?: number;
+};
+
+function sanitizeLaundryWarning(warning: unknown): PublicLaundryWarning {
+  const source = typeof warning === "object" && warning !== null
+    ? warning as { kind?: unknown; count?: unknown }
+    : {};
+  let safe: Omit<PublicLaundryWarning, "count">;
+  switch (source.kind) {
+    case "missing_scan_log":
+      safe = { kind: "wash_history_unavailable", message: "Laundry wash history is temporarily unavailable." };
+      break;
+    case "station_unavailable":
+      safe = { kind: "station_unavailable", message: "Laundry station data is temporarily unavailable." };
+      break;
+    case "invalid_payload":
+      safe = { kind: "invalid_data", message: "Laundry station data could not be verified." };
+      break;
+    case "station_identity_mismatch":
+      safe = { kind: "station_identity_mismatch", message: "Laundry station identity could not be verified." };
+      break;
+    default:
+      safe = { kind: "laundry_data_warning", message: "Some laundry data may be incomplete." };
+  }
+  const count = source.count;
+  return {
+    ...safe,
+    ...(typeof count === "number" && Number.isFinite(count) && Number.isInteger(count) && count >= 0
+      ? { count: Math.min(count, MAX_PUBLIC_WARNING_COUNT) }
+      : {}),
+  };
+}
+
+function sanitizeLaundryWarnings(warnings: LaundryWarning[]): PublicLaundryWarning[] {
+  return warnings.map(sanitizeLaundryWarning);
+}
 
 const LOCAL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -27,6 +70,19 @@ const localDateInput = z.string()
 function requireDevice(ctx: Parameters<NonNullable<ToolDef["run"]>>[0]) {
   if (ctx.principal.kind !== "device") throw new ToolForbidden();
   return ctx.principal;
+}
+
+function requireAdminFacility(
+  ctx: Parameters<NonNullable<ToolDef["run"]>>[0],
+  residentId?: string,
+): string {
+  if (ctx.principal.kind !== "user" || ctx.principal.role !== "admin" || ctx.principal.facilityId === null) {
+    throw new ToolForbidden();
+  }
+  if (residentId !== undefined && !ctx.access.canAccessResident(ctx.principal, residentId)) {
+    throw new ToolForbidden();
+  }
+  return ctx.principal.facilityId;
 }
 
 function throwAssistanceFailure(error: string): never {
@@ -243,6 +299,54 @@ export const getServiceStatus = defineTool({
   },
 });
 
+const overviewInput = z.object({ residentId: z.string().min(1).optional() }).strict();
+
+export const getLaundryOverview = defineTool({
+  name: "get_laundry_overview",
+  description: "Summarize laundry garment totals and synchronization status for this facility or one accessible resident.",
+  roles: ["admin"],
+  effect: "read",
+  input: overviewInput,
+  run: (ctx, input) => {
+    const facilityId = requireAdminFacility(ctx, input.residentId);
+    const overview = ctx.laundry.overview(facilityId, input.residentId);
+    return { ...overview, warnings: sanitizeLaundryWarnings(overview.warnings) };
+  },
+});
+
+const findInput = z.object({
+  residentId: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  category: z.string().trim().min(1).max(50).optional(),
+  color: z.string().trim().min(1).max(50).optional(),
+  status: z.enum(["active", "lost", "discarded"]).optional(),
+}).strict();
+
+export const findGarments = defineTool({
+  name: "find_garments",
+  description: "Find up to 20 facility-scoped garments by accessible resident, name, category, color, or status.",
+  roles: ["admin"],
+  effect: "read",
+  input: findInput,
+  run: (ctx, input) => {
+    const facilityId = requireAdminFacility(ctx, input.residentId);
+    const overview = ctx.laundry.overview(facilityId, input.residentId);
+    return {
+      availability: overview.availability,
+      syncedAt: overview.syncedAt,
+      stale: overview.stale,
+      warnings: sanitizeLaundryWarnings(overview.warnings),
+      garments: ctx.laundry.find(facilityId, {
+        ...(input.residentId !== undefined ? { residentId: input.residentId } : {}),
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.category !== undefined ? { category: input.category } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+      }),
+    };
+  },
+});
+
 export const BUILTIN_TOOLS: ToolDef[] = [
   listMyResidentsOrContacts,
   getResidentStatus,
@@ -254,4 +358,6 @@ export const BUILTIN_TOOLS: ToolDef[] = [
   getMyRequestStatus,
   requestWithdrawal,
   getServiceStatus,
+  getLaundryOverview,
+  findGarments,
 ];
