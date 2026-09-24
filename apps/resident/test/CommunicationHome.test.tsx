@@ -24,6 +24,9 @@ test("the resident default is the communication-first home with preserved meetin
 
   expect(screen.getByRole("status")).toHaveTextContent("Tap anywhere to talk");
   expect(screen.getByTestId("communication-orb")).toBeInTheDocument();
+  const orbStage = screen.getByTestId("communication-orb-stage");
+  expect(orbStage).toContainElement(screen.getByTestId("communication-orb"));
+  expect(orbStage).toHaveClass("communication-orb-stage");
   expect(screen.getByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Schedule a visit" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Call now" })).toBeDisabled();

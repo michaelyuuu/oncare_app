@@ -306,10 +306,12 @@ export function AssistantPanel({
         disabled={disabled || sending || !selectedContactId}
       >{t("resident.visit.call_now")}</button>
     </div>}
-    <div className="communication-orb-button communication-orb-button--static" aria-hidden="true">
-      <span className="communication-orb">
-        <i /><i /><i /><i />
-      </span>
+    <div className="communication-orb-stage" data-testid="communication-orb-stage" aria-hidden="true">
+      <div className="communication-orb-button communication-orb-button--static">
+        <span className="communication-orb">
+          <i /><i /><i /><i />
+        </span>
+      </div>
     </div>
     <p className="communication-status" role="status" aria-live="polite">{statusText}</p>
     {action && <AssistantActionConfirmation

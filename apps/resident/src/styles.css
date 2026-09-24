@@ -287,20 +287,26 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
     var(--communication-bg);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-.communication-screen::before {
-  content: "";
+.communication-orb-stage {
   position: absolute;
-  z-index: 0;
+  z-index: 1;
   top: 40%;
   left: 50%;
-  width: 58vh;
+  width: min(38vh, 390px);
   aspect-ratio: 1;
-  border-radius: 50%;
   transform: translate(-50%, -50%) scale(calc(1 + var(--communication-level) * .2));
+  display: grid;
+  place-items: center;
+  transition: top .9s ease, width .9s ease, height .9s ease, transform .9s ease;
+}
+.communication-orb-stage::before {
+  content: "";
+  position: absolute;
+  inset: -26%;
+  border-radius: 50%;
   background: radial-gradient(circle, rgb(246 169 91 / 34%) 0%, rgb(240 138 107 / 16%) 42%, transparent 70%);
   filter: blur(3vh);
   opacity: var(--communication-halo);
-  transition: opacity .9s ease, top .9s ease, width .9s ease, height .9s ease;
   pointer-events: none;
 }
 .communication-screen::after {
@@ -344,12 +350,10 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   font-weight: 700;
 }
 .communication-orb-button {
-  position: absolute;
-  z-index: 2;
-  top: 40%;
-  left: 50%;
-  width: min(38vh, 390px);
-  height: min(38vh, 390px);
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
   aspect-ratio: 1;
   margin: 0;
   padding: 0;
@@ -359,6 +363,7 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   box-shadow: none;
   transform: translate(-50%, -50%);
 }
+.communication-orb-stage .communication-orb-button { transform: none; }
 .communication-orb-button:not(:disabled) { cursor: pointer; }
 .communication-orb-button--static { pointer-events: none; }
 .communication-orb {
@@ -433,10 +438,7 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   --communication-sat: .9;
   --communication-glow: 1.05;
 }
-.communication-screen[data-orb="connecting"] .communication-orb-button {
-  width: min(32vh, 390px);
-  height: min(32vh, 390px);
-}
+.communication-screen[data-orb="connecting"] .communication-orb-stage { width: min(32vh, 390px); }
 .communication-screen[data-orb="speaking"] .communication-orb {
   --communication-sat: 1.25;
   --communication-glow: 1.08;
@@ -584,8 +586,8 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   .communication-brand { top: 18px; left: 20px; }
   .communication-zone-corner { top: 14px; right: 16px; gap: 6px; }
   .communication-ghost { min-height: 42px; padding: 8px 12px; font-size: 13px; }
-  .communication-orb-button { width: 38vw; height: 38vw; }
-  .communication-screen[data-orb="connecting"] .communication-orb-button { width: 32vw; height: 32vw; }
+  .communication-orb-stage { width: 38vw; }
+  .communication-screen[data-orb="connecting"] .communication-orb-stage { width: 32vw; }
   .communication-status { top: calc(40% + 22vh); width: calc(100% - 32px); }
   .communication-zone-bottom { right: 16px; bottom: 18px; left: 16px; }
   .communication-solid { width: 100%; min-height: 54px; }
@@ -599,7 +601,7 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   .communication-orb::before,
   .communication-orb::after,
   .communication-orb i,
-  .communication-screen::before { animation: none !important; }
+  .communication-orb-stage::before { animation: none !important; }
   .communication-orb { transform: none; transition: filter .9s ease, opacity .9s ease; }
 }
 

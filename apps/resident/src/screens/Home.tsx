@@ -79,18 +79,20 @@ export function Home({
       </div>
     </div>}
 
-    <button
-      type="button"
-      className="communication-orb-button"
-      data-testid="communication-orb"
-      aria-label={t("resident.assistant.open")}
-      onClick={onOpenAssistant}
-      disabled={disabled || !onOpenAssistant}
-    >
-      <span className="communication-orb" aria-hidden="true">
-        <i /><i /><i /><i />
-      </span>
-    </button>
+    <div className="communication-orb-stage" data-testid="communication-orb-stage">
+      <button
+        type="button"
+        className="communication-orb-button"
+        data-testid="communication-orb"
+        aria-label={t("resident.assistant.open")}
+        onClick={onOpenAssistant}
+        disabled={disabled || !onOpenAssistant}
+      >
+        <span className="communication-orb" aria-hidden="true">
+          <i /><i /><i /><i />
+        </span>
+      </button>
+    </div>
     <p className="communication-status" role="status" aria-live="polite">{t(statusKey)}</p>
     <div className="communication-zone-bottom">
       {onHelpStaff && <button type="button" className="communication-solid" onClick={onHelpStaff} disabled={disabled || helpStatus === "sending"}>{t("resident.communication.help")}</button>}
