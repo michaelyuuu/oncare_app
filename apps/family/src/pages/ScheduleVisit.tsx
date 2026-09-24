@@ -55,7 +55,8 @@ export function ScheduleVisit({
 }) {
   const startingTimeZone = DEMO_VISIT_POLICY.timeZone;
   const [timeZone, setTimeZone] = useState<string>(startingTimeZone);
-  const [selectedDate, setSelectedDate] = useState(() => localDateAt(new Date(), startingTimeZone));
+  const [windowStartDate] = useState(() => localDateAt(new Date(), startingTimeZone));
+  const [selectedDate, setSelectedDate] = useState(windowStartDate);
   const [slots, setSlots] = useState<VisitSlot[]>([]);
   const [reservations, setReservations] = useState<VisitReservationView[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<VisitSlot | null>(null);
@@ -90,7 +91,7 @@ export function ScheduleVisit({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void api.get<SlotResponse>(`/visit-reservations/slots?residentId=${encodeURIComponent(residentId)}&from=${encodeURIComponent(selectedDate)}`)
+    void api.get<SlotResponse>(`/visit-reservations/slots?residentId=${encodeURIComponent(residentId)}&from=${encodeURIComponent(windowStartDate)}`)
       .then((response) => {
         if (cancelled) return;
         setSlots(Array.isArray(response.slots) ? response.slots : []);
@@ -99,12 +100,12 @@ export function ScheduleVisit({
       .catch(() => { if (!cancelled) { setSlots([]); setError(t("family.schedule.offline")); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [api, residentId, selectedDate, slotRefresh]);
+  }, [api, residentId, windowStartDate, slotRefresh]);
 
   const dates = useMemo(() => {
     const fromSlots = [...new Set(slots.map((slot) => slot.localDate))];
-    return fromSlots.length > 0 ? fromSlots : Array.from({ length: DEMO_VISIT_POLICY.windowDays }, (_, index) => addDays(selectedDate, index));
-  }, [selectedDate, slots]);
+    return fromSlots.length > 0 ? fromSlots : Array.from({ length: DEMO_VISIT_POLICY.windowDays }, (_, index) => addDays(windowStartDate, index));
+  }, [windowStartDate, slots]);
   const dateSlots = slots.filter((slot) => slot.localDate === selectedDate);
 
   const propose = async () => {

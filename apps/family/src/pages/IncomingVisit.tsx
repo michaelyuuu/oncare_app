@@ -34,7 +34,7 @@ export function IncomingVisit({
     return () => { active = false; };
   }, [api, visitId, residentName]);
 
-  const act = async (action: "answer_family" | "decline") => {
+  const act = async (action: "answer_family" | "cancel") => {
     if (busy) return;
     setBusy(true); setError(null);
     try {
@@ -56,7 +56,7 @@ export function IncomingVisit({
       {error && <p className="error" role="alert">{error}</p>}
       <div className="incoming-visit__actions">
         <button type="button" className="primary" onClick={() => void act("answer_family")} disabled={busy}>{t("family.incoming.answer")}</button>
-        <button type="button" onClick={() => void act("decline")} disabled={busy}>{t("family.incoming.decline")}</button>
+        <button type="button" onClick={() => void act("cancel")} disabled={busy}>{t("family.incoming.decline")}</button>
       </div>
     </section>
   </main>;

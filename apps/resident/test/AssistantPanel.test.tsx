@@ -88,6 +88,23 @@ describe("resident assistant surface", () => {
     expect(screen.queryByText(/acknowledged/i)).not.toBeInTheDocument();
   });
 
+  test("microphone permission denial keeps text fallback and explains how to unblock the site", async () => {
+    const startRealtime = vi.fn(async () => { throw new DOMException("Permission denied", "NotAllowedError"); });
+    vi.spyOn(assistantModule, "createAssistantClient").mockReturnValue({
+      startFakeSession: vi.fn(async () => ({ sessionId: "fake", state: "listening", mode: "simulated", provider: "fake" })),
+      startRealtime,
+      sendText: vi.fn(),
+      interrupt: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      reset: vi.fn(),
+    } as unknown as assistantModule.AssistantClient);
+    render(<AssistantPanel api={{} as Api} residentName="Demo Resident" disabled={false} onClose={vi.fn()} />);
+
+    expect(await screen.findByTestId("assistant-text-fallback")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Microphone access is blocked");
+    expect(startRealtime).toHaveBeenCalledOnce();
+  });
+
   test("simulated scheduling renders touch confirmation, confirms through the action endpoint, and does not open another microphone", async () => {
     const { api, post } = apiFor({
       kind: "tool_result",

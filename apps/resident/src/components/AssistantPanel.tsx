@@ -35,6 +35,16 @@ function panelState(event: LiveVoiceEventState): PanelState {
   return "listening";
 }
 
+function voiceStartupNotice(failure: unknown): string {
+  const name = typeof failure === "object" && failure !== null && "name" in failure ? String(failure.name) : "";
+  const message = failure instanceof Error ? failure.message : "";
+  if (message.includes("Microphone access requires HTTPS")) return "Open OnCare with HTTPS to use the microphone.";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Microphone access is blocked. Allow it in this site's browser settings, then reopen Talk.";
+  }
+  return t("resident.communication.voice_failed");
+}
+
 export function AssistantPanel({
   api,
   onClose,
@@ -93,7 +103,7 @@ export function AssistantPanel({
         client.reset();
       }
     };
-    const beginFallback = async () => {
+    const beginFallback = async (reason?: string) => {
       if (cancelled) return;
       client.reset();
       try {
@@ -104,7 +114,7 @@ export function AssistantPanel({
         }
         setFallbackReady(true);
         setState("error");
-        setNotice(t("resident.communication.voice_failed"));
+        setNotice(reason ?? t("resident.communication.voice_failed"));
       } catch {
         if (cancelled) return;
         setFallbackReady(false);
@@ -120,7 +130,7 @@ export function AssistantPanel({
           onState: (event) => {
             if (cancelled) return;
             setState(panelState(event));
-            if (event.state === "error") setNotice(t("resident.communication.voice_failed"));
+            if (event.state === "error") setNotice(event.detail || t("resident.communication.voice_failed"));
           },
           onToolResult: (result) => {
             if (!cancelled) receiveToolResult(result);
@@ -133,12 +143,12 @@ export function AssistantPanel({
         }
         setState("listening");
         setNotice(null);
-      } catch {
+      } catch (failure: unknown) {
         if (cancelled) {
           await dispose();
           return;
         }
-        await beginFallback();
+        await beginFallback(voiceStartupNotice(failure));
       }
     };
     // Deferring one turn lets React StrictMode replay and cancel its probe

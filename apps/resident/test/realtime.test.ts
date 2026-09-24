@@ -64,6 +64,8 @@ describe("resident realtime voice", () => {
     const track = { stop: vi.fn() };
     const stream = { getTracks: () => [track] } as unknown as MediaStream;
     const remoteStream = {} as MediaStream;
+    const onState = vi.fn();
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const dataChannel = { readyState: "open", send: vi.fn(), onmessage: null } as unknown as RTCDataChannel;
     let peer: Peer | undefined;
     class Peer {
@@ -85,6 +87,7 @@ describe("resident realtime voice", () => {
       : {});
     const client = new RealtimeVoiceClient({ post } as unknown as Api, {
       sessionId: "conv_voice",
+      onState,
       peerConnectionFactory: Peer as unknown as typeof RTCPeerConnection,
       mediaDevices: { getUserMedia } as unknown as MediaDevices,
       secureContext: true,
@@ -108,9 +111,16 @@ describe("resident realtime voice", () => {
       expect(remoteAudio).not.toBeNull();
       expect(remoteAudio?.autoplay).toBe(true);
       expect(remoteAudio?.srcObject).toBe(remoteStream);
+      expect(play).toHaveBeenCalledOnce();
+      play.mockRejectedValueOnce(new Error("autoplay blocked"));
+      peer?.ontrack?.({ streams: [remoteStream] } as unknown as RTCTrackEvent);
+      await vi.waitFor(() => expect(onState).toHaveBeenCalledWith({
+        state: "error", detail: "Audio playback is blocked. Allow sound for this site, then reopen Talk.",
+      }));
     } finally {
       await client.close();
       document.querySelector('audio[aria-label="Ontaru voice response"]')?.remove();
+      play.mockRestore();
     }
 
     expect(track.stop).toHaveBeenCalledTimes(1);

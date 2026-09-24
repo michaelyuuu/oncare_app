@@ -127,6 +127,17 @@ describe("visit actions", () => {
     expect((await act("answer", tok)).statusCode).toBe(403);
   });
 
+  test("family can decline an incoming resident-originated call", async () => {
+    const f = await visitIn("awaiting_family_consent");
+    f.db.update(t.visitSession).set({ initiatorKind: "device", initiatorId: SEED_IDS.device }).where(eq(t.visitSession.id, f.id)).run();
+
+    const declined = await f.act("cancel", f.tokens.family);
+
+    expect(declined.statusCode).toBe(200);
+    expect(declined.json().visit.state).toBe("cancelled");
+    await f.app.close();
+  });
+
   test("unknown action is 404", async () => {
     const { tokens, act } = await visitIn("active");
     expect((await act("teleport", tokens.staff)).statusCode).toBe(404);

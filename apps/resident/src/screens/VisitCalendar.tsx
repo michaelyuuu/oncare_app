@@ -78,7 +78,8 @@ export function VisitCalendar({
 }) {
   const startingTimeZone = validTimeZone(initialTimeZone || DEMO_VISIT_POLICY.timeZone);
   const [timeZone, setTimeZone] = useState(startingTimeZone);
-  const [selectedDate, setSelectedDate] = useState(() => localDateAt(new Date(), startingTimeZone));
+  const [windowStartDate] = useState(() => localDateAt(new Date(), startingTimeZone));
+  const [selectedDate, setSelectedDate] = useState(windowStartDate);
   const [slots, setSlots] = useState<VisitSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<VisitSlot | null>(null);
   const [localContactId, setLocalContactId] = useState<string | null>(selectedContactId ?? null);
@@ -105,7 +106,7 @@ export function VisitCalendar({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void api.get<SlotResponse>(`/visit-reservations/slots?residentId=${encodeURIComponent(residentId)}&from=${encodeURIComponent(selectedDate)}`)
+    void api.get<SlotResponse>(`/visit-reservations/slots?residentId=${encodeURIComponent(residentId)}&from=${encodeURIComponent(windowStartDate)}`)
       .then((body) => {
         if (cancelled) return;
         setSlots(Array.isArray(body.slots) ? body.slots : []);
@@ -118,13 +119,13 @@ export function VisitCalendar({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [api, residentId, selectedDate, slotRefresh]);
+  }, [api, residentId, windowStartDate, slotRefresh]);
 
   const dates = useMemo(() => {
     const fromSlots = [...new Set(slots.map((slot) => slot.localDate))];
     if (fromSlots.length > 0) return fromSlots;
-    return Array.from({ length: DEMO_VISIT_POLICY.windowDays }, (_, index) => addDays(selectedDate, index));
-  }, [selectedDate, slots]);
+    return Array.from({ length: DEMO_VISIT_POLICY.windowDays }, (_, index) => addDays(windowStartDate, index));
+  }, [windowStartDate, slots]);
   const dateSlots = slots.filter((slot) => slot.localDate === selectedDate);
   const activeReservations = reservations.filter((reservation) => reservation.residentId === residentId && reservation.status !== "cancelled");
   const dateReservations = activeReservations.filter((reservation) => reservationForDate(reservation, selectedDate, timeZone));

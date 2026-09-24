@@ -246,7 +246,16 @@ export class RealtimeVoiceClient {
         document.body.append(this.remoteAudio);
       }
       const remoteStream = event.streams?.[0];
-      if (remoteStream && this.remoteAudio) this.remoteAudio.srcObject = remoteStream;
+      if (remoteStream && this.remoteAudio) {
+        const audio = this.remoteAudio;
+        audio.srcObject = remoteStream;
+        void audio.play().catch(() => {
+          if (this.remoteAudio !== audio) return;
+          this.options.onState?.({
+            state: "error", detail: "Audio playback is blocked. Allow sound for this site, then reopen Talk.",
+          });
+        });
+      }
     };
     this.peer.onconnectionstatechange = () => {
       const status = this.peer?.connectionState;

@@ -145,3 +145,38 @@ test("keeps the resident date rail bounded and vertically scrollable", async () 
   expect(getComputedStyle(dateRail).overflowY).toBe("auto");
   expect(getComputedStyle(dateRail).flexGrow).toBe("1");
 });
+
+test("resident date rail stays anchored when selecting the final date in its booking window", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
+  const windowSlots = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 8, 22 + index)).toISOString().slice(0, 10);
+    return { ...slot(540), localDate: date };
+  });
+  const get = vi.fn().mockImplementation(async (path: string) => {
+    const from = new URLSearchParams(path.split("?")[1] ?? "").get("from") ?? "2026-09-22";
+    return { timeZone: "Asia/Taipei", slots: windowSlots.filter((item) => item.localDate >= from) };
+  });
+  const api = { get } as unknown as Api;
+  render(<VisitCalendar
+    api={api}
+    residentId="resident-1"
+    timeZone="Asia/Taipei"
+    contacts={[]}
+    reservations={[]}
+    onClose={vi.fn()}
+    onChanged={vi.fn()}
+  />);
+
+  const firstDate = "resident-date-2026-09-22";
+  const finalDate = "resident-date-2026-10-05";
+  fireEvent.click(await screen.findByTestId(finalDate));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(screen.getByTestId(firstDate)).toBeInTheDocument();
+  expect(screen.getByTestId(finalDate)).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByTestId(firstDate));
+  expect(screen.getByTestId(firstDate)).toHaveAttribute("aria-pressed", "true");
+  const slotQueries = get.mock.calls.map(([path]) => path);
+  expect(slotQueries.every((path) => path.endsWith("from=2026-09-22"))).toBe(true);
+});

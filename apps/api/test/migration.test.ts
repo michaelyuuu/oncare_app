@@ -24,6 +24,23 @@ function legacyFolder(): string {
   return dir;
 }
 
+/** The pre-merge RFID branch recorded RFID as migration 0004. */
+function rfidBaseFolder(): string {
+  const dir = mkdtempSync(join(tmpdir(), "oncare-rfid-base-mig-"));
+  mkdirSync(join(dir, "meta"));
+  const journal = JSON.parse(readFileSync(join(real, "meta/_journal.json"), "utf8")) as {
+    version: string;
+    dialect: string;
+    entries: Array<{ idx: number; version: string; when: number; tag: string; breakpoints: boolean }>;
+  };
+  const foundationEntries = journal.entries.slice(0, 4);
+  for (const entry of foundationEntries) cpSync(join(real, `${entry.tag}.sql`), join(dir, `${entry.tag}.sql`));
+  const rfidEntry = { idx: 4, version: "6", when: 1790041775088, tag: "0004_rfid_laundry_projection", breakpoints: true };
+  cpSync(join(real, "0005_rfid_laundry_projection.sql"), join(dir, `${rfidEntry.tag}.sql`));
+  writeFileSync(join(dir, "meta/_journal.json"), JSON.stringify({ ...journal, entries: [...foundationEntries, rfidEntry] }));
+  return dir;
+}
+
 describe("migration 0002_foundation", () => {
   test("carries 0.1.0 data forward: devices, staff facility, and staff keep today's visibility", () => {
     const sqlite = new Database(":memory:");
@@ -117,5 +134,20 @@ describe("migration 0004_reserved_visit_calendar", () => {
       "initiator_kind",
       "initiator_id",
     ]));
+  });
+
+  test("upgrades a database with the pre-merge RFID migration history", () => {
+    const sqlite = new Database(":memory:");
+    const db = drizzle(sqlite);
+    migrate(db, { migrationsFolder: rfidBaseFolder() });
+
+    migrate(db, { migrationsFolder: real });
+
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'visit_reservation'").get()).toEqual({
+      name: "visit_reservation",
+    });
+    const visitColumns = sqlite.prepare("PRAGMA table_info('visit_session')").all() as Array<{ name: string }>;
+    expect(visitColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["scheduled_start_at", "initiator_kind", "initiator_id"]));
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'rfid_station_sync'").get()).toEqual({ name: "rfid_station_sync" });
   });
 });

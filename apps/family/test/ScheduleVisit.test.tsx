@@ -92,3 +92,44 @@ test("incoming resident call answers through the family-specific action", async 
   await waitFor(() => expect(post).toHaveBeenCalledWith("/visits/visit-1/answer_family", {}));
   expect(onAnswered).toHaveBeenCalledWith("visit-1");
 });
+
+test("family can decline an incoming resident call", async () => {
+  const post = vi.fn().mockResolvedValue({ visit: { id: "visit-1", state: "cancelled" } });
+  const api = {
+    get: vi.fn().mockResolvedValue({ visit: { id: "visit-1", state: "awaiting_family_consent", residentId: "resident-1" } }),
+    post,
+  } as unknown as Api;
+  const onDeclined = vi.fn();
+  render(<IncomingVisit api={api} visitId="visit-1" residentName="Mom" onAnswered={vi.fn()} onDeclined={onDeclined} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/visits/visit-1/cancel", {}));
+  expect(onDeclined).toHaveBeenCalledOnce();
+});
+
+test("family date rail stays anchored when selecting the final date in its booking window", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
+  const windowSlots = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 8, 22 + index)).toISOString().slice(0, 10);
+    return { ...slot(540), localDate: date };
+  });
+  const get = vi.fn().mockImplementation(async (path: string) => {
+    if (path === "/visit-reservations") return { reservations: [] };
+    const from = new URLSearchParams(path.split("?")[1] ?? "").get("from") ?? "2026-09-22";
+    return { timeZone: "Asia/Taipei", slots: windowSlots.filter((item) => item.localDate >= from) };
+  });
+  const api = { get, post: vi.fn() } as unknown as Api;
+  render(<ScheduleVisit api={api} residentId="resident-1" residentName="Mom" onBack={vi.fn()} onCreated={vi.fn()} onImmediate={vi.fn()} />);
+
+  const firstDate = "family-date-2026-09-22";
+  const finalDate = "family-date-2026-10-05";
+  fireEvent.click(await screen.findByTestId(finalDate));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(screen.getByTestId(firstDate)).toBeInTheDocument();
+  expect(screen.getByTestId(finalDate)).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByTestId(firstDate));
+  expect(screen.getByTestId(firstDate)).toHaveAttribute("aria-pressed", "true");
+  const slotQueries = get.mock.calls.map(([path]) => path).filter((path) => path.includes("/visit-reservations/slots"));
+  expect(slotQueries.every((path) => path.endsWith("from=2026-09-22"))).toBe(true);
+});
