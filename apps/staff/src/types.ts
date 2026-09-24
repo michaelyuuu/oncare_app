@@ -3,6 +3,7 @@ export interface Visit {
     residentId: string;
     requesterId: string;
     state: string;
+    createdAt?: string;
     streaming?: boolean;
     cameraState?: "on" | "paused" | "unavailable" | "unknown";
 }
@@ -10,6 +11,7 @@ export interface Task {
     id: string;
     residentId: string;
     state: string;
+    createdAt?: string;
     proposal?: {
         item?: string;
     } | null;
@@ -25,6 +27,19 @@ export interface AuditRow {
     toState: string | null;
     reason: string | null;
     correlationId: string;
+}
+export interface AssistanceRequest {
+    id: string;
+    residentId: string;
+    category: string;
+    note?: string | null;
+    persistenceState: string;
+    deliveryState: string;
+    handlingState: string;
+    withdrawalState: string;
+    version: number;
+    createdAt: string;
+    updatedAt: string;
 }
 export interface Robot {
     robotId: string;
@@ -51,6 +66,7 @@ export interface QueueData {
     tasksAwaitingHandoff: Task[];
     activeVisits: Visit[];
     caregiverCalls: Array<AuditRow & { residentId?: string | null }>;
+    assistanceRequests?: AssistanceRequest[];
     robot: Robot | null;
 }
 export type Action = (path: string, body?: unknown) => Promise<void>;

@@ -9,8 +9,9 @@ test("handover section 8: visit, call, item request, tray delivery", async ({ br
     await resident.goto("http://localhost:5173/");
     await resident.getByLabel("Device token").fill("device-demo-token");
     await resident.getByRole("button", { name: "Save" }).click();
-    await expect(resident.getByText("Hello, Demo Resident")).toBeVisible();
-    await expect(resident.getByText("SIMULATED ROBOT")).toBeVisible();
+    await expect(resident.getByText("Tap anywhere to talk")).toBeVisible();
+    await expect(resident.getByRole("button", { name: "Talk to Ontaru" })).toBeVisible();
+    await expect(resident.getByRole("button", { name: "I need help" })).toBeVisible();
 
     await staff.goto("http://localhost:5175/");
     await staff.getByLabel("Username").fill("staff");

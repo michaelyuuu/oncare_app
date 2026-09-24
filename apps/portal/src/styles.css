@@ -1,0 +1,160 @@
+:root {
+  color: #17343f;
+  background: #edf3f1;
+  font-family: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 20rem;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(90deg, rgba(38, 104, 111, 0.08) 1px, transparent 1px) 0 0 / 4.5rem 100%,
+    #edf3f1;
+}
+
+.portal-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: clamp(1.5rem, 5vw, 4rem) 1rem;
+}
+
+.portal {
+  width: min(100%, 42rem);
+  border-top: 0.5rem solid #286872;
+  background: #fffefa;
+  box-shadow: 0 1.5rem 4rem rgba(23, 52, 63, 0.12);
+  padding: clamp(1.75rem, 6vw, 4.5rem);
+}
+
+.portal-heading {
+  max-width: 34rem;
+}
+
+.wordmark {
+  margin: 0 0 2rem;
+  color: #286872;
+  font-size: 1.05rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  max-width: 12ch;
+  margin: 0;
+  color: #123846;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+  font-size: clamp(2.6rem, 9vw, 5rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.introduction {
+  max-width: 31rem;
+  margin: 1.4rem 0 2.75rem;
+  color: #4c656b;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.role-list {
+  position: relative;
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 0 0 2.15rem;
+  list-style: none;
+}
+
+.role-list::before {
+  position: absolute;
+  top: 0.65rem;
+  bottom: 0.65rem;
+  left: 0.4rem;
+  width: 2px;
+  background: #b7cfcb;
+  content: "";
+}
+
+.role {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(7.75rem, 0.72fr) minmax(0, 1.55fr);
+  gap: 1rem;
+  align-items: baseline;
+  border-bottom: 1px solid #d9e4e1;
+  padding: 1rem 0;
+}
+
+.role::before {
+  position: absolute;
+  top: 1.45rem;
+  left: -2.15rem;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid #286872;
+  border-radius: 50%;
+  background: #fffefa;
+  content: "";
+}
+
+.role:first-child {
+  border-top: 1px solid #d9e4e1;
+}
+
+.role a {
+  color: #174f5b;
+  font-size: 1.1rem;
+  font-weight: 750;
+  text-decoration-color: #80a9a8;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.22em;
+}
+
+.role a:hover {
+  color: #0a2c35;
+  text-decoration-color: currentColor;
+}
+
+.role a:focus-visible {
+  border-radius: 0.1rem;
+  outline: 3px solid #d99b32;
+  outline-offset: 0.25rem;
+}
+
+.role p {
+  margin: 0;
+  color: #5a6f73;
+  font-size: 0.93rem;
+  line-height: 1.45;
+}
+
+.access-note {
+  margin: 2.5rem 0 0;
+  color: #53696e;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 34rem) {
+  .role {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

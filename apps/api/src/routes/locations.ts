@@ -18,8 +18,10 @@ const patchSchema = z.object({
 
 export async function locationRoutes(app: FastifyInstance, opts: { db: Db; now?: () => Date }) {
   const { db } = opts;
-  app.get("/locations", { preHandler: requireRole("staff") }, async () => ({ locations: db.select().from(t.location).all() }));
-  app.patch("/locations/:id", { preHandler: requireRole("staff") }, async (req, reply) => {
+  app.get("/locations", { preHandler: requireRole("staff", "admin") }, async (req) => ({
+    locations: db.select().from(t.location).all().filter(l => app.access.sameFacility(req.principal, l.facilityId)),
+  }));
+  app.patch("/locations/:id", { preHandler: requireRole("staff", "admin") }, async (req, reply) => {
     const body = patchSchema.safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "bad_request" });
     const principal = req.principal;
@@ -27,11 +29,11 @@ export async function locationRoutes(app: FastifyInstance, opts: { db: Db; now?:
     const { id } = req.params as { id: string };
     const location = db.transaction(tx => {
       const existing = tx.select().from(t.location).where(eq(t.location.id, id)).get();
-      if (!existing) return null;
+      if (!existing || !app.access.sameFacility(principal, existing.facilityId)) return null;
       const robot = tx.select().from(t.robot).where(eq(t.robot.facilityId, existing.facilityId)).get();
       tx.update(t.location).set(body.data).where(eq(t.location.id, id)).run();
       tx.insert(t.auditEvent).values(makeTransitionEvent({
-        actorType: "staff", actorId: principal.id, entityType: "robot", entityId: robot?.id ?? "robot",
+        actorType: principal.role === "admin" ? "admin" : "staff", actorId: principal.id, entityType: "robot", entityId: robot?.id ?? "robot",
         fromState: null, toState: null, reason: "location_updated", correlationId: id,
         ...(opts.now ? { now: opts.now } : {}),
       })).run();

@@ -83,5 +83,12 @@ export function AuditTable({ api, revision }: {
             setExportError(true);
         }
     }
-    return <div><div className="audit-controls"><label>{t("staff.audit.filter")}<input value={resident} onChange={e => setResident(e.target.value)}/></label><label>{t("staff.audit.since")}<input type="datetime-local" value={since} onChange={e => setSince(e.target.value)}/></label><button disabled={loading || error} onClick={exportCsv}>{t("staff.audit.export")}</button></div>{exportError && <p role="alert">{t("staff.error.export")}</p>}{error && <p role="alert">{t("staff.error.audit")}</p>}<div className="table-scroll"><table aria-busy={loading}><thead><tr>{fields.map(f => <th key={f}>{t(`staff.audit.${f}`)}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id}>{fields.map(f => <td key={f}>{row[f] ?? t("staff.none")}</td>)}</tr>)}</tbody></table></div>{!rows.length && !loading && <p>{t("staff.audit.empty")}</p>}</div>;
+    return <div>
+      <div className="audit-controls"><label>{t("staff.audit.filter")}<input value={resident} onChange={e => setResident(e.target.value)}/></label><label>{t("staff.audit.since")}<input type="datetime-local" value={since} onChange={e => setSince(e.target.value)}/></label><button disabled={loading || error} onClick={exportCsv}>{t("staff.audit.export")}</button></div>
+      {loading && <p role="status">{t("staff.audit.loading")}</p>}
+      {exportError && <p role="alert">{t("staff.error.export")}</p>}
+      {error && <p role="alert">{t("staff.error.audit")}</p>}
+      <div className="table-scroll"><table aria-busy={loading}><thead><tr>{fields.map(f => <th key={f}>{t(`staff.audit.${f}`)}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id}>{fields.map(f => <td key={f}>{row[f] ?? t("staff.none")}</td>)}</tr>)}</tbody></table></div>
+      {!rows.length && !loading && !error && <p>{t("staff.audit.empty")}</p>}
+    </div>;
 }

@@ -5,14 +5,15 @@ import * as t from "../src/db/schema";
 import { SEED_IDS, seed } from "../src/db/seed";
 
 describe("database and seed", () => {
-  test("seed creates one facility, resident, family + staff users, robot, device, three locations and the catalogue", async () => {
+  test("seed creates one facility, resident, family + staff + admin users, robot, device, three locations and the catalogue", async () => {
     const db = openDb(":memory:");
     await seed(db);
     expect(db.select().from(t.facility).all()).toHaveLength(1);
     expect(db.select().from(t.resident).all()).toHaveLength(1);
-    expect(db.select().from(t.user).all().map((u) => u.role).sort()).toEqual(["family", "staff"]);
+    expect(db.select().from(t.user).all().map((u) => u.role).sort()).toEqual(["admin", "family", "staff"]);
     expect(db.select().from(t.robot).all()).toHaveLength(1);
-    expect(db.select().from(t.robotDevice).all()).toHaveLength(1);
+    expect(db.select().from(t.device).all()).toHaveLength(1);
+    expect(db.select().from(t.staffAssignment).all()).toEqual([expect.objectContaining({ userId: SEED_IDS.staffUser, residentId: SEED_IDS.resident, active: true })]);
     expect(db.select().from(t.location).all().map((l) => l.kind).sort()).toEqual(["pickup_station", "resident_room", "standby"]);
     expect(db.select().from(t.item).all().filter((i) => i.approved)).toHaveLength(3);
   });

@@ -2,6 +2,11 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin";
 import type { Db } from "./db/client";
+import { adminRoutes } from "./routes/admin";
+import { laundryAssistantRoutes } from "./routes/laundry-assistant";
+import { assistanceRoutes } from "./routes/assistance";
+import { capabilitiesRoutes } from "./routes/capabilities";
+import { assistantRoutes } from "./routes/assistant";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/device";
 import { eventsRoutes } from "./routes/events-ws";
@@ -11,8 +16,12 @@ import { locationRoutes } from "./routes/locations";
 import { robotRoutes } from "./routes/robots";
 import { staffRoutes } from "./routes/staff";
 import { taskRoutes } from "./routes/tasks";
+import { toolRoutes } from "./routes/tools";
 import { visitRoutes } from "./routes/visits";
 import { videoRoutes } from "./routes/video";
+import { createAccess } from "./services/access";
+import { createAssistanceService, type AssistanceService } from "./services/assistance";
+import { loadAssistantProfile } from "./services/assistant-profile";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
 import { createTransitionService } from "./services/transitions";
@@ -21,39 +30,102 @@ import { createVisitService, type TransitionService, type VisitService } from ".
 import { videoProviderFromEnv, type VideoProvider } from "./services/video";
 import { createBenchmarkService } from "./services/benchmark";
 import { benchmarkRoutes } from "./routes/benchmark";
+import { BUILTIN_TOOLS } from "./tools/builtin";
+import { createToolRegistry, type ToolDef, type ToolRegistry } from "./tools/registry";
+import { createVoiceService, type OpenAIRealtimeProvider, type VoiceService } from "./services/voice";
+import { createLaundryRepository, type LaundryRepository } from "./services/laundry-repository";
+import { createRfidConnector, type RfidConnector } from "./services/rfid-connector";
+import type { RfidStationConfig } from "./services/rfid-config";
+import { createLaundryAssistant, type LaundryAssistant, type ManagerAssistantClient } from "./services/laundry-assistant";
 
-export interface AppOptions { db: Db; jwtSecret: string; now?: () => Date; video?: VideoProvider }
+export interface AppOptions {
+  db: Db;
+  jwtSecret: string;
+  now?: () => Date;
+  video?: VideoProvider;
+  tools?: ToolDef[];
+  realtime?: OpenAIRealtimeProvider;
+  rfidStations?: RfidStationConfig[];
+  rfidFetch?: typeof globalThis.fetch;
+  rfidIntervalMs?: number;
+  rfidRequestTimeoutMs?: number;
+  managerAssistantClient?: ManagerAssistantClient;
+  managerApiKey?: string;
+  managerModel?: string;
+}
 
 declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
+    assistance: AssistanceService;
+    assistant: VoiceService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
     tasks: TaskService;
     video: VideoProvider;
     benchmark: ReturnType<typeof createBenchmarkService>;
+    tools: ToolRegistry;
+    laundry: LaundryRepository;
+    rfid: RfidConnector;
+    laundryAssistant: LaundryAssistant;
   }
 }
 
 export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
+  app.decorate("access", createAccess(opts.db));
   const transitions = createTransitionService(opts.db, opts.now ? { now: opts.now } : {});
+  app.decorate("assistance", createAssistanceService(opts.db, app.access, transitions, opts.now ? { now: opts.now } : {}));
   const video = opts.video ?? videoProviderFromEnv(process.env);
   app.decorate("video", video);
   app.decorate("transitions", transitions);
+  const laundry = createLaundryRepository(opts.db, opts.now ? { now: opts.now } : {});
+  app.decorate("laundry", laundry);
+  app.decorate("tools", createToolRegistry({
+    db: opts.db, access: app.access, transitions, assistance: app.assistance, laundry, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+  }));
+  const managerApiKey = opts.managerApiKey ?? process.env.OPENAI_API_KEY;
+  app.decorate("laundryAssistant", createLaundryAssistant({
+    tools: app.tools,
+    model: opts.managerModel ?? process.env.ONCARE_MANAGER_MODEL ?? "gpt-5.4",
+    ...(managerApiKey !== undefined ? { apiKey: managerApiKey } : {}),
+    ...(opts.managerAssistantClient ? { client: opts.managerAssistantClient } : {}),
+  }));
+  const profile = loadAssistantProfile();
+  app.decorate("assistant", createVoiceService({
+    db: opts.db,
+    access: app.access,
+    tools: app.tools,
+    profile,
+    ...(opts.realtime ? { realtime: opts.realtime } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+  }));
   const hub = new GatewayHub();
   app.decorate("hub", hub);
   app.decorate("tasks", createTaskService(opts.db, transitions, opts.now ? { now: opts.now } : {}, hub));
   app.decorate("dispatch", createDispatchService(opts.db, transitions, hub, opts.now ? { now: opts.now } : {}));
   app.decorate("benchmark", createBenchmarkService(opts.db, transitions, opts.now ? { now: opts.now } : {}));
+  app.decorate("rfid", createRfidConnector({
+    repository: laundry,
+    stations: opts.rfidStations ?? [],
+    ...(opts.rfidFetch ? { fetch: opts.rfidFetch } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.rfidIntervalMs !== undefined ? { intervalMs: opts.rfidIntervalMs } : {}),
+    ...(opts.rfidRequestTimeoutMs !== undefined ? { requestTimeoutMs: opts.rfidRequestTimeoutMs } : {}),
+  }));
   app.decorate("visits", createVisitService(opts.db, transitions, video, {
     ...(opts.now ? { now: opts.now } : {}),
     onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
   }));
   app.addHook("onClose", async () => app.visits.stop());
+  app.addHook("onClose", async () => app.assistant.stop());
+  app.addHook("onClose", async () => app.rfid.stop());
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
   app.register(deviceRoutes, { db: opts.db });
+  app.register(assistanceRoutes);
+  app.register(capabilitiesRoutes);
+  app.register(assistantRoutes);
   app.register(meRoutes, { db: opts.db });
   app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);
@@ -64,6 +136,9 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(taskRoutes);
   app.register(benchmarkRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(eventsRoutes, { db: opts.db });
+  app.register(adminRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
+  app.register(laundryAssistantRoutes);
+  app.register(toolRoutes);
   app.get("/health", async () => ({ ok: true }));
   return app;
 }

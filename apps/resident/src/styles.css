@@ -20,6 +20,7 @@ button:focus-visible, input:focus-visible { outline: 4px solid var(--green); out
 .status-caller { flex-basis: 100%; text-align: center; }
 .stage { width: min(100%, 1100px); margin: auto; padding: 24px 36px 0; display: flex; flex-direction: column; align-items: center; }
 .screen { width: 100%; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; }
+.screen--home { padding-bottom: 20px; }
 h1 { margin: 0; font-size: 1.5rem; line-height: 1.15; font-weight: 700; max-width: 24ch; overflow-wrap: anywhere; }
 p { margin: 0; line-height: 1.35; }
 .clock { font-size: 2.8rem; line-height: 1; font-weight: 700; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
@@ -42,6 +43,22 @@ p { margin: 0; line-height: 1.35; }
 .confirmation { width: 140px; height: 140px; fill: var(--quiet); stroke: var(--green); stroke-width: 5px; }
 .confirmation path { fill: none; }
 .feedback { margin-bottom: 18px; padding: 8px 20px; background: var(--amber); border-radius: 12px; }
+.home-help-button { min-width: min(100%, 520px); }
+.assistant-panel { position: relative; width: 100%; min-height: 620px; padding: 18px 28px 30px; background: #eaf2ed; border: 3px solid var(--green); border-radius: 28px; overflow: hidden; }
+.assistant-panel__top { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 18px; }
+.assistant-panel__resident { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #416558; }
+.assistant-orb { position: relative; width: 168px; height: 168px; margin: 8px 0 0; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 18px rgb(34 92 70 / 9%), 0 0 0 36px rgb(34 92 70 / 5%); }
+.assistant-orb::before, .assistant-orb::after { content: ""; position: absolute; inset: -15px; border: 2px solid rgb(34 92 70 / 32%); border-radius: 50%; animation: assistant-pulse 2.8s ease-in-out infinite; }
+.assistant-orb::after { inset: 15px; border-color: rgb(246 206 112 / 78%); animation-delay: -1.4s; }
+.assistant-orb span { position: absolute; inset: 38px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 22px rgb(246 206 112 / 72%); }
+.assistant-orb[data-orb="starting"] { opacity: .7; }
+.assistant-orb[data-orb="error"] { background: #70483d; }
+.assistant-panel__status { min-height: 2.7em; max-width: 34ch; }
+.assistant-panel__form { display: flex; flex-direction: column; gap: 14px; width: min(100%, 760px); text-align: left; }
+.assistant-panel__form label { font-size: .72rem; color: #416558; }
+.assistant-panel__actions { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; }
+.assistant-panel__actions .big-button { min-width: min(100%, 360px); }
+@keyframes assistant-pulse { 0%, 100% { transform: scale(.96); opacity: .45; } 50% { transform: scale(1.05); opacity: 1; } }
 .hold-logo { position: fixed; bottom: 10px; left: 12px; width: 64px; height: 64px; padding: 8px; background: var(--paper); border: 2px solid var(--green); border-radius: 16px; touch-action: none; }
 .hold-logo svg { width: 100%; height: 100%; fill: none; stroke: var(--green); stroke-width: 3px; }
 .screen--settings { gap: 12px; }
@@ -58,5 +75,530 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   .photo-wall { gap: 10px; } .portrait { width: 27vw; height: 29vw; }
   .clock { font-size: 2.1rem; } h1 { font-size: 1.3rem; }
   .portrait--xl { width: 160px; height: 170px; }
+  .assistant-panel { padding: 14px 16px 24px; border-radius: 22px; }
+  .assistant-orb { width: 136px; height: 136px; }
+  .assistant-orb span { inset: 31px; }
+  .assistant-panel__actions { width: 100%; }
+  .assistant-panel__actions .big-button, .assistant-panel__actions .quiet-button { width: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .shake { animation: none; }
+  .assistant-orb::before, .assistant-orb::after { animation: none; }
+}
+
+.communication-home {
+  position: relative;
+  isolation: isolate;
+  min-height: min(720px, calc(100dvh - 190px));
+  justify-content: space-between;
+  gap: 14px;
+  overflow: hidden;
+  padding: clamp(18px, 3vh, 32px) clamp(16px, 4vw, 48px) clamp(22px, 4vh, 40px);
+  color: #3b2f2a;
+  background:
+    radial-gradient(circle at 50% 38%, rgb(255 231 207 / 56%), transparent 37%),
+    #fbf6ef;
+  border: 1px solid #f1e5d9;
+  border-radius: 30px;
+  box-shadow: 0 18px 44px rgb(95 65 48 / 10%);
+}
+.communication-home::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 12%;
+  left: 50%;
+  width: min(82vw, 720px);
+  aspect-ratio: 1;
+  border: 1px solid rgb(240 138 107 / 22%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 36px rgb(240 138 107 / 7%), 0 0 0 72px rgb(240 138 107 / 4%);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.communication-home__brand,
+.communication-home__orb-wrap,
+.communication-home__status,
+.communication-home__actions {
+  position: relative;
+  z-index: 1;
+}
+.communication-home__brand {
+  align-self: flex-start;
+  margin: 0;
+  color: #8a7568;
+  font-size: clamp(18px, 2.5vw, 28px);
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.communication-home__orb-wrap {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  width: 100%;
+  min-height: 260px;
+}
+.communication-orb {
+  position: relative;
+  width: clamp(220px, 42vh, 390px);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  isolation: isolate;
+}
+.communication-orb::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 24%, #fff8ee 0 4%, transparent 5%),
+    radial-gradient(circle at 36% 30%, #ffe7cf 0 20%, #ffc9a8 42%, #f6a95b 67%, #f08a6b 86%, #b9502f 100%);
+  box-shadow: 0 0 0 24px rgb(246 169 91 / 13%), 0 0 72px rgb(240 138 107 / 42%);
+  animation: communication-breathe 3.6s ease-in-out infinite;
+}
+.communication-orb::after {
+  content: "";
+  position: absolute;
+  inset: -18px;
+  border: 1px solid rgb(240 138 107 / 40%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 18px rgb(240 138 107 / 10%);
+  animation: communication-ring 3.6s ease-in-out infinite;
+}
+.communication-orb__core {
+  position: absolute;
+  inset: 29%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff8ee, #ffe7cf 50%, #f3b7b0);
+  box-shadow: inset 0 -12px 20px rgb(158 75 58 / 14%), 0 0 28px rgb(255 248 238 / 72%);
+}
+.communication-orb__glint {
+  position: absolute;
+  top: 21%;
+  left: 24%;
+  width: 12%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #fff8ee;
+  box-shadow: 0 0 16px 5px rgb(255 248 238 / 78%);
+}
+.communication-home__status {
+  min-height: 1.45em;
+  max-width: 34ch;
+  color: #8a7568;
+  font-size: clamp(20px, 3.2vw, 30px);
+  font-weight: 700;
+}
+.communication-home__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(100%, 640px);
+}
+.communication-help,
+.communication-caregiver {
+  width: 100%;
+  min-height: clamp(72px, 11vh, 112px);
+  border-radius: 999px;
+  font-size: clamp(22px, 3.5vw, 34px);
+  font-weight: 700;
+}
+.communication-help {
+  padding: 16px 28px;
+  border: 0;
+  color: #fff8ee;
+  background: #b9502f;
+  box-shadow: 0 10px 22px rgb(185 80 47 / 22%);
+}
+.communication-caregiver {
+  padding: 12px 24px;
+  border: 2px solid #cbb7a6;
+  color: #6f5a50;
+  background: rgb(255 248 238 / 72%);
+}
+.communication-help:focus-visible,
+.communication-caregiver:focus-visible {
+  outline-color: #b9502f;
+}
+.communication-home[data-orb="offline"] .communication-orb {
+  filter: grayscale(.7);
+  opacity: .72;
+}
+.communication-home[data-orb="offline"] .communication-orb::before,
+.communication-home[data-orb="offline"] .communication-orb::after {
+  animation-play-state: paused;
+}
+@keyframes communication-breathe {
+  0%, 100% { transform: scale(.97); }
+  50% { transform: scale(1.03); }
+}
+@keyframes communication-ring {
+  0%, 100% { opacity: .48; transform: scale(.96); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+@media (max-width: 700px) {
+  .communication-home {
+    min-height: calc(100dvh - 156px);
+    border-radius: 22px;
+  }
+  .communication-home__orb-wrap { min-height: 220px; }
+  .communication-orb { width: clamp(190px, 62vw, 300px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .communication-orb::before,
+  .communication-orb::after { animation: none; }
+}
+
+/* communication reference surface: used by the resident Home and Talk routes */
+.kiosk[data-screen="home"],
+.kiosk[data-screen="disconnected"] {
+  padding-bottom: 0;
+  background: #fbf6ef;
+}
+.stage--communication {
+  width: 100%;
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+.communication-screen {
+  --communication-bg: #fbf6ef;
+  --communication-ink: #3b2f2a;
+  --communication-soft: #8a7568;
+  --communication-action: #b9502f;
+  --communication-level: 0;
+  --communication-halo: .35;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: var(--communication-ink);
+  background:
+    radial-gradient(circle at 50% 38%, rgb(255 231 207 / 68%), transparent 35%),
+    var(--communication-bg);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.communication-screen::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 40%;
+  left: 50%;
+  width: 58vh;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(calc(1 + var(--communication-level) * .2));
+  background: radial-gradient(circle, rgb(246 169 91 / 34%) 0%, rgb(240 138 107 / 16%) 42%, transparent 70%);
+  filter: blur(3vh);
+  opacity: var(--communication-halo);
+  transition: opacity .9s ease, top .9s ease, width .9s ease, height .9s ease;
+  pointer-events: none;
+}
+.communication-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(circle at 50% 50%, transparent 0 33%, rgb(185 80 47 / 3%) 70%, transparent 100%);
+  pointer-events: none;
+}
+.communication-brand {
+  position: absolute;
+  z-index: 4;
+  top: 26px;
+  left: 28px;
+  margin: 0;
+  color: var(--communication-soft);
+  font-size: clamp(16px, 1.8vw, 22px);
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.communication-zone-corner {
+  position: absolute;
+  z-index: 5;
+  top: 22px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.communication-ghost {
+  min-height: 48px;
+  padding: 10px 18px;
+  border: 1px solid rgb(203 183 166 / 88%);
+  border-radius: 999px;
+  color: #6f5a50;
+  background: rgb(255 248 238 / 68%);
+  font-size: clamp(14px, 1.55vw, 17px);
+  font-weight: 700;
+}
+.communication-orb-button {
+  position: absolute;
+  z-index: 2;
+  top: 40%;
+  left: 50%;
+  width: min(38vh, 390px);
+  height: min(38vh, 390px);
+  aspect-ratio: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  transform: translate(-50%, -50%);
+}
+.communication-orb-button:not(:disabled) { cursor: pointer; }
+.communication-orb-button--static { pointer-events: none; }
+.communication-orb {
+  --communication-sat: 1;
+  --communication-glow: 1;
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+  border-radius: 50%;
+  transform: scale(calc(1 + var(--communication-level) * .12));
+  filter: saturate(var(--communication-sat)) brightness(var(--communication-glow));
+  background:
+    radial-gradient(circle at 28% 22%, #fff8ee 0 3%, transparent 4%),
+    radial-gradient(circle at 34% 29%, #ffe7cf 0 18%, #ffc9a8 42%, #f6a95b 66%, #f08a6b 84%, #b9502f 100%);
+  box-shadow: inset 1.6vh 1.4vh 3vh rgb(255 255 255 / 42%), inset -2vh -2.4vh 4vh rgb(120 53 43 / 30%), 0 1.5vh 4vh rgb(210 105 73 / 18%);
+  isolation: isolate;
+  transition: filter .9s ease, opacity .9s ease, transform .9s ease;
+  animation: communication-orb-breathe 6s ease-in-out infinite;
+}
+.communication-orb::before,
+.communication-orb::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.communication-orb::before {
+  inset: 4%;
+  z-index: 2;
+  background: conic-gradient(from 20deg, transparent 0 12%, rgb(255 236 211 / 48%) 20%, transparent 31%, rgb(241 127 91 / 36%) 48%, transparent 62%, rgb(255 228 197 / 32%) 78%, transparent 91%);
+  filter: blur(1.5vh);
+  mix-blend-mode: screen;
+  opacity: .72;
+  animation: communication-orb-current 14s ease-in-out infinite alternate;
+}
+.communication-orb::after {
+  inset: 13%;
+  z-index: 3;
+  border: 0;
+  background: radial-gradient(circle at 34% 24%, #fff8ee 0 4%, transparent 30%), radial-gradient(circle at 72% 72%, rgb(184 65 49 / 28%), transparent 58%);
+  filter: blur(1vh);
+  opacity: .84;
+}
+.communication-orb i {
+  position: absolute;
+  inset: -6%;
+  border-radius: 50%;
+  filter: blur(2.6vh);
+  animation: communication-orb-drift 16s ease-in-out infinite alternate;
+  mix-blend-mode: screen;
+}
+.communication-orb i:nth-child(1) {
+  background: radial-gradient(circle at 34% 32%, #ffc9a8 0%, transparent 62%);
+}
+.communication-orb i:nth-child(2) {
+  background: radial-gradient(circle at 68% 38%, #f6a95b 0%, transparent 58%);
+  animation-duration: 19s;
+  animation-direction: alternate-reverse;
+}
+.communication-orb i:nth-child(3) {
+  background: radial-gradient(circle at 58% 72%, #f08a6b 0%, transparent 60%);
+  animation-duration: 23s;
+}
+.communication-orb i:nth-child(4) {
+  background: radial-gradient(circle at 30% 68%, #f3b7b0 0%, transparent 60%);
+  animation-duration: 27s;
+  animation-direction: alternate-reverse;
+}
+.communication-screen[data-orb="connecting"] .communication-orb,
+.communication-screen[data-orb="thinking"] .communication-orb {
+  --communication-sat: .9;
+  --communication-glow: 1.05;
+}
+.communication-screen[data-orb="connecting"] .communication-orb-button {
+  width: min(32vh, 390px);
+  height: min(32vh, 390px);
+}
+.communication-screen[data-orb="speaking"] .communication-orb {
+  --communication-sat: 1.25;
+  --communication-glow: 1.08;
+  animation-duration: 2.2s;
+}
+.communication-screen[data-orb="listening"] { --communication-halo: .8; }
+.communication-screen[data-orb="thinking"] { --communication-halo: .6; }
+.communication-screen[data-orb="speaking"] { --communication-halo: 1; }
+.communication-screen[data-orb="connecting"] { --communication-halo: .5; }
+.communication-screen[data-orb="thinking"] .communication-orb i { animation: communication-orb-swirl 7s linear infinite; }
+.communication-screen[data-orb="idle"] .communication-orb {
+  --communication-sat: .55;
+  --communication-glow: 1.02;
+}
+.communication-screen[data-orb="idle"] .communication-orb::before {
+  opacity: .48;
+  animation-duration: 18s;
+}
+.communication-screen[data-orb="listening"] .communication-orb {
+  --communication-sat: 1.15;
+  animation-duration: 3.4s;
+}
+.communication-screen[data-orb="listening"] .communication-orb::before { opacity: .86; animation-duration: 10s; }
+.communication-screen[data-orb="thinking"] .communication-orb::before { opacity: .72; animation-duration: 7s; }
+.communication-screen[data-orb="speaking"] .communication-orb::before { opacity: 1; animation-duration: 5.5s; }
+.communication-screen[data-orb="offline"] .communication-orb {
+  --communication-sat: 0;
+  --communication-glow: .98;
+  opacity: .72;
+  animation: none;
+}
+.communication-screen[data-orb="offline"] .communication-orb i {
+  background: radial-gradient(circle at 50% 45%, #cfc4ba 0%, transparent 64%);
+  animation: none;
+}
+.communication-screen[data-orb="offline"] { --communication-halo: 0; }
+.communication-screen[data-orb="offline"] .communication-orb::before,
+.communication-screen[data-orb="offline"] .communication-orb::after {
+  animation-play-state: paused;
+}
+.communication-status {
+  position: absolute;
+  z-index: 3;
+  top: calc(40% + 22vh);
+  left: 50%;
+  width: min(calc(100% - 48px), 640px);
+  min-height: 1.45em;
+  margin: 0;
+  color: var(--communication-soft);
+  font-size: clamp(18px, 2.25vw, 28px);
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  transform: translateX(-50%);
+}
+.communication-zone-bottom {
+  position: absolute;
+  z-index: 5;
+  right: 24px;
+  bottom: 28px;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.communication-solid {
+  min-width: min(100%, 360px);
+  min-height: 58px;
+  padding: 12px 24px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff8ee;
+  background: var(--communication-action);
+  box-shadow: 0 10px 22px rgb(185 80 47 / 22%);
+  font-size: clamp(16px, 1.75vw, 20px);
+  font-weight: 800;
+}
+.communication-demo {
+  position: absolute;
+  right: 2px;
+  bottom: 4px;
+  color: rgb(138 117 104 / 72%);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+.communication-fallback {
+  position: absolute;
+  z-index: 6;
+  bottom: 100px;
+  left: 50%;
+  width: min(calc(100% - 48px), 580px);
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgb(203 183 166 / 75%);
+  border-radius: 20px;
+  color: var(--communication-soft);
+  background: rgb(255 248 238 / 88%);
+  box-shadow: 0 14px 30px rgb(95 65 48 / 12%);
+  font-size: 15px;
+  text-align: left;
+  transform: translateX(-50%);
+}
+.communication-fallback__row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.communication-fallback input {
+  min-height: 52px;
+  border: 1px solid #cbb7a6;
+  border-radius: 14px;
+  background: #fffdf9;
+  font-size: 16px;
+}
+.communication-fallback__send {
+  min-width: 112px;
+  min-height: 52px;
+  padding: 8px 16px;
+  font-size: 16px;
+}
+.communication-screen button:focus-visible,
+.communication-screen input:focus-visible {
+  outline: 3px solid var(--communication-action);
+  outline-offset: 4px;
+}
+@keyframes communication-orb-breathe {
+  0%, 100% { opacity: .86; }
+  50% { opacity: 1; }
+}
+@keyframes communication-orb-drift {
+  from { transform: rotate(0deg) translate(1.2vh, -.8vh) scale(1); }
+  to { transform: rotate(40deg) translate(-1.2vh, 1vh) scale(1.08); }
+}
+@keyframes communication-orb-swirl {
+  to { transform: rotate(360deg); }
+}
+@keyframes communication-orb-current {
+  from { transform: rotate(-8deg) scale(.94); }
+  50% { transform: rotate(18deg) scale(1.03); }
+  to { transform: rotate(42deg) scale(.98); }
+}
+@media (max-width: 700px) {
+  .communication-brand { top: 18px; left: 20px; }
+  .communication-zone-corner { top: 14px; right: 16px; gap: 6px; }
+  .communication-ghost { min-height: 42px; padding: 8px 12px; font-size: 13px; }
+  .communication-orb-button { width: 38vw; height: 38vw; }
+  .communication-screen[data-orb="connecting"] .communication-orb-button { width: 32vw; height: 32vw; }
+  .communication-status { top: calc(40% + 22vh); width: calc(100% - 32px); }
+  .communication-zone-bottom { right: 16px; bottom: 18px; left: 16px; }
+  .communication-solid { width: 100%; min-height: 54px; }
+  .communication-demo { right: 0; bottom: -18px; }
+  .communication-fallback { bottom: 92px; width: calc(100% - 32px); }
+  .communication-fallback__row { display: grid; grid-template-columns: 1fr; }
+  .communication-fallback__send { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .communication-orb,
+  .communication-orb::before,
+  .communication-orb::after,
+  .communication-orb i,
+  .communication-screen::before { animation: none !important; }
+  .communication-orb { transform: none; transition: filter .9s ease, opacity .9s ease; }
+}

@@ -14,7 +14,7 @@ export async function visitRoutes(app: FastifyInstance) {
     return reply.code(201).send({ visit: result.visit });
   });
 
-  app.get("/visits/:id", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+  app.get("/visits/:id", { preHandler: requireRole("family", "staff", "admin", "device") }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const visit = app.visits.get(id);
     if (!visit) return reply.code(404).send({ error: "not_found" });
@@ -22,7 +22,7 @@ export async function visitRoutes(app: FastifyInstance) {
     return { visit: { ...visit, simulated: app.hub.status(visit.robotId ?? "").lastHeartbeat?.adapter === "mock" } };
   });
 
-  app.post("/visits/:id/:action", { preHandler: requireRole("family", "staff", "device") }, async (req, reply) => {
+  app.post("/visits/:id/:action", { preHandler: requireRole("family", "staff", "admin", "device") }, async (req, reply) => {
     const { id, action } = req.params as { id: string; action: string };
     if (!(VISIT_ACTIONS as string[]).includes(action)) return reply.code(404).send({ error: "not_found" });
     const result = app.visits.act({ visitId: id, action: action as VisitAction, principal: req.principal });

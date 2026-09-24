@@ -61,6 +61,29 @@ describe("staff operations", () => {
     ]));
     expect(db.select().from(t.auditEvent).where(eq(t.auditEvent.id, original.id)).get()).toEqual(original);
   });
+  test("queue includes scoped assistance requests for staff handling", async () => {
+    const { app, tokens } = await makeTestApp();
+    const created = await app.inject({
+      method: "POST",
+      url: "/assistance-requests",
+      headers: { ...auth(tokens.device), "idempotency-key": "staff-queue-test" },
+      payload: { category: "general_assistance" },
+    });
+    expect(created.statusCode).toBe(201);
+    const requestId = created.json().request.id;
+    const result = await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().assistanceRequests).toEqual([
+      expect.objectContaining({
+        id: requestId,
+        residentId: SEED_IDS.resident,
+        persistenceState: "recorded",
+        deliveryState: "pending",
+        handlingState: "open",
+        version: 1,
+      }),
+    ]);
+  });
   test("queue groups work, includes only recent caregiver calls using the injected clock", async () => {
     const { app, db, tokens } = await makeTestApp({ now: () => new Date("2030-01-01T12:00:00Z") });
     db.update(t.resident).set({ availability: "in_activity" }).run();
@@ -86,7 +109,7 @@ describe("staff operations", () => {
     expect(AuditEventSchema.safeParse(events[0]).success).toBe(true);
     expect(db.select().from(t.resident).get()?.availability).toBe("resting");
     expect((await patch(SEED_IDS.resident, "asleep")).statusCode).toBe(400);
-    expect((await patch("missing", "available")).statusCode).toBe(404);
+    expect((await patch("missing", "available")).statusCode).toBe(403);
   });
   test("audit validates filters, sorts newest first and includes resident events", async () => {
     const { app, db, tokens } = await makeTestApp();
@@ -94,7 +117,7 @@ describe("staff operations", () => {
     const get = (query: string) => app.inject({ method: "GET", url: `/audit${query}`, headers: auth(tokens.staff) });
     expect((await get(`?residentId=${SEED_IDS.resident}&limit=1`)).json().events.map((e: { id: string }) => e.id)).toEqual(["b"]);
     expect((await get("?since=2030-01-01T10:30:00Z")).json().events.map((e: { id: string }) => e.id)).toEqual(["b"]);
-    expect((await get("?residentId=missing")).json().events).toEqual([]);
+    expect((await get("?residentId=missing")).statusCode).toBe(403);
     for (const query of ["?since=no", "?limit=0", "?limit=1001", "?limit=2.5", "?limit=no"]) expect((await get(query)).statusCode).toBe(400);
   });
   test("staff routes reject family and device principals", async () => {

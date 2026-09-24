@@ -118,3 +118,7 @@ The repository now contains the planned synthetic vertical slice through Plan 7.
 | 8. Delivery and handover | README, setup/runbooks, takeover status, and safety-labeled mock path are current; production auth, native signing, and real manipulation remain out of scope. |
 
 Measured evidence currently available: the focused parser corpus passed at 20/20 clear phrases and 21/21 ambiguity cases clarified; Task 1/2 benchmark code and CSV export tests pass, but no generated visit baseline is committed. The full browser suite was not run because Playwright/Chromium are unavailable offline, and no physical or Jetson action was authorized or executed.
+
+## Foundation (2026-09-19)
+
+Sub-project 1 of the oncare_communicate integration (spec `docs/superpowers/specs/2026-09-19-foundation-design.md`, plan `docs/superpowers/plans/2026-09-19-foundation.md`): admin role, facility and assignment scope through `services/access.ts` with per-request revalidation, robot-optional `device`, admin API and staff-console tab, AI tool registry (`/tools`) with two read tools. Checks run on 2026-09-19: vitest pass (54 files, 461 tests), tsc pass (no errors), pytest pass (164 passed, 3 deselected), demo:check pass (api/resident/family up), e2e not run: browserType.launch: Executable doesn't exist at C:\Users\user\AppData\Local\ms-playwright\chromium_headless_shell-1243\chrome-headless-shell-win64\chrome-headless-shell.exe (Chromium not installed on this machine; @playwright/test is present).

@@ -6,13 +6,14 @@ export class ApiError extends Error {
 
 export interface Api {
   get<T>(path: string): Promise<T>;
-  post<T>(path: string, body?: unknown): Promise<T>;
+  post<T>(path: string, body?: unknown, options?: { headers?: Record<string, string> }): Promise<T>;
   patch<T>(path: string, body: unknown): Promise<T>;
+  del<T>(path: string): Promise<T>;
 }
 
 export function createApi(baseUrl: string, getToken: () => string | null, fetchImpl: typeof fetch = fetch): Api {
-  async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json" };
+  async function call<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown, options?: { headers?: Record<string, string> }): Promise<T> {
+    const headers: Record<string, string> = { accept: "application/json", ...(options?.headers ?? {}) };
     if (body !== undefined) headers["content-type"] = "application/json";
     const token = getToken();
     if (token) headers.authorization = `Bearer ${token}`;
@@ -41,5 +42,10 @@ export function createApi(baseUrl: string, getToken: () => string | null, fetchI
     return json as T;
   }
 
-  return { get: (path) => call("GET", path), post: (path, body) => call("POST", path, body), patch: (path, body) => call("PATCH", path, body) };
+  return {
+    get: (path) => call("GET", path),
+    post: (path, body, options) => call("POST", path, body, options),
+    patch: (path, body) => call("PATCH", path, body),
+    del: (path) => call("DELETE", path),
+  };
 }

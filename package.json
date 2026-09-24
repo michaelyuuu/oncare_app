@@ -2,6 +2,9 @@
   "name": "oncare",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "AGI Carehouse family-to-robot care platform (prototype)",
   "workspaces": [
     "packages/*",
@@ -11,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
-    "dev": "concurrently -n api,resident,family,staff \"npm run dev -w @oncare/api\" \"npm run dev -w @oncare/resident\" \"npm run dev -w @oncare/family\" \"npm run dev -w @oncare/staff\"",
+    "dev": "concurrently -n api,portal,resident,family,staff \"npm run dev -w @oncare/api\" \"npm run dev -w @oncare/portal\" \"npm run dev -w @oncare/resident\" \"npm run dev -w @oncare/family\" \"npm run dev -w @oncare/staff\"",
     "demo:check": "node scripts/demo-check.mjs",
     "bench:visit": "node scripts/bench-visit.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts"

@@ -8,7 +8,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 function enterPin() { for (const digit of ["1", "2", "3", "4"]) fireEvent.click(screen.getByRole("button", { name: digit })); }
 test("three wrong PINs lock for 30 seconds including across remount, then permit retry", async () => {
   vi.useFakeTimers(); const post = vi.fn().mockRejectedValue(new ApiError(401, "invalid_pin"));
-  const api = { get: vi.fn(), post, patch: vi.fn() } as Api;
+  const api = { get: vi.fn(), post, patch: vi.fn(), del: vi.fn() } as Api;
   const guard: PinGuard = { failures: 0, lockedUntil: 0 };
   const props = { api, requirePin: true, currentToken: "demo", onBack: vi.fn(), onSaveToken: vi.fn(), pinGuard: guard };
   const view = render(<Settings {...props}/>);
@@ -26,7 +26,7 @@ test("three wrong PINs lock for 30 seconds including across remount, then permit
 test("PIN request disables repeat entry, network failure returns home, timers clean up", async () => {
   vi.useFakeTimers(); let reject: (error: Error) => void = () => {};
   const post = vi.fn(() => new Promise((_, fail) => { reject = fail; }));
-  const onError = vi.fn(); const view = render(<Settings api={{ get: vi.fn(), post, patch: vi.fn() } as Api} requirePin currentToken="demo" onBack={vi.fn()} onSaveToken={vi.fn()} onError={onError}/>);
+  const onError = vi.fn(); const view = render(<Settings api={{ get: vi.fn(), post, patch: vi.fn(), del: vi.fn() } as Api} requirePin currentToken="demo" onBack={vi.fn()} onSaveToken={vi.fn()} onError={onError}/>);
   enterPin(); enterPin(); expect(post).toHaveBeenCalledTimes(1);
   await act(async () => reject(new Error("offline"))); expect(onError).toHaveBeenCalledTimes(1);
   view.unmount(); expect(vi.getTimerCount()).toBe(0);
@@ -36,7 +36,7 @@ test("closing settings before each deferred PIN rejection still locks after thre
   let reject: (error: Error) => void = () => {};
   const post = vi.fn(() => new Promise((_, fail) => { reject = fail; }));
   const guard: PinGuard = { failures: 0, lockedUntil: 0 };
-  const props = { api: { get: vi.fn(), post, patch: vi.fn() } as Api, requirePin: true, currentToken: "demo", onSaveToken: vi.fn(), pinGuard: guard };
+  const props = { api: { get: vi.fn(), post, patch: vi.fn(), del: vi.fn() } as Api, requirePin: true, currentToken: "demo", onSaveToken: vi.fn(), pinGuard: guard };
   for (let attempt = 0; attempt < 3; attempt++) {
     const view = render(<Settings {...props} onBack={() => view.unmount()}/>);
     enterPin();

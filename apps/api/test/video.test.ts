@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { makeTestApp } from "./helpers";
 import * as t from "../src/db/schema";
 import { SEED_IDS } from "../src/db/seed";
-import { grantsFor, LiveKitProvider } from "../src/services/video";
+import { FakeVideoProvider, grantsFor, LiveKitProvider, videoProviderFromEnv } from "../src/services/video";
 import { RoomServiceClient, ParticipantInfo, TrackInfo, TrackSource, TrackType, ServerError } from "livekit-server-sdk";
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
@@ -91,12 +91,24 @@ describe("grantsFor", () => {
   });
 });
 
+describe("videoProviderFromEnv", () => {
+  test("explicit fake mode wins over configured LiveKit credentials", () => {
+    const provider = videoProviderFromEnv({
+      ONCARE_VIDEO_PROVIDER: "fake",
+      LIVEKIT_URL: "wss://configured.example",
+      LIVEKIT_API_KEY: "configured-key",
+      LIVEKIT_API_SECRET: "configured-secret",
+    });
+    expect(provider).toBeInstanceOf(FakeVideoProvider);
+  });
+});
+
 describe("POST /visits/:id/token", () => {
-  test("missing visits return 404 and unrelated devices return 403 without issuing tokens", async () => {
+  test("missing visits return 404 and unknown devices are rejected without issuing tokens", async () => {
     const { app, video, tokens, token } = await visitIn("connecting");
     expect((await app.inject({ method: "POST", url: "/visits/missing/token", headers: auth(tokens.family) })).statusCode).toBe(404);
-    const otherDevice = app.jwt.sign({ kind: "device", id: "other_device", residentId: "other_resident", robotId: SEED_IDS.robot });
-    expect((await token(otherDevice)).statusCode).toBe(403);
+    const otherDevice = app.jwt.sign({ kind: "device", id: "other_device", residentId: "other_resident", facilityId: SEED_IDS.facility, robotId: SEED_IDS.robot, assignmentVersion: 1 });
+    expect((await token(otherDevice)).statusCode).toBe(401);
     expect(video.issued).toEqual([]);
   });
   test("device gets a publishing token while the call is ringing; family does not yet", async () => {

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gte } from "drizzle-orm";
 import { z } from "zod";
-import { makeTransitionEvent } from "@oncare/core";
+import { makeTransitionEvent, type AuditEvent } from "@oncare/core";
 import { requireRole } from "../auth/plugin";
 import type { Db } from "../db/client";
 import * as t from "../db/schema";
@@ -12,7 +12,7 @@ export type QueueVisit = typeof t.visitSession.$inferSelect & { streaming: boole
 export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: () => Date }) {
   const { db } = opts;
   const now = opts.now ?? (() => new Date());
-  const staffOnly = { preHandler: requireRole("staff") };
+  const staffOnly = { preHandler: requireRole("staff", "admin") };
   type Observation = {
     pending?: Promise<QueueVisit["cameraState"]>;
     result?: QueueVisit["cameraState"];
@@ -65,13 +65,17 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       clearTimeout(timer);
     }
   }
-  app.get("/queue", staffOnly, async () => {
-    const robot = db.select().from(t.robot).get();
-    const visits = db.select().from(t.visitSession).all();
-    const tasks = db.select().from(t.taskRequest).all();
+  app.get("/queue", staffOnly, async (req, reply) => {
+    const p = req.principal;
+    const visible = new Set(app.access.residentIdsVisibleTo(p));
+    const assistance = app.assistance.listForStaff(p);
+    if (!assistance.ok) return reply.code(403).send({ error: assistance.error });
+    const robot = p.facilityId ? db.select().from(t.robot).where(eq(t.robot.facilityId, p.facilityId)).get() : undefined;
+    const visits = db.select().from(t.visitSession).all().filter(v => visible.has(v.residentId));
+    const tasks = db.select().from(t.taskRequest).all().filter(k => visible.has(k.residentId));
     const observedKeys = new Set<string>();
     const activeVisits: QueueVisit[] = await Promise.all(visits.filter(v => ["connecting", "active", "ending"].includes(v.state)).map(async v => {
-      const device = v.robotId && db.select().from(t.robotDevice).where(and(eq(t.robotDevice.robotId, v.robotId), eq(t.robotDevice.residentId, v.residentId))).get();
+      const device = v.robotId && db.select().from(t.device).where(and(eq(t.device.robotId, v.robotId), eq(t.device.residentId, v.residentId))).get();
       let cameraState: QueueVisit["cameraState"] = "unavailable";
       if (device && v.state !== "ending") {
         observedKeys.add(`${v.id}:${device.id}`);
@@ -91,11 +95,12 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
       tasksAwaitingApproval: tasks.filter(k => k.state === "awaiting_policy_or_staff"),
       tasksAwaitingLoad: tasks.filter(k => k.state === "locating_item"),
       tasksAwaitingHandoff: tasks.filter(k => k.state === "placing"),
+      assistanceRequests: assistance.requests,
       activeVisits,
       caregiverCalls: db.select().from(t.auditEvent).where(and(eq(t.auditEvent.reason, "call_caregiver"), gte(t.auditEvent.at, new Date(now().getTime() - 30 * 60_000).toISOString()))).orderBy(desc(t.auditEvent.at)).all().map(event => ({
         ...event,
-        residentId: event.actorType === "device" ? db.select().from(t.robotDevice).where(eq(t.robotDevice.id, event.actorId)).get()?.residentId ?? null : null,
-      })),
+        residentId: event.actorType === "device" ? db.select().from(t.device).where(eq(t.device.id, event.actorId)).get()?.residentId ?? null : null,
+      })).filter(call => call.residentId === null || visible.has(call.residentId)),
       robot: robot ? { robotId: robot.id, ...app.hub.status(robot.id) } : null,
     };
   });
@@ -103,7 +108,11 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const parsed = z.object({ residentId: z.string().min(1).optional(), since: z.string().datetime().optional(), limit: z.coerce.number().int().min(1).max(1000).default(200) }).safeParse(req.query);
     if (!parsed.success) return reply.code(400).send({ error: "bad_request" });
     const q = parsed.data;
-    let rows = db.select().from(t.auditEvent).orderBy(desc(t.auditEvent.at), desc(t.auditEvent.id)).all();
+    const p = req.principal;
+    const visible = new Set(app.access.residentIdsVisibleTo(p));
+    if (q.residentId && !visible.has(q.residentId)) return reply.code(403).send({ error: "forbidden" });
+    let rows = db.select().from(t.auditEvent).orderBy(desc(t.auditEvent.at), desc(t.auditEvent.id)).all()
+      .filter(e => app.access.auditVisibleTo(p, e as AuditEvent, visible));
     if (q.since) rows = rows.filter(e => Date.parse(e.at) >= Date.parse(q.since!));
     if (q.residentId) {
       const visits = new Set(db.select().from(t.visitSession).where(eq(t.visitSession.residentId, q.residentId)).all().map(v => v.id));
@@ -116,11 +125,11 @@ export async function staffRoutes(app: FastifyInstance, opts: { db: Db; now?: ()
     const { id } = req.params as { id: string };
     const parsed = z.object({ availability: z.enum(["available", "in_activity", "resting", "not_available"]) }).safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "bad_request" });
-    const resident = db.select().from(t.resident).where(eq(t.resident.id, id)).get();
-    if (!resident) return reply.code(404).send({ error: "not_found" });
     const p = req.principal;
+    if (!app.access.canAccessResident(p, id)) return reply.code(403).send({ error: "forbidden" });
+    const resident = db.select().from(t.resident).where(eq(t.resident.id, id)).get()!;
     if (p.kind !== "user") return reply.code(403).send({ error: "forbidden" });
-    const event = makeTransitionEvent({ actorType: "staff", actorId: p.id, entityType: "resident", entityId: id, fromState: resident.availability, toState: parsed.data.availability, reason: "availability_changed", correlationId: id, now });
+    const event = makeTransitionEvent({ actorType: p.role === "admin" ? "admin" : "staff", actorId: p.id, entityType: "resident", entityId: id, fromState: resident.availability, toState: parsed.data.availability, reason: "availability_changed", correlationId: id, now });
     db.transaction(tx => {
       tx.update(t.resident).set({ availability: parsed.data.availability }).where(eq(t.resident.id, id)).run();
       tx.insert(t.auditEvent).values(event).run();

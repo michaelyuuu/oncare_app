@@ -1,9 +1,11 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "../src/App";
 import { AuditTable } from "../src/components/AuditTable";
+import { RobotDetails, RobotPanel } from "../src/components/RobotPanel";
 import { createApi } from "@oncare/web-common";
+import type { Robot } from "../src/types";
 class Socket {
     static current: Socket;
     onmessage?: (event: {
@@ -12,7 +14,7 @@ class Socket {
     constructor() { Socket.current = this; }
     close() { }
 }
-const initial = { visitsAwaitingApproval: [{ id: "v1", residentId: "r1", requesterId: "f1", state: "awaiting_policy_or_staff" }], tasksAwaitingApproval: [{ id: "t0", residentId: "r1", state: "awaiting_policy_or_staff" }], tasksAwaitingLoad: [{ id: "t1", residentId: "r1", state: "locating_item", proposal: { item: "water_bottle" } }], tasksAwaitingHandoff: [{ id: "t2", residentId: "r1", state: "placing" }], caregiverCalls: [{ id: "c1", correlationId: "r2", at: "2026-09-17T00:00:00Z" }], activeVisits: [{ id: "v2", residentId: "r1", requesterId: "f1", state: "active", streaming: true, cameraState: "on" }], robot: { robotId: "robot1", connected: true, lastHeartbeat: { robotReady: true, adapter: "mock", pose: { x: 1, y: 2, yaw: 0 }, navState: "idle", estop: false, battery: "unknown", activeCorrelationId: null } } };
+const initial = { visitsAwaitingApproval: [{ id: "v1", residentId: "r1", requesterId: "f1", state: "awaiting_policy_or_staff", createdAt: "2026-09-16T23:55:00Z" }], tasksAwaitingApproval: [{ id: "t0", residentId: "r1", state: "awaiting_policy_or_staff", createdAt: "2026-09-16T23:56:00Z" }], tasksAwaitingLoad: [{ id: "t1", residentId: "r1", state: "locating_item", createdAt: "2026-09-16T23:57:00Z", proposal: { item: "water_bottle" } }], tasksAwaitingHandoff: [{ id: "t2", residentId: "r1", state: "placing", createdAt: "2026-09-16T23:58:00Z" }], caregiverCalls: [{ id: "c1", correlationId: "r2", at: "2026-09-17T00:00:00Z" }], activeVisits: [{ id: "v2", residentId: "r1", requesterId: "f1", state: "active", streaming: true, cameraState: "on" }], robot: { robotId: "robot1", connected: true, lastHeartbeat: { robotReady: true, adapter: "mock", pose: { x: 1, y: 2, yaw: 0 }, navState: "idle", estop: false, battery: "unknown", activeCorrelationId: null } } };
 let queue: typeof initial | (Omit<typeof initial, "robot"> & {
     robot: null;
 });
@@ -27,6 +29,7 @@ let response: {
 };
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 beforeEach(() => {
+    history.replaceState({}, "", "/");
     sessionStorage.clear();
     sessionStorage.setItem("oncare.staff", JSON.stringify({ token: "jwt", displayName: "Nurse" }));
     queue = structuredClone(initial);
@@ -42,26 +45,67 @@ beforeEach(() => {
         }
         gets.push(path);
         if (path === "/locations") return new Response('{"locations":[]}');
+        if (path === "/admin/residents") return new Response('{"residents":[]}');
+        if (path === "/admin/users") return new Response('{"users":[]}');
+        if (path === "/admin/family-links") return new Response('{"links":[]}');
+        if (path === "/admin/staff-assignments") return new Response('{"assignments":[]}');
+        if (path === "/admin/devices") return new Response('{"devices":[]}');
         return new Response(JSON.stringify(path === "/queue" ? queue : { events: [{ id: "a1", at: "2026-09-17T00:00:00Z", actorType: "staff", actorId: "s1", entityType: "visit", entityId: "v2", fromState: null, toState: null, reason: 'a,"b"\nnext', correlationId: "v2" }] }));
     }));
 });
 test("approval, denial, tray actions, emergency stop and end call use their exact routes", async () => {
     render(<App apiBase="http://api"/>);
     expect(await screen.findByText("SIMULATED ROBOT")).toBeInTheDocument();
-    for (const name of ["Approve", "Deny", "Loaded on tray", "Received", "STOP ROBOT", "End call"])
+    for (const name of ["Approve", "Deny", "Loaded on tray", "Received", "STOP ROBOT"])
         await userEvent.click(screen.getAllByRole("button", { name })[0]!);
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
+    await userEvent.click(screen.getByRole("button", { name: "End call" }));
     expect(posts.map(p => p.path)).toEqual(["/visits/v1/approve", "/visits/v1/deny", "/tasks/t1/loaded", "/tasks/t2/received", "/robots/robot1/stop", "/visits/v2/end"]);
+});
+test("assistance queue sends versioned acknowledge, progress, and resolve actions", async () => {
+    const request = {
+        id: "help_1",
+        residentId: "r1",
+        category: "general_assistance",
+        note: "Please help",
+        persistenceState: "recorded",
+        deliveryState: "pending",
+        handlingState: "open",
+        withdrawalState: "none",
+        version: 1,
+        createdAt: "2026-09-19T00:00:00.000Z",
+        updatedAt: "2026-09-19T00:00:00.000Z",
+    };
+    (queue as unknown as { assistanceRequests: Array<typeof request> }).assistanceRequests = [request];
+    render(<App apiBase="http://api"/>);
+    expect(await screen.findByText("Request recorded")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Acknowledge request" }));
+    expect(posts).toContainEqual({ path: "/staff/assistance-requests/help_1/acknowledge", body: { version: 1 } });
+
+    Object.assign(request, { deliveryState: "delivered", handlingState: "acknowledged", version: 2 });
+    act(() => Socket.current.onmessage?.({ data: '{"id":"assistance-ack"}' }));
+    expect(await screen.findByText("Staff acknowledged")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start work" }));
+    expect(posts).toContainEqual({ path: "/staff/assistance-requests/help_1/in_progress", body: { version: 2 } });
+
+    Object.assign(request, { handlingState: "in_progress", version: 3 });
+    act(() => Socket.current.onmessage?.({ data: '{"id":"assistance-progress"}' }));
+    expect(await screen.findByText("Work in progress")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
+    expect(posts).toContainEqual({ path: "/staff/assistance-requests/help_1/resolve", body: { version: 3 } });
 });
 test.each([["active", "Navigating"], ["succeeded", "Arrived"], ["canceled", "Canceled"]])(
     "navweb heartbeat %s has a localized staff navigation status", async (status, label) => {
         queue.robot!.lastHeartbeat.adapter = "navweb";
         queue.robot!.lastHeartbeat.navState = status;
         render(<App apiBase="http://api"/>);
+        await userEvent.click(screen.getByRole("button", { name: "Robot" }));
         expect(await screen.findByText(label)).toBeInTheDocument();
     },
 );
 test("PIN is reentered each time and a control failure survives refresh", async () => {
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
     await userEvent.click(await screen.findByRole("button", { name: "Release stop" }));
     response = { status: 403, body: { error: "invalid_pin" } };
     await userEvent.type(screen.getByLabelText("Staff PIN"), "2468{enter}");
@@ -81,7 +125,7 @@ test("nonstaff login is rejected without persisting a session", async () => {
     await userEvent.type(screen.getByLabelText("Username"), "family");
     await userEvent.type(screen.getByLabelText("Password"), "x");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByText("This account is not a staff account")).toBeInTheDocument();
+    expect(await screen.findByText("This account is not a staff or manager account")).toBeInTheDocument();
     expect(sessionStorage.getItem("oncare.staff")).toBeNull();
 });
 test("staff login persists session and logout removes it", async () => {
@@ -96,8 +140,41 @@ test("staff login persists session and logout removes it", async () => {
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(sessionStorage.getItem("oncare.staff")).toBeNull();
 });
+test("manager mode remains a presentation hint for a staff principal", async () => {
+    history.replaceState({}, "", "/?mode=manager");
+    sessionStorage.clear();
+    response = { status: 200, body: { token: "jwt", principal: { role: "staff", displayName: "Nurse" } } };
+    render(<App apiBase="http://api"/>);
+    expect(screen.getByRole("heading", { name: "Manager sign in" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Username"), "nurse");
+    await userEvent.type(screen.getByLabelText("Password"), "x");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("SIMULATED ROBOT");
+    expect(JSON.parse(sessionStorage.getItem("oncare.staff")!)).toMatchObject({ role: "staff" });
+    expect(screen.queryByRole("tab", { name: "Facility admin" })).toBeNull();
+});
+test("staff sessions never fetch laundry manager routes", async () => {
+    render(<App apiBase="http://api"/>);
+    await screen.findByText("SIMULATED ROBOT");
+    await waitFor(() => expect(gets).toContain("/queue"));
+    expect([...gets, ...posts.map((post) => post.path)].filter((path) =>
+        path === "/tools" || path.includes("laundry") || path.includes("find_garments"),
+    )).toEqual([]);
+});
+test("the login response principal grants facility admin access", async () => {
+    history.replaceState({}, "", "/?mode=manager");
+    sessionStorage.clear();
+    response = { status: 200, body: { token: "jwt", principal: { role: "admin", displayName: "Manager" } } };
+    render(<App apiBase="http://api"/>);
+    await userEvent.type(screen.getByLabelText("Username"), "manager");
+    await userEvent.type(screen.getByLabelText("Password"), "x");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("button", { name: "Laundry" })).toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem("oncare.staff")!)).toMatchObject({ role: "admin" });
+});
 test("camera pause and resume use media route and unavailable state has no toggle", async () => {
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
     await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
     expect(posts[0]).toEqual({ path: "/visits/v2/camera", body: { paused: true } });
     queue.activeVisits[0]!.cameraState = "paused";
@@ -112,6 +189,7 @@ test("camera pause and resume use media route and unavailable state has no toggl
 });
 test("camera refusal is actionable and delivered false is never success", async () => {
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
     response = { status: 503, body: { error: "camera_control_failed" } };
     await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/remote-unmute/);
@@ -133,6 +211,7 @@ test("End call takes priority over pending camera control and stays locked throu
         return original(url, init);
     }));
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
     await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
     const end = screen.getByRole("button", { name: "End call" });
     expect(end).toBeEnabled();
@@ -156,11 +235,18 @@ test("a failed end can retry while camera is pending, and late old-session actio
         ? new Promise<Response>(resolve => { finish = resolve; })
         : original(url.replace("http://new-session", "http://api"), init)));
     const view = render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
     await userEvent.click(await screen.findByRole("button", { name: "Pause camera" }));
     response = { status: 503, body: { error: "request" } };
     await userEvent.click(screen.getByRole("button", { name: "End call" }));
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    await act(async () => finish(new Response('{"error":"camera_control_failed"}', { status: 503 })));
+    const callRow = screen.getByText("Resident: r1").closest("li")!;
+    expect(within(callRow).getAllByRole("alert")).toHaveLength(2);
+    expect(within(callRow).getByText(/Action failed/)).toBeInTheDocument();
+    expect(within(callRow).getByText(/Camera control failed/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "End call" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Pause camera" }));
     response = { status: 200, body: { ok: true } };
     await userEvent.click(screen.getByRole("button", { name: "End call" }));
     expect(posts.filter(p => p.path === "/visits/v2/end")).toHaveLength(2);
@@ -170,11 +256,70 @@ test("a failed end can retry while camera is pending, and late old-session actio
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Pause camera" })).toBeEnabled();
 });
+
+test("robot keeps STOP, release, and standby errors beside their controls", () => {
+    const props = {
+        robot: queue.robot! as Robot,
+        onAction: vi.fn(async () => {}),
+        pending: [],
+        errors: {
+            "/robots/robot1/stop": "STOP failed independently",
+            "/robots/robot1/resume": "Release failed independently",
+            "/robots/robot1/standby": "Standby failed independently",
+        },
+    };
+    render(<>
+        <RobotPanel {...props}/>
+        <RobotDetails {...props} knownBusy={false} stale={false}/>
+    </>);
+    const stop = screen.getByRole("button", { name: "STOP ROBOT" });
+    const release = screen.getByRole("button", { name: "Release stop" });
+    const standby = screen.getByRole("button", { name: "Return to standby" });
+    expect(stop.nextElementSibling).toHaveTextContent("STOP failed independently");
+    expect(release.nextElementSibling).toHaveTextContent("Release failed independently");
+    expect(standby.nextElementSibling).toHaveTextContent("Standby failed independently");
+    expect(screen.getAllByRole("alert")).toHaveLength(3);
+});
+
+test("robot request failures stay keyed beside each exact action", async () => {
+    queue.activeVisits = [];
+    queue.tasksAwaitingLoad = [];
+    queue.tasksAwaitingHandoff = [];
+    render(<App apiBase="http://api"/>);
+    const stop = await screen.findByRole("button", { name: "STOP ROBOT" });
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
+
+    response = { status: 503, body: { error: "busy" } };
+    const standby = screen.getByRole("button", { name: "Return to standby" });
+    await userEvent.click(standby);
+    expect(await screen.findByText(/robot is busy/)).toBeInTheDocument();
+
+    response = { status: 403, body: { error: "invalid_pin" } };
+    await userEvent.click(screen.getByRole("button", { name: "Release stop" }));
+    await userEvent.type(screen.getByLabelText("Staff PIN"), "2468{enter}");
+    const releaseError = await screen.findByText(/PIN not accepted/);
+
+    response = { status: 503, body: { error: "not_delivered" } };
+    await userEvent.click(stop);
+    const stopError = await screen.findByText(/not delivered/);
+
+    const release = screen.getByRole("button", { name: "Release stop" });
+    expect(stop.nextElementSibling).toBe(stopError);
+    expect(release.nextElementSibling).toBe(releaseError);
+    expect(standby.nextElementSibling).toHaveTextContent(/robot is busy/);
+    expect(screen.getAllByRole("alert")).toHaveLength(3);
+    expect(posts).toEqual([
+        { path: "/robots/robot1/standby", body: undefined },
+        { path: "/robots/robot1/resume", body: { pin: "2468" } },
+        { path: "/robots/robot1/stop", body: undefined },
+    ]);
+});
 test("CSV export preserves commas, quotes and newlines and reports export failures", async () => {
     let blob: Blob | undefined;
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn((value: Blob) => { blob = value; return "blob:audit"; }), revokeObjectURL: vi.fn() }));
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => { });
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
     const button = await screen.findByRole("button", { name: "Export CSV" });
     await waitFor(() => expect(button).toBeEnabled());
     await userEvent.click(button);
@@ -205,6 +350,7 @@ test("offline, busy and missing robot disable standby", async () => {
     queue.activeVisits = []; queue.tasksAwaitingLoad = []; queue.tasksAwaitingHandoff = [];
     queue.robot!.lastHeartbeat.activeCorrelationId = "task1" as unknown as null;
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
     expect(await screen.findByRole("button", { name: "Return to standby" })).toBeDisabled();
     queue.robot = null;
     act(() => Socket.current.onmessage?.({ data: '{"id":"e4"}' }));
@@ -214,6 +360,7 @@ test("offline, busy and missing robot disable standby", async () => {
 test("standby sends the command when ready but respects offline and not-ready status", async () => {
     queue.activeVisits = []; queue.tasksAwaitingLoad = []; queue.tasksAwaitingHandoff = [];
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
     await userEvent.click(await screen.findByRole("button",{name:"Return to standby"}));
     expect(posts[0]?.path).toBe("/robots/robot1/standby");
     queue.robot!.connected=false;act(()=>Socket.current.onmessage?.({data:'{"id":"offline"}'}));
@@ -228,6 +375,7 @@ test("caregiver calls never label a device correlation id as a resident",async()
 });
 test("audit filters are encoded and audit refreshes on events and polling", async () => {
     render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByText('a,"b" next');
     fireEvent.change(screen.getByLabelText("Resident id"), { target: { value: "r & 1" } });
     fireEvent.change(screen.getByLabelText("Since"), { target: { value: "2026-09-17T01:00" } });
@@ -247,6 +395,7 @@ test("slow queue and audit responses complete despite repeated polling and event
         waiting.push({ path: url.replace("http://api", ""), resolve });
     })));
     render(<App apiBase="http://api"/>);
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await act(async () => {
         await vi.advanceTimersByTimeAsync(9000);
         for (let i = 0; i < 4; i++) Socket.current.onmessage?.({ data: '{"id":"refresh"}' });
@@ -328,6 +477,7 @@ test("pose capture expires independently of pending queue refresh and rejects st
         return new Response('{"events":[]}');
     }));
     render(<App apiBase="http://api"/>);
+    fireEvent.click(screen.getByRole("button", { name: "Robot" }));
     await act(async () => {});
     const capture = () => screen.getByRole("button", { name: "Use robot's position here" });
     expect(capture()).toBeDisabled();
@@ -348,4 +498,123 @@ test("pose capture expires independently of pending queue refresh and rejects st
     seen = new Date(Date.now()).toISOString();
     await act(async () => finish(new Response(JSON.stringify(snapshot()))));
     expect(capture()).toBeEnabled();
+});
+
+test("staff workspace exposes only staff-safe navigation destinations", async () => {
+    render(<App apiBase="http://api"/>);
+    expect(await screen.findByRole("button", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Calls" })).toBeInTheDocument();
+    for (const name of ["Laundry", "Residents", "Family links", "People", "Devices"])
+        expect(screen.queryByRole("button", { name })).toBeNull();
+});
+
+test("the compact safety summary keeps one STOP while Robot owns technical controls", async () => {
+    render(<App apiBase="http://api"/>);
+    const safety = await screen.findByRole("region", { name: "Robot" });
+    expect(within(safety).getByRole("button", { name: "STOP ROBOT" })).toBeVisible();
+    expect(within(safety).queryByRole("button", { name: "Release stop" })).toBeNull();
+    expect(within(safety).queryByRole("button", { name: "Return to standby" })).toBeNull();
+    expect(within(safety).queryByText("Pose")).toBeNull();
+    expect(within(safety).queryByText("Current correlation id")).toBeNull();
+
+    for (const destination of ["Calls", "Activity"]) {
+        await userEvent.click(screen.getByRole("button", { name: destination }));
+        expect(within(safety).getByRole("button", { name: "STOP ROBOT" })).toBeVisible();
+    }
+
+    await userEvent.click(screen.getByRole("button", { name: "Robot" }));
+    const robotView = screen.getByRole("region", { name: "Robot operations" });
+    expect(within(robotView).getByText("Pose")).toBeInTheDocument();
+    expect(within(robotView).getByText("Current correlation id")).toBeInTheDocument();
+    expect(within(robotView).getByRole("button", { name: "Release stop" })).toBeInTheDocument();
+    expect(within(robotView).getByRole("button", { name: "Return to standby" })).toBeInTheDocument();
+    expect(within(robotView).getByRole("region", { name: "Locations" })).toBeInTheDocument();
+    expect(within(robotView).queryByRole("button", { name: "STOP ROBOT" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "STOP ROBOT" })).toHaveLength(1);
+});
+
+test("Activity distinguishes loading, empty results, and a failed audit refresh", async () => {
+    const original = fetch;
+    let finishAudit!: (response: Response) => void;
+    let failAudit = false;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+        const value = String(url);
+        if (value.startsWith("http://api/audit")) {
+            if (failAudit) return Promise.resolve(new Response('{"error":"request"}', { status: 503 }));
+            return new Promise<Response>(resolve => { finishAudit = resolve; });
+        }
+        return original(url, init);
+    }));
+    render(<App apiBase="http://api"/>);
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
+    const activity = screen.getByRole("region", { name: "Activity log" });
+    expect(within(activity).getByRole("status")).toHaveTextContent("Loading activity");
+    expect(within(activity).queryByText("No audit events match these filters.")).toBeNull();
+
+    await act(async () => finishAudit(new Response('{"events":[]}')));
+    expect(await within(activity).findByText("No audit events match these filters.")).toBeInTheDocument();
+    expect(within(activity).getByRole("button", { name: "Export CSV" })).toBeEnabled();
+
+    failAudit = true;
+    fireEvent.change(within(activity).getByLabelText("Resident id"), { target: { value: "resident-9" } });
+    expect(await within(activity).findByRole("alert")).toHaveTextContent("Audit refresh failed");
+    expect(within(activity).queryByText("No audit events match these filters.")).toBeNull();
+    expect(within(activity).getByRole("button", { name: "Export CSV" })).toBeDisabled();
+});
+
+test("Today filters truthful queue facts and preserves the filter while visiting Calls", async () => {
+    queue.tasksAwaitingHandoff[0]!.residentId = "r3";
+    render(<App apiBase="http://api"/>);
+    const today = await screen.findByRole("region", { name: "Today work" });
+    const filter = within(today).getByRole("combobox", { name: "Work type" });
+    const resident = within(today).getByRole("searchbox", { name: "Resident ID filter" });
+    expect(within(today).getAllByText("Awaiting review")).toHaveLength(2);
+    expect(today.querySelector('time[datetime="2026-09-16T23:55:00Z"]')).not.toBeNull();
+    await userEvent.selectOptions(filter, "deliveries");
+    expect(within(today).queryByText("Visit request")).toBeNull();
+    expect(within(today).getAllByRole("listitem")).toHaveLength(3);
+    await userEvent.type(resident, "r1");
+    expect(within(today).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(today).queryByText("Caregiver call")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
+    const calls = screen.getByRole("region", { name: "Active calls" });
+    expect(calls).toBeVisible();
+    expect(within(calls).getByText("Resident: r1")).toBeInTheDocument();
+    expect(within(calls).getByText("Call active")).toBeInTheDocument();
+    expect(today).not.toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Today" }));
+    expect(filter).toHaveValue("deliveries");
+    expect(resident).toHaveValue("r1");
+    expect(within(today).getAllByRole("listitem")).toHaveLength(2);
+});
+
+
+test("a failed queue action restores its button and reports beside only that work row", async () => {
+    render(<App apiBase="http://api"/>);
+    const today = await screen.findByRole("region", { name: "Today work" });
+    const visitRow = within(today).getByText("Visit request", { selector: "strong" }).closest("li");
+    expect(visitRow).not.toBeNull();
+    const approve = within(visitRow!).getByRole("button", { name: "Approve" });
+    response = { status: 503, body: { error: "request" } };
+    await userEvent.click(approve);
+    expect(posts[0]).toEqual({ path: "/visits/v1/approve", body: undefined });
+    expect(await within(visitRow!).findByRole("alert")).toHaveTextContent(/Action failed/);
+    expect(approve).toBeEnabled();
+    const otherRows = within(today).getAllByRole("listitem").filter(row => row !== visitRow);
+    expect(otherRows.every(row => within(row).queryByRole("alert") === null)).toBe(true);
+});
+test("manager navigation preserves the console controller and global STOP", async () => {
+    sessionStorage.setItem("oncare.staff", JSON.stringify({ token: "jwt", displayName: "Manager", role: "admin" }));
+    render(<App apiBase="http://api"/>);
+    expect(await screen.findByText("SIMULATED ROBOT")).toBeInTheDocument();
+    const queueReads = gets.filter(path => path === "/queue").length;
+    const socket = Socket.current;
+    await userEvent.click(screen.getByRole("button", { name: "Calls" }));
+    await userEvent.click(screen.getByRole("button", { name: "Laundry" }));
+    expect(screen.getByRole("button", { name: "Laundry" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "STOP ROBOT" })).toBeInTheDocument();
+    expect(Socket.current).toBe(socket);
+    expect(gets.filter(path => path === "/queue")).toHaveLength(queueReads);
 });

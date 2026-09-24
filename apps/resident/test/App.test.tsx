@@ -76,7 +76,7 @@ test("the live call survives connecting to active, reports lifecycle, and drives
   expect(leaveCall).toHaveBeenCalledTimes(1);
 });
 test("caregiver confirmation requires success; errors return home", async () => {
-  render(<App apiBase="http://api"/>); await screen.findByText("Hello, Demo Resident");
+  render(<App apiBase="http://api"/>); await screen.findByText("Tap anywhere to talk");
   failAction = true; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));
   await screen.findByText("Please try again");
   expect(screen.queryByText("A caregiver has been notified")).not.toBeInTheDocument();
@@ -97,31 +97,31 @@ test("failed delivery receipt uses the kiosk error fallback", async () => {
   render(<App apiBase="http://api"/>);
   fireEvent.click(await screen.findByRole("button", { name: "I have it" }));
   expect(await screen.findByText("Please try again")).toBeInTheDocument();
-  expect(screen.getByText("Hello, Demo Resident")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
 });
 test("first setup skips PIN, saving exits settings and boots auth", async () => {
   localStorage.clear(); render(<App apiBase="http://api"/>);
   fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "device-demo-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findByText("Hello, Demo Resident")).toBeInTheDocument();
+  expect(await screen.findByText("Tap anywhere to talk")).toBeInTheDocument();
   expect(localStorage.getItem("oncare.deviceToken")).toBe("device-demo-token");
 });
 test("failed fetch displays home content and reconnecting feedback", async () => {
   failState = true; render(<App apiBase="http://api"/>);
-  expect(await screen.findByText("Reconnecting…")).toBeInTheDocument();
+  expect(await screen.findByText("I can't connect right now")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Call a caregiver" })).toBeDisabled();
 });
 test("transient authentication retries and recovers", async () => {
   vi.useFakeTimers(); failAuth = true; render(<App apiBase="http://api"/>);
   await act(async () => {}); failAuth = false;
   await act(async () => vi.advanceTimersByTimeAsync(5000));
-  expect(screen.getByText("Hello, Demo Resident")).toBeInTheDocument();
+  expect(screen.getByText("Tap anywhere to talk")).toBeInTheDocument();
 });
 test("idle incoming returns home without mutation, a changed server screen resumes", async () => {
   vi.useFakeTimers(); state = { ...state, screen: "incoming", visit: { id: "v", state: "awaiting_resident_consent" }, caller: { displayName: "Amy" } };
   render(<App apiBase="http://api"/>); await act(async () => {});
   await act(async () => vi.advanceTimersByTimeAsync(90_000));
-  expect(screen.getByText("Hello, Demo Resident")).toBeInTheDocument();
+  expect(screen.getByText("Tap anywhere to talk")).toBeInTheDocument();
   expect(calls.filter((p) => p.startsWith("/visits/"))).toHaveLength(0);
   state = { ...state, screen: "in_call", visit: { id: "v", state: "active" } };
   await act(async () => vi.advanceTimersByTimeAsync(5000));
@@ -148,7 +148,7 @@ test("events refetch immediately and older state responses cannot overwrite newe
   render(<App apiBase="http://api"/>);
   await waitFor(() => expect(stateCalls).toBe(1));
   act(() => Socket.current.onmessage?.({ data: JSON.stringify({ type: "visit.updated" }) }));
-  await screen.findByText("Hello, Demo Resident");
+  await screen.findByText("Tap anywhere to talk");
   await act(async () => release(new Response(JSON.stringify({ ...state, screen: "incoming", visit: { id: "old", state: "awaiting_resident_consent" }, caller: { displayName: "Old" } }))));
   expect(screen.queryByText("Old is calling")).not.toBeInTheDocument();
 });

@@ -93,7 +93,7 @@ describe("visit actions", () => {
     const { db, app, act } = await visitIn("awaiting_resident_consent");
     const { hashSecret } = await import("../src/auth/password");
     db.insert(t.resident).values({ id: "resident_demo_02", facilityId: SEED_IDS.facility, displayName: "Other", roomLocationId: SEED_IDS.roomLocation }).run();
-    db.insert(t.robotDevice).values({ id: "ipad_demo_02", robotId: SEED_IDS.robot, kind: "ipad", residentId: "resident_demo_02", deviceTokenHash: await hashSecret("other-device") }).run();
+    db.insert(t.device).values({ id: "ipad_demo_02", facilityId: SEED_IDS.facility, robotId: SEED_IDS.robot, kind: "ipad", residentId: "resident_demo_02", deviceTokenHash: await hashSecret("other-device") }).run();
     const tok = (await app.inject({ method: "POST", url: "/auth/device", payload: { deviceToken: "other-device" } })).json().token;
     expect((await act("answer", tok)).statusCode).toBe(403);
   });

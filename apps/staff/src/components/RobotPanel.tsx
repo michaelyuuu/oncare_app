@@ -1,26 +1,23 @@
 import { useState } from "react";
 import { t } from "@oncare/web-common";
 import type { Action, Robot } from "../types";
-export function RobotPanel({ robot, onAction, pending, knownBusy, stale }: {
+
+const navLabels: Record<string, string> = {
+    idle: "idle", navigating: "navigating", active: "navigating",
+    arrived: "arrived", succeeded: "arrived", failed: "failed",
+    stopped: "stopped", canceled: "canceled",
+};
+
+export function RobotPanel({ robot, onAction, pending, errors }: {
     robot: Robot | null;
     onAction: Action;
     pending: string[];
-    knownBusy: boolean;
-    stale: boolean;
+    errors: Record<string, string>;
 }) {
-    const [askPin, setAskPin] = useState(false);
-    const [pin, setPin] = useState("");
     const hb = robot?.lastHeartbeat;
     const base = `/robots/${robot?.robotId}`;
-    const busy = pending.includes(base);
-    const unknown = t("staff.unknown");
-    const navLabels: Record<string, string> = {
-        idle: "idle", navigating: "navigating", active: "navigating",
-        arrived: "arrived", succeeded: "arrived", failed: "failed",
-        stopped: "stopped", canceled: "canceled",
-    };
-    const navLabel = navLabels[hb?.navState ?? ""];
-    return <div className="robot-panel">
+    const stopError = errors[`${base}/stop`];
+    return <div className="robot-panel robot-summary">
         {!robot && <p>{t("staff.robot.none")}</p>}
         <div className="pills">
             <span>{t(robot?.connected ? "staff.robot.connected" : "staff.robot.disconnected")}</span>
@@ -32,7 +29,30 @@ export function RobotPanel({ robot, onAction, pending, knownBusy, stale }: {
             disabled={!robot || pending.includes(`${base}/stop`)}
             onClick={() => void onAction(`${base}/stop`)}
         >{t("staff.robot.stop")}</button>
-        <dl>
+        {stopError && <p className="row-error" role="alert">{stopError}</p>}
+    </div>;
+}
+
+export function RobotDetails({ robot, onAction, pending, knownBusy, stale, errors }: {
+    robot: Robot | null;
+    onAction: Action;
+    pending: string[];
+    knownBusy: boolean;
+    stale: boolean;
+    errors: Record<string, string>;
+}) {
+    const [askPin, setAskPin] = useState(false);
+    const [pin, setPin] = useState("");
+    if (!robot) return null;
+    const hb = robot.lastHeartbeat;
+    const base = `/robots/${robot.robotId}`;
+    const busy = pending.includes(base);
+    const resumeError = errors[`${base}/resume`];
+    const standbyError = errors[`${base}/standby`];
+    const unknown = t("staff.unknown");
+    const navLabel = navLabels[hb?.navState ?? ""];
+    return <div className="robot-details">
+        <dl className="robot-facts">
             <dt>{t("staff.robot.nav")}</dt>
             <dd>{t(navLabel ? `staff.nav.${navLabel}` : "staff.unknown")}</dd>
             <dt>{t("staff.robot.estop")}</dt>
@@ -64,9 +84,11 @@ export function RobotPanel({ robot, onAction, pending, knownBusy, stale }: {
                 {t("staff.cancel")}
             </button>
         </form>}
+        {resumeError && <p className="row-error" role="alert">{resumeError}</p>}
         <button
             disabled={!robot?.connected || !hb?.robotReady || !!hb?.activeCorrelationId || knownBusy || busy || stale || hb?.estop === true}
             onClick={() => void onAction(`${base}/standby`)}
         >{t("staff.robot.standby")}</button>
+        {standbyError && <p className="row-error" role="alert">{standbyError}</p>}
     </div>;
 }
