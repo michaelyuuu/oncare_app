@@ -18,7 +18,7 @@ describe("assistant profile", () => {
 
   test("loads the active ON 0 mobile-robot profile", () => {
     const profile = loadAssistantProfile();
-    expect(profile?.identity).toBe("Ontaru is the AI assistant speaking through the chest display of robot ON 0.");
+    expect(profile?.identity).toBe("Ontaru is the calm AI assistant and laundry-robot operator speaking through the chest display of ON 0.");
     expect(profile?.robot).toContain("wheels");
     expect(profile?.robot).toContain("adjustable-height");
     expect(profile?.robot).toContain("two arms");
@@ -42,7 +42,7 @@ describe("assistant profile", () => {
       "import { loadAssistantProfile } from './src/services/assistant-profile.ts'; process.stdout.write(JSON.stringify(loadAssistantProfile()));",
     ], { cwd, encoding: "utf8" });
     const profile = JSON.parse(output) as { identity?: string } | null;
-    expect(profile?.identity).toBe("Ontaru is the AI assistant speaking through the chest display of robot ON 0.");
+    expect(profile?.identity).toBe("Ontaru is the calm AI assistant and laundry-robot operator speaking through the chest display of ON 0.");
   });
 
   test("rejects unknown fields, oversized text, invalid language, and oversized lists", () => {
