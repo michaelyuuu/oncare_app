@@ -1,4 +1,4 @@
-CREATE TABLE `garment_projection` (
+CREATE TABLE IF NOT EXISTS `garment_projection` (
 	`id` text PRIMARY KEY NOT NULL,
 	`source_key` text NOT NULL,
 	`station_id` text NOT NULL,
@@ -17,8 +17,8 @@ CREATE TABLE `garment_projection` (
 	FOREIGN KEY (`resident_id`) REFERENCES `resident`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `garment_projection_station_source` ON `garment_projection` (`station_id`,`source_key`);--> statement-breakpoint
-CREATE TABLE `rfid_station_sync` (
+CREATE UNIQUE INDEX IF NOT EXISTS `garment_projection_station_source` ON `garment_projection` (`station_id`,`source_key`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `rfid_station_sync` (
 	`station_id` text PRIMARY KEY NOT NULL,
 	`facility_id` text NOT NULL,
 	`source_version` integer,

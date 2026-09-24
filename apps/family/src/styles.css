@@ -21,3 +21,70 @@
 .ask-feedback .error { margin: 0; }
 .task-stepper { margin-bottom: .25rem; }
 .page { width: min(100%, 40rem); min-height: 100dvh; margin: 0 auto; padding: 2rem 1rem 3rem; } .page--login { display: grid; align-content: center; gap: 2.5rem; } .welcome, .masthead { border-left: .45rem solid var(--pine); padding-left: 1rem; } .wordmark { margin: 0 0 .45rem; color: var(--pine); font-family: Arial, sans-serif; font-size: .82rem; font-weight: 700; letter-spacing: .08em; } h1, h2 { margin: 0; line-height: 1.08; } h1 { font-size: clamp(2.2rem, 12vw, 3.8rem); letter-spacing: -.045em; } h2 { font-size: 1.65rem; } p { line-height: 1.5; } form { display: grid; gap: .7rem; } label { font-family: Arial, sans-serif; font-size: .9rem; font-weight: 700; } input { width: 100%; min-height: 3.25rem; border: 1px solid #81958a; border-radius: .35rem; background: #fff; padding: .65rem; } button { min-height: 3.25rem; border: 1px solid var(--pine); border-radius: .35rem; background: transparent; color: var(--pine); padding: .65rem 1rem; font-family: Arial, sans-serif; font-size: 1rem; font-weight: 700; } .primary { background: var(--pine); color: #fff; } .danger { color: #fff; background: var(--danger); border-color: var(--danger); } .link { min-height: auto; border: 0; padding: .25rem 0; text-align: left; text-decoration: underline; } .masthead { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 2rem; } .masthead h1 { font-size: clamp(2rem, 10vw, 3rem); } .cards { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; } .card { display: grid; gap: 1rem; padding: 1.35rem; border: 1px solid var(--line); border-radius: .5rem; background: #fff; box-shadow: 0 8px 22px rgba(32, 52, 47, .07); } .card .primary { width: 100%; } .availability { margin: 0; color: #446157; } .availability--not_available { color: var(--danger); } .error { margin: 1rem 0; padding: .75rem; border-left: .3rem solid var(--danger); background: #f9e9e6; color: #702828; } .page--visit { padding-top: 1.35rem; } .back { margin-bottom: 2rem; } .page--visit > h1 { margin-bottom: 1rem; font-size: clamp(2rem, 10vw, 3.25rem); } .badge-sim { display: inline-block; margin-bottom: 1.5rem; padding: .35rem .6rem; border-radius: 999px; background: var(--amber); color: #4f3a0f; font-family: Arial, sans-serif; font-size: .78rem; font-weight: 700; letter-spacing: .03em; } .stepper { margin: 1rem 0 2rem; padding: 0; list-style: none; } .step { position: relative; display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; min-height: 4.1rem; color: #73847d; } .step:not(:last-child)::after { position: absolute; top: 2rem; left: .95rem; width: 2px; height: calc(100% - .4rem); background: var(--line); content: ""; } .step-marker { z-index: 1; display: grid; width: 2rem; height: 2rem; place-items: center; border: 2px solid currentColor; border-radius: 50%; background: var(--paper); font-family: Arial, sans-serif; font-weight: 700; } .step--done, .step--current { color: var(--pine); } .step--done .step-marker { background: var(--pine); color: #fff; } .step--current .step-marker { box-shadow: 0 0 0 .28rem var(--sage); } .step--failed { color: var(--danger); } .failed-reason { margin: .4rem 0 0; color: var(--danger); font-size: .94rem; } .actions { display: grid; gap: .75rem; } .loading { margin-top: 4rem; color: #446157; } @media (min-width: 42rem) { .page { padding-left: 2rem; padding-right: 2rem; } .card .primary { width: auto; justify-self: start; } } @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+
+/* Landscape scheduling surface: calm, touch-first, and consistent with the resident communication palette. */
+.resident-card__actions { display: grid; gap: .65rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.family-schedule {
+  min-height: 100dvh;
+  padding: clamp(1.25rem, 4vh, 2.5rem) clamp(1rem, 4vw, 3.5rem);
+  background: radial-gradient(circle at 72% 12%, rgb(245 207 117 / 22%), transparent 32%), #f8f8f2;
+}
+.family-schedule__header, .family-schedule__content-heading, .family-schedule__summary, .family-reservation-card__heading { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; }
+.family-schedule__header { width: min(100%, 86rem); margin: 0 auto 1.25rem; }
+.family-schedule__header h1 { font-size: clamp(2rem, 4vw, 3.5rem); }
+.family-schedule__top-actions { display: flex; align-items: center; gap: .75rem; }
+.family-schedule__top-actions button { min-height: 3.25rem; }
+.family-schedule__eyebrow { margin: 0 0 .35rem; color: #547568; font-family: Arial, sans-serif; font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.family-schedule__local-time, .family-schedule__content-heading > p { margin: .35rem 0 0; color: #55746a; font-family: Arial, sans-serif; font-size: .9rem; }
+.family-schedule__body { display: grid; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); gap: clamp(1rem, 3vw, 2.25rem); width: min(100%, 86rem); min-height: calc(100dvh - 12rem); margin: 0 auto; }
+.family-schedule__rail { padding: 1rem; border: 1px solid var(--line); border-radius: .8rem; background: rgb(255 255 255 / 76%); }
+.family-date-rail { display: grid; gap: .5rem; max-height: calc(100dvh - 14rem); overflow-y: auto; }
+.family-date-rail__day { display: flex; align-items: center; justify-content: space-between; min-height: 3.25rem; border: 1px solid transparent; border-radius: .55rem; padding: .65rem .8rem; color: var(--ink); background: transparent; text-align: left; }
+.family-date-rail__day small { color: var(--pine); font-family: Arial, sans-serif; font-size: .72rem; }
+.family-date-rail__day:hover, .family-date-rail__day--selected { border-color: #8fb19f; background: var(--sage); }
+.family-schedule__content { min-width: 0; padding: .35rem 0; }
+.family-schedule__content-heading { align-items: end; margin-bottom: 1rem; }
+.family-schedule__content-heading h2 { font-size: clamp(1.45rem, 2.6vw, 2.2rem); }
+.family-slot-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.family-slot { display: grid; align-content: center; justify-items: start; min-height: 5.15rem; padding: .7rem .9rem; border-color: #a9bcb2; border-radius: .7rem; background: #fff; text-align: left; }
+.family-slot strong { font-size: clamp(1.1rem, 2.1vw, 1.5rem); }
+.family-slot small { margin-top: .3rem; color: #55746a; font-family: Arial, sans-serif; font-size: .78rem; }
+.family-slot:not(:disabled):hover, .family-slot--selected { border-color: var(--pine); background: var(--sage); box-shadow: inset 0 0 0 2px var(--pine); }
+.family-slot--blocked { border-color: #d7ded8; color: #83948c; background: repeating-linear-gradient(-45deg, #edf1ed, #edf1ed 8px, #e6ece7 8px, #e6ece7 16px); }
+.family-slot--blocked small { color: #83948c; }
+.family-schedule__summary { align-items: center; margin-top: 1rem; padding: 1rem; border: 1px solid #b6cdbd; border-radius: .7rem; background: #eef5ef; }
+.family-schedule__summary p { margin: .2rem 0 0; font-size: 1.15rem; font-weight: 700; }
+.family-schedule__summary button { min-height: 3.5rem; white-space: nowrap; }
+.family-schedule__notice, .family-schedule__hint { font-family: Arial, sans-serif; }
+.family-schedule__notice { padding: .7rem .9rem; border-left: .3rem solid var(--pine); background: var(--sage); }
+.family-schedule__hint { color: #55746a; font-size: .82rem; }
+.family-schedule__reservations { display: grid; gap: .75rem; margin-top: 1.5rem; }
+.family-schedule__reservations > h2 { font-size: 1.25rem; }
+.family-reservation-card { display: grid; gap: .7rem; padding: 1rem; border: 1px solid var(--line); border-radius: .7rem; background: #fff; }
+.family-reservation-card--confirmed { border-color: #98bba5; background: #f0f7f1; }
+.family-reservation-card--expired, .family-reservation-card--cancelled { color: #6e7c76; background: #edf1ed; }
+.family-reservation-card__eyebrow { margin: 0 0 .25rem; color: #547568; font-family: Arial, sans-serif; font-size: .72rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.family-reservation-card h3 { margin: 0; font-size: 1.15rem; }
+.family-reservation-card__time { margin: 0; font-weight: 700; white-space: nowrap; }
+.family-reservation-card__actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.family-reservation-card__actions button { min-height: 3rem; }
+.incoming-visit { display: grid; gap: 1rem; max-width: 42rem; margin: 15vh auto 0; padding: clamp(1.4rem, 4vw, 3rem); border: 1px solid #b6cdbd; border-top: .45rem solid var(--pine); border-radius: .8rem; background: #fff; box-shadow: 0 12px 28px rgba(32, 52, 47, .08); }
+.incoming-visit__eyebrow { margin: 0; color: var(--pine); font-family: Arial, sans-serif; font-size: .85rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.incoming-visit h1 { font-size: clamp(2rem, 8vw, 3.8rem); }
+.incoming-visit__actions { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+@media (max-width: 52rem) {
+  .family-schedule__body { grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; }
+  .family-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 40rem) {
+  .resident-card__actions, .incoming-visit__actions { grid-template-columns: 1fr; }
+  .family-schedule { padding: 1rem; }
+  .family-schedule__header { align-items: flex-start; flex-direction: column; }
+  .family-schedule__body { grid-template-columns: 1fr; }
+  .family-date-rail { display: flex; max-height: none; overflow-x: auto; }
+  .family-date-rail__day { min-width: 9rem; }
+  .family-schedule__content-heading { align-items: flex-start; flex-direction: column; }
+  .family-schedule__summary { align-items: stretch; flex-direction: column; }
+  .family-schedule__summary button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .family-slot, .family-date-rail__day { transition: none; } }

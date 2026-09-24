@@ -7,6 +7,16 @@ import {
 } from "../src/visit-state";
 
 describe("visit state machine", () => {
+  test("resident-originated arrival waits for family consent with only consent and safety exits", () => {
+    expect(VISIT_STATES).toContain("awaiting_family_consent");
+    expect(isVisitTransitionAllowed("robot_en_route", "awaiting_family_consent")).toBe(true);
+    for (const next of VISIT_STATES) {
+      expect(isVisitTransitionAllowed("awaiting_family_consent", next)).toBe(
+        ["connecting", "cancelled", "safety_stopped"].includes(next),
+      );
+    }
+  });
+
   test("follows the happy path from requested to completed", () => {
     const path = [
       "requested",

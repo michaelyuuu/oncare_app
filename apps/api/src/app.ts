@@ -13,6 +13,7 @@ import { eventsRoutes } from "./routes/events-ws";
 import { gatewayRoutes } from "./routes/gateway-ws";
 import { meRoutes } from "./routes/me";
 import { locationRoutes } from "./routes/locations";
+import { reservationRoutes } from "./routes/reservations";
 import { robotRoutes } from "./routes/robots";
 import { staffRoutes } from "./routes/staff";
 import { taskRoutes } from "./routes/tasks";
@@ -24,6 +25,8 @@ import { createAssistanceService, type AssistanceService } from "./services/assi
 import { loadAssistantProfile } from "./services/assistant-profile";
 import { createDispatchService } from "./services/dispatch";
 import { GatewayHub } from "./services/gateway-hub";
+import { createReservationService, type ReservationService } from "./services/reservations";
+import { createReservationScheduler } from "./services/reservation-scheduler";
 import { createTransitionService } from "./services/transitions";
 import { createTaskService, type TaskService } from "./services/tasks";
 import { createVisitService, type TransitionService, type VisitService } from "./services/visits";
@@ -57,6 +60,8 @@ export interface AppOptions {
 declare module "fastify" {
   interface FastifyInstance {
     transitions: TransitionService; visits: VisitService;
+    reservations: ReservationService;
+    reservationScheduler: ReturnType<typeof createReservationScheduler>;
     assistance: AssistanceService;
     assistant: VoiceService;
     hub: GatewayHub; dispatch: ReturnType<typeof createDispatchService>;
@@ -80,8 +85,21 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate("transitions", transitions);
   const laundry = createLaundryRepository(opts.db, opts.now ? { now: opts.now } : {});
   app.decorate("laundry", laundry);
+  app.decorate("reservations", createReservationService(
+    opts.db,
+    app.access,
+    transitions,
+    opts.now ? { now: opts.now } : {},
+  ));
   app.decorate("tools", createToolRegistry({
-    db: opts.db, access: app.access, transitions, assistance: app.assistance, laundry, tools: opts.tools ?? BUILTIN_TOOLS, ...(opts.now ? { now: opts.now } : {}),
+    db: opts.db,
+    access: app.access,
+    transitions,
+    assistance: app.assistance,
+    reservations: app.reservations,
+    laundry,
+    tools: opts.tools ?? BUILTIN_TOOLS,
+    ...(opts.now ? { now: opts.now } : {}),
   }));
   const managerApiKey = opts.managerApiKey ?? process.env.OPENAI_API_KEY;
   app.decorate("laundryAssistant", createLaundryAssistant({
@@ -116,13 +134,20 @@ export function buildApp(opts: AppOptions): FastifyInstance {
     ...(opts.now ? { now: opts.now } : {}),
     onVideoCloseError: (visitId) => app.log.error({ visitId }, "failed to close video room"),
   }));
+  app.decorate("reservationScheduler", createReservationScheduler({
+    db: opts.db, reservations: app.reservations, visits: app.visits, transitions, dispatch: app.dispatch,
+    ...(opts.now ? { now: opts.now } : {}),
+  }));
+  app.addHook("onReady", async () => app.reservationScheduler.start());
+  app.addHook("onClose", async () => app.reservationScheduler.stop());
+  app.addHook("onClose", async () => app.dispatch.stop());
   app.addHook("onClose", async () => app.visits.stop());
   app.addHook("onClose", async () => app.assistant.stop());
   app.addHook("onClose", async () => app.rfid.stop());
   app.register(authPlugin, { secret: opts.jwtSecret });
   app.register(fastifyWebsocket);
   app.register(authRoutes, { db: opts.db });
-  app.register(deviceRoutes, { db: opts.db });
+  app.register(deviceRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(assistanceRoutes);
   app.register(capabilitiesRoutes);
   app.register(assistantRoutes);
@@ -130,6 +155,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(locationRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
   app.register(visitRoutes);
   app.register(videoRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });
+  app.register(reservationRoutes);
   app.register(gatewayRoutes, { db: opts.db });
   app.register(robotRoutes, { db: opts.db });
   app.register(staffRoutes, { db: opts.db, ...(opts.now ? { now: opts.now } : {}) });

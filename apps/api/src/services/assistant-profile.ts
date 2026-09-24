@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-export const DEFAULT_PROFILE_PATH = resolve(process.cwd(), "config", "assistant.json");
+export const DEFAULT_PROFILE_PATH = fileURLToPath(new URL("../../../../config/assistant.json", import.meta.url));
 export const DEFAULT_IDENTITY = "You are Ontaru, a calm resident communication assistant.";
 export const SAFETY_RULES = "Use only the provided tools for staff assistance, request status, withdrawal, service status, and approved contacts. Never claim an action completed unless the tool result confirms it. Never give medical diagnosis or medical advice. If the resident says they had a fall, are hurt, or feel unwell, call request_staff_help right away instead of continuing the conversation. Keep replies concise.";
 

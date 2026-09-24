@@ -23,7 +23,7 @@ beforeEach(() => {
     callCallbacks = callbacks;
     return { setVolume: vi.fn(), setMic: vi.fn(), setCamera: vi.fn(), localVideoElement: () => null, leave: leaveCall };
   });
-  localStorage.setItem("oncare.deviceToken", "device-demo-token");
+  localStorage.setItem("oncare.deviceToken", "1234");
   vi.stubGlobal("WebSocket", Socket);
   vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak: vi.fn() });
   vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
@@ -31,7 +31,26 @@ beforeEach(() => {
     const path = url.replace("http://api", ""); calls.push(path);
     const auth = path === "/auth/device", getState = path === "/device/state";
     const token = path.endsWith("/token");
-    return new Response(JSON.stringify(auth ? { token: "jwt" } : getState ? state : token ? { url: "wss://x", token: "call-token", room: "v1" } : { ok: true }), { status: (auth ? failAuth : getState ? failState : failAction) ? 500 : 200 });
+    const assistanceCreate = path === "/assistance-requests";
+    const assistanceRead = path.startsWith("/assistance-requests/");
+    const contactList = path === "/visit-reservations/contacts";
+    const reservationList = path === "/visit-reservations";
+    const body = auth
+      ? { token: "jwt" }
+      : getState
+        ? state
+        : assistanceCreate
+          ? { request: { id: "help_" + "a".repeat(32) } }
+          : assistanceRead
+            ? { request: { persistenceState: "recorded", deliveryState: "pending", handlingState: "open" } }
+            : contactList
+              ? { contacts: [{ userId: "family-1", displayName: "Amy", label: "daughter" }] }
+              : reservationList
+                ? { reservations: [] }
+                : token
+                  ? { url: "wss://x", token: "call-token", room: "v1" }
+                  : { ok: true };
+    return new Response(JSON.stringify(body), { status: (auth ? failAuth : getState ? failState : failAction) ? 500 : 200 });
   }));
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -75,14 +94,35 @@ test("the live call survives connecting to active, reports lifecycle, and drives
   await waitFor(() => expect(calls).toContain("/visits/v1/connection_lost"));
   expect(leaveCall).toHaveBeenCalledTimes(1);
 });
-test("caregiver confirmation requires success; errors return home", async () => {
+test("the single help action records a staff request and handles failure", async () => {
   render(<App apiBase="http://api"/>); await screen.findByText("Tap anywhere to talk");
-  failAction = true; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));
-  await screen.findByText("Please try again");
-  expect(screen.queryByText("A caregiver has been notified")).not.toBeInTheDocument();
-  failAction = false; fireEvent.click(screen.getByRole("button", { name: "Call a caregiver" }));
-  expect(await screen.findByText("A caregiver has been notified")).toBeInTheDocument();
+  failAction = true; fireEvent.click(screen.getByRole("button", { name: "I need help" }));
+  await screen.findByText("That didn't go through. Please try again.");
+  expect(screen.queryByRole("button", { name: "Call a caregiver" })).not.toBeInTheDocument();
+  failAction = false; fireEvent.click(screen.getByRole("button", { name: "I need help" }));
+  expect(await screen.findByText("Request recorded. Staff can see it in the queue.")).toBeInTheDocument();
+  expect(calls).toContain("/assistance-requests");
 });
+test("resident can start a video call after choosing an approved contact", async () => {
+  render(<App apiBase="http://api" />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Amy/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Call now" }));
+  await waitFor(() => expect(calls).toContain("/visits/now"));
+});
+test("bottom-left home control returns from Talk and the visit calendar", async () => {
+  render(<App apiBase="http://api"/>);
+  await screen.findByText("Tap anywhere to talk");
+  fireEvent.click(screen.getByRole("button", { name: "Talk to Ontaru" }));
+  expect(await screen.findByRole("button", { name: "Stop listening" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Home; hold 3 seconds for staff settings" }));
+  expect(await screen.findByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("radio", { name: /Amy/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Schedule a visit" }));
+  expect(await screen.findByTestId("resident-visit-calendar")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Home; hold 3 seconds for staff settings" }));
+  expect(await screen.findByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
+});
+
 test("delivery arrived shows the item and receipt posts before refreshing", async () => {
   state = { ...state, screen: "delivery_arrived", task: { id: "t1", state: "placing", item: { id: "water_bottle", label: "water bottle" } } };
   render(<App apiBase="http://api"/>);
@@ -101,15 +141,15 @@ test("failed delivery receipt uses the kiosk error fallback", async () => {
 });
 test("first setup skips PIN, saving exits settings and boots auth", async () => {
   localStorage.clear(); render(<App apiBase="http://api"/>);
-  fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "device-demo-token" } });
+  fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "1234" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText("Tap anywhere to talk")).toBeInTheDocument();
-  expect(localStorage.getItem("oncare.deviceToken")).toBe("device-demo-token");
+  expect(localStorage.getItem("oncare.deviceToken")).toBe("1234");
 });
 test("failed fetch displays home content and reconnecting feedback", async () => {
   failState = true; render(<App apiBase="http://api"/>);
   expect(await screen.findByText("I can't connect right now")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Call a caregiver" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "I need help" })).toBeDisabled();
 });
 test("transient authentication retries and recovers", async () => {
   vi.useFakeTimers(); failAuth = true; render(<App apiBase="http://api"/>);
@@ -134,7 +174,11 @@ test("a mistyped first token is never persisted and setup remains recoverable", 
   fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "typo" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Please try again"); expect(localStorage.getItem("oncare.deviceToken")).toBeNull();
-  fireEvent.keyDown(screen.getByRole("button", { name: "Hold for staff settings" }), { key: "Enter" });
+  vi.useFakeTimers();
+  const settingsButton = screen.getByRole("button", { name: "Home; hold 3 seconds for staff settings" });
+  fireEvent.keyDown(settingsButton, { key: "Enter" });
+  await act(async () => vi.advanceTimersByTimeAsync(3000));
+  fireEvent.keyUp(settingsButton, { key: "Enter" });
   expect(screen.getByLabelText("Device token")).toBeInTheDocument();
 });
 test("events refetch immediately and older state responses cannot overwrite newer ones", async () => {

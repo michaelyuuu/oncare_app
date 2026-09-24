@@ -47,6 +47,26 @@ function sanitizeLaundryWarnings(warnings: LaundryWarning[]): PublicLaundryWarni
   return warnings.map(sanitizeLaundryWarning);
 }
 
+const LOCAL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function isCalendarDate(value: string): boolean {
+  const match = LOCAL_DATE_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
+const localDateInput = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isCalendarDate, "Invalid calendar date");
+
 function requireDevice(ctx: Parameters<NonNullable<ToolDef["run"]>>[0]) {
   if (ctx.principal.kind !== "device") throw new ToolForbidden();
   return ctx.principal;
@@ -70,6 +90,30 @@ function throwAssistanceFailure(error: string): never {
   if (error === "not_found") throw new ToolNotFound();
   if (error === "version_conflict" || error === "invalid_transition" || error === "idempotency_conflict") throw new ToolConflict(error);
   throw new ToolInputError(error);
+}
+
+function throwReservationFailure(error: string): never {
+  if (error === "forbidden" || error === "consent_missing") throw new ToolForbidden();
+  if (error === "not_found") throw new ToolNotFound();
+  if (error === "conflict" || error === "expired" || error === "invalid_action") throw new ToolConflict(error);
+  throw new ToolInputError(error);
+}
+
+function localVisitLabel(localDate: string, startMinute: number): string {
+  const date = new Date(localDate + "T00:00:00.000Z");
+  const time = new Date(Date.UTC(2000, 0, 1, 0, startMinute));
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date);
+  const timeLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(time);
+  return dateLabel + " at " + timeLabel + " local time";
 }
 
 function requestStatus(request: AssistanceRequest) {
@@ -123,6 +167,70 @@ export const getApprovedContacts = defineTool({
   run: (ctx) => {
     const principal = requireDevice(ctx);
     return { contacts: ctx.directory.familyContacts(principal.residentId) };
+  },
+});
+
+export const getVisitSchedule = defineTool({
+  name: "get_visit_schedule",
+  description: "Read this resident's evidence-based upcoming and recent ON 0 visit reservations.",
+  roles: ["device"],
+  effect: "read",
+  input: z.object({}).strict(),
+  run: (ctx) => {
+    requireDevice(ctx);
+    return { reservations: ctx.reservations.list(ctx.principal) };
+  },
+});
+
+export const getVisitSlots = defineTool({
+  name: "get_visit_slots",
+  description: "Read authoritative ON 0 visit slot availability for this resident, starting on one facility-local date.",
+  roles: ["device"],
+  effect: "read",
+  input: z.object({
+    from: localDateInput,
+  }).strict(),
+  run: (ctx, input) => {
+    const principal = requireDevice(ctx);
+    const result = ctx.reservations.slots({
+      principal,
+      residentId: principal.residentId,
+      from: input.from,
+    });
+    if (!result.ok) throwReservationFailure(result.error);
+    return result.value;
+  },
+});
+
+export const proposeVisitTime = defineTool({
+  name: "propose_visit_time",
+  description: "Prepare a one-hour ON 0 robot visit proposal with one approved contact. The resident must confirm it on screen before it is created.",
+  roles: ["device"],
+  effect: "write",
+  input: z.object({
+    contactUserId: z.string().min(1),
+    localDate: localDateInput,
+    startMinute: z.number().int().min(0).max(1439),
+  }).strict(),
+  summarize: (ctx, input) => {
+    requireDevice(ctx);
+    const contacts = ctx.reservations.contacts(ctx.principal);
+    if (!contacts.ok) throwReservationFailure(contacts.error);
+    const contact = contacts.value.find((candidate) => candidate.userId === input.contactUserId);
+    if (!contact) throw new ToolForbidden();
+    return "Propose a visit with " + contact.displayName + " on " + localVisitLabel(input.localDate, input.startMinute)
+      + " for a one-hour ON 0 visit?";
+  },
+  run: (ctx, input) => {
+    const principal = requireDevice(ctx);
+    const result = ctx.reservations.createProposal({
+      principal,
+      familyUserId: input.contactUserId,
+      localDate: input.localDate,
+      startMinute: input.startMinute,
+    });
+    if (!result.ok) throwReservationFailure(result.error);
+    return { reservation: result.value };
   },
 });
 
@@ -243,6 +351,9 @@ export const BUILTIN_TOOLS: ToolDef[] = [
   listMyResidentsOrContacts,
   getResidentStatus,
   getApprovedContacts,
+  getVisitSchedule,
+  getVisitSlots,
+  proposeVisitTime,
   requestStaffHelp,
   getMyRequestStatus,
   requestWithdrawal,

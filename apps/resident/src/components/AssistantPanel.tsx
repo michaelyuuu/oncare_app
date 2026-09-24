@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { type Api, t } from "@oncare/web-common";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { ApiError, type Api, type VisitContact, t } from "@oncare/web-common";
 import { createAssistantClient } from "../assistant";
-import { type LiveVoiceEventState } from "../realtime";
+import { extractAssistantActionProposal, type AssistantActionProposal, type LiveVoiceEventState } from "../realtime";
 import { speak, stopSpeaking } from "../speech";
+import { AssistantActionConfirmation } from "./AssistantActionConfirmation";
+import { VisitContactPicker } from "./VisitContactPicker";
 
 type PanelState = "connecting" | "listening" | "thinking" | "speaking" | "error";
 type HelpStatus = "idle" | "sending" | "recorded" | "error";
+const EXPIRED_ACTION_NOTICE = "That visit confirmation has expired. Please choose a new time.";
 
 function evidenceMessage(result: unknown): string | null {
   if (typeof result !== "object" || result === null || !("result" in result)) return null;
@@ -32,6 +35,16 @@ function panelState(event: LiveVoiceEventState): PanelState {
   return "listening";
 }
 
+function voiceStartupNotice(failure: unknown): string {
+  const name = typeof failure === "object" && failure !== null && "name" in failure ? String(failure.name) : "";
+  const message = failure instanceof Error ? failure.message : "";
+  if (message.includes("Microphone access requires HTTPS")) return "Open OnCare with HTTPS to use the microphone.";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Microphone access is blocked. Allow it in this site's browser settings, then reopen Talk.";
+  }
+  return t("resident.communication.voice_failed");
+}
+
 export function AssistantPanel({
   api,
   onClose,
@@ -39,6 +52,10 @@ export function AssistantPanel({
   residentName: _residentName,
   onHelpStaff,
   helpStatus = "idle",
+  contacts = [],
+  selectedContactId = null,
+  onSelectContact,
+  onCallNow,
 }: {
   api: Api;
   onClose: () => void;
@@ -46,6 +63,10 @@ export function AssistantPanel({
   residentName: string;
   onHelpStaff?: () => void;
   helpStatus?: HelpStatus;
+  contacts?: VisitContact[];
+  selectedContactId?: string | null;
+  onSelectContact?: (contactUserId: string) => void;
+  onCallNow?: (contactUserId: string) => void;
 }) {
   const client = useMemo(() => createAssistantClient(api), [api]);
   const [state, setState] = useState<PanelState>("connecting");
@@ -53,51 +74,97 @@ export function AssistantPanel({
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [action, setAction] = useState<AssistantActionProposal | null>(null);
+  const [callPickerOpen, setCallPickerOpen] = useState(false);
+
+  const receiveToolResult = useCallback((result: unknown): boolean => {
+    const proposal = extractAssistantActionProposal(result);
+    if (proposal) {
+      setAction(proposal);
+      setNotice(null);
+      return true;
+    }
+    const message = evidenceMessage(result);
+    if (!message) return false;
+    setNotice(message);
+    speak(message);
+    return true;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const beginFallback = async () => {
+    let started = false;
+    let startTimer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const dispose = async () => {
+      try {
+        await client.close();
+      } finally {
+        client.reset();
+      }
+    };
+    const beginFallback = async (reason?: string) => {
+      if (cancelled) return;
       client.reset();
       try {
         await client.startFakeSession();
-        if (!cancelled) {
-          setFallbackReady(true);
-          setState("error");
-          setNotice(t("resident.communication.voice_failed"));
+        if (cancelled) {
+          await dispose();
+          return;
         }
+        setFallbackReady(true);
+        setState("error");
+        setNotice(reason ?? t("resident.communication.voice_failed"));
       } catch {
-        if (!cancelled) {
-          setFallbackReady(false);
-          setState("error");
-          setNotice(t("resident.assistant.unavailable"));
-        }
+        if (cancelled) return;
+        setFallbackReady(false);
+        setState("error");
+        setNotice(t("resident.assistant.unavailable"));
       }
     };
     const start = async () => {
+      if (cancelled) return;
       try {
         await client.startRealtime({
+          signal: controller.signal,
           onState: (event) => {
             if (cancelled) return;
             setState(panelState(event));
-            if (event.state === "error") setNotice(t("resident.communication.voice_failed"));
+            if (event.state === "error") setNotice(event.detail || t("resident.communication.voice_failed"));
+          },
+          onToolResult: (result) => {
+            if (!cancelled) receiveToolResult(result);
           },
           onClosed: () => { if (!cancelled) void beginFallback(); },
         });
-        if (!cancelled) {
-          setState("listening");
-          setNotice(null);
+        if (cancelled) {
+          await dispose();
+          return;
         }
-      } catch {
-        if (!cancelled) await beginFallback();
+        setState("listening");
+        setNotice(null);
+      } catch (failure: unknown) {
+        if (cancelled) {
+          await dispose();
+          return;
+        }
+        await beginFallback(voiceStartupNotice(failure));
       }
     };
-    void start();
+    // Deferring one turn lets React StrictMode replay and cancel its probe
+    // effect before any microphone or server session is opened.
+    startTimer = setTimeout(() => {
+      started = true;
+      void start();
+    }, 0);
     return () => {
       cancelled = true;
+      controller.abort();
+      clearTimeout(startTimer);
       stopSpeaking();
-      void client.close().finally(() => client.reset());
+      if (started) void dispose();
     };
-  }, [client]);
+  }, [client, receiveToolResult]);
 
   const close = async () => {
     stopSpeaking();
@@ -112,6 +179,15 @@ export function AssistantPanel({
     }
   };
 
+  const callSelectedContact = async () => {
+    const contactUserId = selectedContactId;
+    if (!contactUserId || !onCallNow || sending || disabled) return;
+    setSending(true);
+    setCallPickerOpen(false);
+    await close();
+    onCallNow(contactUserId);
+  };
+
   const stop = async () => {
     stopSpeaking();
     try { await client.interrupt(); } catch { /* provider interruption is best effort */ }
@@ -119,6 +195,12 @@ export function AssistantPanel({
     setState("listening");
     setNotice(t("resident.assistant.stopped"));
   };
+
+  const expireAction = useCallback(() => {
+    setAction(null);
+    setNotice(EXPIRED_ACTION_NOTICE);
+    speak(EXPIRED_ACTION_NOTICE);
+  }, []);
 
   const send = async (event: FormEvent) => {
     event.preventDefault();
@@ -128,9 +210,8 @@ export function AssistantPanel({
     setNotice(null);
     try {
       const result = await client.sendText(value);
-      const message = evidenceMessage(result);
-      if (message) { setNotice(message); speak(message); }
-      else if (typeof result === "object" && result !== null && "result" in result && (result as { result?: { kind?: string } }).result?.kind === "clarification") {
+      const handled = receiveToolResult(result);
+      if (!handled && typeof result === "object" && result !== null && "result" in result && (result as { result?: { kind?: string } }).result?.kind === "clarification") {
         setNotice(t("resident.assistant.clarify"));
       }
       setText("");
@@ -139,6 +220,28 @@ export function AssistantPanel({
       setState("error");
       setFallbackReady(false);
       setNotice(t("resident.assistant.unavailable"));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const resolveAction = async (decision: "confirm" | "cancel") => {
+    if (!action || sending || disabled) return;
+    setSending(true);
+    const success = decision === "confirm" ? "Visit proposal sent." : "Visit proposal cancelled.";
+    try {
+      await api.post("/tools/actions/" + encodeURIComponent(action.actionId) + "/" + decision, {});
+      setAction(null);
+      setNotice(success);
+      speak(success);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 410) {
+        expireAction();
+        return;
+      }
+      const failure = "That visit action could not be completed. Please try again.";
+      setNotice(failure);
+      speak(failure);
     } finally {
       setSending(false);
     }
@@ -175,6 +278,14 @@ export function AssistantPanel({
   >
     <p className="communication-brand">{t("resident.communication.brand")}</p>
     <div className="communication-zone-corner">
+      {onCallNow && <button
+        type="button"
+        className="communication-ghost"
+        aria-expanded={callPickerOpen}
+        aria-controls={callPickerOpen ? "communication-call-panel" : undefined}
+        onClick={() => setCallPickerOpen((open) => !open)}
+        disabled={disabled || sending}
+      >{t("resident.visit.call_someone")}</button>}
       <button type="button" className="communication-ghost" onClick={() => void stop()} disabled={disabled || sending}>
         {t("resident.communication.stop")}
       </button>
@@ -182,13 +293,35 @@ export function AssistantPanel({
         {t("resident.communication.end_call")}
       </button>
     </div>
+    {callPickerOpen && onCallNow && <div id="communication-call-panel" className="communication-call-panel">
+      <VisitContactPicker
+        contacts={contacts}
+        selectedContactId={selectedContactId}
+        onSelect={onSelectContact ?? (() => {})}
+      />
+      <button
+        type="button"
+        className="communication-solid"
+        onClick={() => void callSelectedContact()}
+        disabled={disabled || sending || !selectedContactId}
+      >{t("resident.visit.call_now")}</button>
+    </div>}
     <div className="communication-orb-button communication-orb-button--static" aria-hidden="true">
       <span className="communication-orb">
         <i /><i /><i /><i />
       </span>
     </div>
     <p className="communication-status" role="status" aria-live="polite">{statusText}</p>
-    {fallbackReady && <form className="communication-fallback" data-testid="assistant-text-fallback" onSubmit={(event) => void send(event)}>
+    {action && <AssistantActionConfirmation
+      actionId={action.actionId}
+      summary={action.summary}
+      expiresAt={action.expiresAt}
+      disabled={disabled || sending}
+      onConfirm={() => resolveAction("confirm")}
+      onCancel={() => resolveAction("cancel")}
+      onExpire={expireAction}
+    />}
+    {fallbackReady && !action && <form className="communication-fallback" data-testid="assistant-text-fallback" onSubmit={(event) => void send(event)}>
       <label htmlFor="assistant-message">{t("resident.communication.fallback")}</label>
       <div className="communication-fallback__row">
         <input id="assistant-message" aria-label={t("resident.assistant.input_label")} value={text} onChange={(event) => setText(event.target.value)} disabled={disabled || sending} autoComplete="off" />

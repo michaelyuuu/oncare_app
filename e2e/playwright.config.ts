@@ -1,4 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 
 const reuseExistingServer = process.env.ONCARE_E2E_REUSE_SERVER === "1";
 const gatewayFreeSpecs = ["laundry-ai.spec.ts", "staff-console.spec.ts", "unified-entrance.spec.ts"];
@@ -20,10 +23,17 @@ const gatewayServer = {
   cwd: "..",
 };
 
+const clockFile = process.env.ONCARE_TEST_CLOCK_FILE ?? join(tmpdir(), `oncare-e2e-clock-${process.pid}.txt`);
+process.env.ONCARE_TEST_CLOCK_FILE = clockFile;
+writeFileSync(clockFile, new Date().toISOString());
+
 export default defineConfig({
   testDir: ".",
+  testIgnore: ["**/*.test.ts"],
   timeout: 120_000,
   retries: 0,
+  // The demo stories share one in-memory API, mock robot, and synthetic clock.
+  workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] },
@@ -44,9 +54,10 @@ export default defineConfig({
       cwd: "..",
       env: {
         ...process.env,
-        DATABASE_PATH: ":memory:",
-        JWT_SECRET: "e2e-only-jwt-secret",
         ONCARE_VIDEO_PROVIDER: "fake",
+        DATABASE_PATH: process.env.DATABASE_PATH ?? ":memory:",
+        ONCARE_TEST_CLOCK_FILE: process.env.ONCARE_TEST_CLOCK_FILE ?? join(tmpdir(), "oncare-e2e-clock.txt"),
+        JWT_SECRET: "e2e-only-jwt-secret",
         OPENAI_API_KEY: "",
         ONCARE_RFID_STATIONS: stationConfig,
         ONCARE_RFID_POLL_INTERVAL_MS: "250",

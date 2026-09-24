@@ -48,8 +48,8 @@ describe("tool registry", () => {
     const names = async (token: string) => (await app.inject({ method: "GET", url: "/tools", headers: auth(token) })).json().tools.map((x: { name: string }) => x.name).sort();
     expect(await names(tokens.family)).toEqual(["get_resident_status", "list_my_residents_or_contacts", "test_write"]);
     expect(await names(tokens.device)).toEqual([
-      "get_approved_contacts", "get_my_request_status", "get_resident_status", "get_service_status",
-      "list_my_residents_or_contacts", "request_staff_help", "request_withdrawal", "test_urgent",
+      "get_approved_contacts", "get_my_request_status", "get_resident_status", "get_service_status", "get_visit_schedule",
+      "get_visit_slots", "list_my_residents_or_contacts", "propose_visit_time", "request_staff_help", "request_withdrawal", "test_urgent",
     ]);
     const tool = (await app.inject({ method: "GET", url: "/tools", headers: auth(tokens.family) })).json().tools.find((x: { name: string }) => x.name === "test_write");
     expect(tool).toMatchObject({ effect: "write", confirm: true, inputSchema: { type: "object", properties: { residentId: { type: "string" }, note: { type: "string" } } } });
@@ -92,6 +92,84 @@ describe("tool registry", () => {
     const foreign = { kind: "device" as const, id: "other_device", residentId: SEED_IDS.resident, facilityId: SEED_IDS.facility, robotId: null, assignmentVersion: 1 };
     expect(await app.tools.invoke(foreign, "get_my_request_status", { requestId })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
     expect(await app.tools.invoke(foreign, "request_withdrawal", { requestId })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
+  });
+
+  test("device scheduling tools return reservation evidence and insert only after confirmation", async () => {
+    const { db, tokens, invoke, post } = await setup(() => new Date("2026-09-21T00:00:00.000Z"));
+
+    const slots = await invoke(tokens.device, "get_visit_slots", { from: "2026-09-22" });
+    expect(slots.statusCode).toBe(200);
+    expect(slots.json().result).toMatchObject({
+      timeZone: "Asia/Taipei",
+      slots: expect.arrayContaining([
+        expect.objectContaining({ localDate: "2026-09-22", startMinute: 540, endMinute: 600, state: "available" }),
+      ]),
+    });
+    expect((await invoke(tokens.device, "get_visit_schedule")).json().result).toEqual({ reservations: [] });
+
+    const proposed = await invoke(tokens.device, "propose_visit_time", {
+      contactUserId: SEED_IDS.familyUser,
+      localDate: "2026-09-22",
+      startMinute: 540,
+    });
+    expect(proposed.statusCode).toBe(200);
+    expect(proposed.json()).toMatchObject({
+      needsConfirmation: true,
+      actionId: expect.any(String),
+      expiresAt: expect.any(String),
+      summary: expect.stringMatching(/Demo Daughter.*9:00 AM.*one-hour ON 0 visit/i),
+    });
+    expect(db.select().from(t.visitReservation).all()).toEqual([]);
+
+    const confirmed = await post(tokens.device, `/tools/actions/${proposed.json().actionId}/confirm`);
+    expect(confirmed.statusCode).toBe(200);
+    expect(confirmed.json()).toMatchObject({
+      result: {
+        reservation: {
+          residentId: SEED_IDS.resident,
+          familyUserId: SEED_IDS.familyUser,
+          status: "pending",
+          startAt: "2026-09-22T01:00:00.000Z",
+          endAt: "2026-09-22T02:00:00.000Z",
+        },
+      },
+    });
+    expect(db.select().from(t.visitReservation).all()).toHaveLength(1);
+    expect((await invoke(tokens.device, "get_visit_schedule")).json().result).toMatchObject({
+      reservations: [expect.objectContaining({ familyDisplayName: "Demo Daughter", status: "pending" })],
+    });
+  });
+
+  test("cancelling a scheduling action leaves reservations empty and scheduling tools are device-only", async () => {
+    const { db, tokens, invoke, post } = await setup(() => new Date("2026-09-21T00:00:00.000Z"));
+    const proposed = await invoke(tokens.device, "propose_visit_time", {
+      contactUserId: SEED_IDS.familyUser,
+      localDate: "2026-09-22",
+      startMinute: 600,
+    });
+    expect((await post(tokens.device, `/tools/actions/${proposed.json().actionId}/cancel`)).statusCode).toBe(200);
+    expect(db.select().from(t.visitReservation).all()).toEqual([]);
+    expect((await invoke(tokens.family, "get_visit_schedule")).statusCode).toBe(404);
+    expect((await invoke(tokens.family, "get_visit_slots", { from: "2026-09-22" })).statusCode).toBe(404);
+    expect((await invoke(tokens.family, "propose_visit_time", {
+      contactUserId: SEED_IDS.familyUser,
+      localDate: "2026-09-22",
+      startMinute: 600,
+    })).statusCode).toBe(404);
+  });
+
+  test("scheduling rejects an impossible localDate as controlled bad input", async () => {
+    const { db, tokens, invoke } = await setup(() => new Date("2026-09-21T00:00:00.000Z"));
+    const response = await invoke(tokens.device, "propose_visit_time", {
+      contactUserId: SEED_IDS.familyUser,
+      localDate: "2026-13-01",
+      startMinute: 540,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "bad_input", detail: expect.stringContaining("localDate") });
+    expect(db.select().from(t.pendingAction).all()).toEqual([]);
+    expect(db.select().from(t.visitReservation).all()).toEqual([]);
   });
 
   test("unknown tools, tools of another role and bad input are rejected", async () => {

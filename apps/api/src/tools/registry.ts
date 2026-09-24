@@ -9,12 +9,21 @@ import * as t from "../db/schema";
 import type { Access } from "../services/access";
 import { createDirectory, type Directory } from "../services/directory";
 import type { AssistanceService } from "../services/assistance";
+import type { ReservationService } from "../services/reservations";
 import type { LaundryRepository } from "../services/laundry-repository";
 import type { TransitionService } from "../services/visits";
 
 export const PENDING_ACTION_TTL_MS = 120_000;
 
-export interface ToolContext { principal: Principal; access: Access; directory: Directory; assistance: AssistanceService; laundry: LaundryRepository; now: () => Date }
+export interface ToolContext {
+  principal: Principal;
+  access: Access;
+  directory: Directory;
+  assistance: AssistanceService;
+  reservations: ReservationService;
+  laundry: LaundryRepository;
+  now: () => Date;
+}
 
 export interface ToolDef<I extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string;
@@ -60,14 +69,22 @@ const roleKey = (p: Principal) => (p.kind === "device" ? "device" : p.role);
 const needsConfirmation = (def: ToolDef) => def.effect === "write" && def.confirm !== false;
 
 export function createToolRegistry(opts: {
-  db: Db; access: Access; transitions: TransitionService; assistance: AssistanceService; laundry: LaundryRepository; tools: ToolDef[]; now?: () => Date; id?: () => string;
+  db: Db;
+  access: Access;
+  transitions: TransitionService;
+  assistance: AssistanceService;
+  reservations: ReservationService;
+  laundry: LaundryRepository;
+  tools: ToolDef[];
+  now?: () => Date;
+  id?: () => string;
 }) {
-  const { db, access, transitions, assistance, laundry } = opts;
+  const { db, access, transitions, assistance, reservations, laundry } = opts;
   const now = opts.now ?? (() => new Date());
   const id = opts.id ?? (() => `act_${randomUUID()}`);
   const directory = createDirectory(db);
   const byName = new Map(opts.tools.map((def) => [def.name, def]));
-  const ctx = (principal: Principal): ToolContext => ({ principal, access, directory, assistance, laundry, now });
+  const ctx = (principal: Principal): ToolContext => ({ principal, access, directory, assistance, reservations, laundry, now });
   const allowed = (p: Principal, def: ToolDef | undefined): def is ToolDef => def !== undefined && def.roles.includes(roleKey(p));
 
   function audit(p: Principal, entityId: string, reason: string) {

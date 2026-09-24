@@ -50,6 +50,66 @@ describe("WS /events", () => {
     for (const c of [staff, fam1, fam2, dev]) c.ws.close();
   });
 
+  test("reservation events reach only authenticated principals in the resident and family scope", async () => {
+    const { app, db, tokens } = await makeTestApp({ now: () => new Date("2026-09-21T00:00:00.000Z") });
+    db.insert(t.resident).values({
+      id: "resident_reservation_other",
+      facilityId: SEED_IDS.facility,
+      displayName: "Other Reservation Resident",
+      roomLocationId: SEED_IDS.roomLocation,
+    }).run();
+    db.insert(t.user).values({
+      id: "family_reservation_other",
+      role: "family",
+      username: "family-reservation-other",
+      displayName: "Other Reservation Family",
+      passwordHash: await hashSecret("pw"),
+      pinHash: null,
+    }).run();
+    db.insert(t.familyRelationship).values({
+      id: "rel_reservation_other",
+      userId: "family_reservation_other",
+      residentId: "resident_reservation_other",
+      label: "son",
+      consentVideo: true,
+      consentRobotVisit: true,
+      consentItemDelivery: true,
+    }).run();
+    const unrelatedFamily = (await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { username: "family-reservation-other", password: "pw" },
+    })).json().token;
+    const srv = await listen(app); closers.push(srv.close);
+    const staff = await connect(srv.url, tokens.staff);
+    const family = await connect(srv.url, tokens.family);
+    const unrelated = await connect(srv.url, unrelatedFamily);
+    const device = await connect(srv.url, tokens.device);
+    await settle();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/visit-reservations",
+      headers: auth(tokens.family),
+      payload: { residentId: SEED_IDS.resident, localDate: "2026-09-22", startMinute: 540 },
+    });
+    expect(response.statusCode).toBe(201);
+    await settle();
+
+    const reservationEvents = (messages: any[]) => messages.filter((message) => message.entityType === "visit_reservation");
+    for (const scoped of [staff, family, device]) {
+      expect(reservationEvents(scoped.messages)).toEqual([
+        expect.objectContaining({
+          entityId: response.json().reservation.id,
+          toState: "pending",
+          reason: "reservation_proposed",
+        }),
+      ]);
+    }
+    expect(reservationEvents(unrelated.messages)).toEqual([]);
+    for (const connection of [staff, family, unrelated, device]) connection.ws.close();
+  });
+
   test("a robot-entity audit event reaches staff only", async () => {
     const { app, tokens } = await makeTestApp();
     const srv = await listen(app); closers.push(srv.close);

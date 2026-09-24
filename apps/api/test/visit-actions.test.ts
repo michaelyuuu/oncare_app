@@ -17,6 +17,35 @@ async function visitIn(state: string) {
 }
 
 describe("visit actions", () => {
+  test("only family answer_family accepts a resident-originated call", async () => {
+    const f = await visitIn("awaiting_family_consent");
+    f.db.update(t.visitSession).set({ initiatorKind: "device", initiatorId: SEED_IDS.device }).where(eq(t.visitSession.id, f.id)).run();
+    expect((await f.act("answer_family", f.tokens.device)).statusCode).toBe(403);
+    expect((await f.act("answer_family", f.tokens.staff)).statusCode).toBe(403);
+    expect((await f.act("answer", f.tokens.device)).statusCode).toBe(409);
+    expect((await f.act("answer", f.tokens.family)).statusCode).toBe(403);
+    const answer = await f.act("answer_family", f.tokens.family);
+    expect(answer.statusCode).toBe(200);
+    expect(answer.json().visit.state).toBe("connecting");
+    expect(f.db.select().from(t.auditEvent).where(eq(t.auditEvent.entityId, f.id)).all().at(-1)).toMatchObject({ actorType: "family", actorId: SEED_IDS.familyUser, toState: "connecting" });
+    await f.app.close();
+  });
+
+  test("family cannot answer resident consent through either action", async () => {
+    const f = await visitIn("awaiting_resident_consent");
+    expect((await f.act("answer", f.tokens.family)).statusCode).toBe(403);
+    expect((await f.act("answer_family", f.tokens.family)).statusCode).toBe(409);
+    expect(f.app.visits.get(f.id)?.state).toBe("awaiting_resident_consent");
+    await f.app.close();
+  });
+
+  test("the originating device can cancel its outgoing waiting call", async () => {
+    const f = await visitIn("awaiting_family_consent");
+    f.db.update(t.visitSession).set({ initiatorKind: "device", initiatorId: SEED_IDS.device }).where(eq(t.visitSession.id, f.id)).run();
+    expect((await f.act("cancel", f.tokens.device)).json().visit.state).toBe("cancelled");
+    await f.app.close();
+  });
+
   test("staff approve moves awaiting_policy_or_staff to accepted with staff as actor", async () => {
     const { db, tokens, id, act } = await visitIn("awaiting_policy_or_staff");
     const res = await act("approve", tokens.staff);
@@ -96,6 +125,17 @@ describe("visit actions", () => {
     db.insert(t.device).values({ id: "ipad_demo_02", facilityId: SEED_IDS.facility, robotId: SEED_IDS.robot, kind: "ipad", residentId: "resident_demo_02", deviceTokenHash: await hashSecret("other-device") }).run();
     const tok = (await app.inject({ method: "POST", url: "/auth/device", payload: { deviceToken: "other-device" } })).json().token;
     expect((await act("answer", tok)).statusCode).toBe(403);
+  });
+
+  test("family can decline an incoming resident-originated call", async () => {
+    const f = await visitIn("awaiting_family_consent");
+    f.db.update(t.visitSession).set({ initiatorKind: "device", initiatorId: SEED_IDS.device }).where(eq(t.visitSession.id, f.id)).run();
+
+    const declined = await f.act("cancel", f.tokens.family);
+
+    expect(declined.statusCode).toBe(200);
+    expect(declined.json().visit.state).toBe("cancelled");
+    await f.app.close();
   });
 
   test("unknown action is 404", async () => {

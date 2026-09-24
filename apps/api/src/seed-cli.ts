@@ -1,5 +1,9 @@
 import { openDb } from "./db/client";
-import { seed } from "./db/seed";
+import { seedDemo } from "./db/seed";
 const db = openDb(process.env.DATABASE_PATH ?? "./oncare.db");
-await seed(db);
-console.log("seeded");
+if (await seedDemo(db, process.env)) {
+  console.log("seeded");
+} else {
+  console.error("demo seed is disabled for this environment");
+  process.exitCode = 1;
+}

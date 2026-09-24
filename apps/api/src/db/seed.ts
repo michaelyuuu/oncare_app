@@ -10,9 +10,20 @@ export const SEED_IDS = {
 } as const;
 
 export const SEED_SECRETS = {
-  familyPassword: "family-demo-pass", staffPassword: "staff-demo-pass", adminPassword: "admin-demo-pass", staffPin: "2468",
-  deviceToken: "device-demo-token", robotToken: "robot-demo-token",
+  familyPassword: "1234", staffPassword: "1234", adminPassword: "admin-demo-pass", staffPin: "2468",
+  deviceToken: "1234", robotToken: "robot-demo-token",
 } as const;
+
+export function shouldSeedDemo(env: NodeJS.ProcessEnv): boolean {
+  if (env.NODE_ENV === "production") return false;
+  return env.ONCARE_SEED_DEMO !== "0";
+}
+
+export async function seedDemo(db: Db, env: NodeJS.ProcessEnv): Promise<boolean> {
+  if (!shouldSeedDemo(env)) return false;
+  await seed(db);
+  return true;
+}
 
 /** Inserts just the demo admin, same values as the fresh seed below. */
 async function seedAdmin(db: Db): Promise<void> {
@@ -27,6 +38,20 @@ export async function seed(db: Db): Promise<void> {
     // An existing (or upgraded) demo database may predate the admin user: back-fill it, and only it,
     // so anyone following the README with an existing oncare.db can still log in as admin.
     if (!db.select().from(t.user).where(eq(t.user.id, SEED_IDS.adminUser)).get()) await seedAdmin(db);
+
+    // Keep the three demo quick-login values aligned when an existing local database is reused.
+    const family = db.select().from(t.user).where(eq(t.user.id, SEED_IDS.familyUser)).get();
+    if (family) {
+      db.update(t.user).set({ passwordHash: await hashSecret(SEED_SECRETS.familyPassword) }).where(eq(t.user.id, SEED_IDS.familyUser)).run();
+    }
+    const staff = db.select().from(t.user).where(eq(t.user.id, SEED_IDS.staffUser)).get();
+    if (staff) {
+      db.update(t.user).set({ passwordHash: await hashSecret(SEED_SECRETS.staffPassword) }).where(eq(t.user.id, SEED_IDS.staffUser)).run();
+    }
+    const device = db.select().from(t.device).where(eq(t.device.id, SEED_IDS.device)).get();
+    if (device) {
+      db.update(t.device).set({ deviceTokenHash: await hashSecret(SEED_SECRETS.deviceToken) }).where(eq(t.device.id, SEED_IDS.device)).run();
+    }
     return;
   }
   db.insert(t.facility).values({ id: SEED_IDS.facility, name: "Demo Care House", timezone: "Asia/Taipei" }).run();

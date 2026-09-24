@@ -11,7 +11,7 @@ OnCare is the AGI Carehouse demo platform: a family member requests a resident v
 ```bash
 npm install
 python -m venv robot_gateway/.venv
-robot_gateway/.venv/Scripts/python -m pip install -r robot_gateway/requirements.txt
+robot_gateway/.venv/Scripts/python -m pip install -e "robot_gateway[dev]"
 npm run dev
 ```
 
@@ -27,14 +27,26 @@ The API can poll one or more private RFID ledger stations into a read-only, last
 
 ## Synthetic demo credentials
 
-`family` / `family-demo-pass`; `staff` / `staff-demo-pass`; `admin` / `admin-demo-pass` (facility manager: opens the **Facility admin** tab in the staff console); staff and admin PIN `2468`; device token `device-demo-token`; robot token `robot-demo-token`. All are seeded fixtures, not production credentials.
+`family` / `1234`; `staff` / `1234`; `admin` / `admin-demo-pass` (facility manager: opens the **Facility admin** tab in the staff console); staff and admin PIN `2468`; device token `1234`; robot token `robot-demo-token`. All are seeded fixtures, not production credentials.
+
+
+## Scheduled-visit demo
+
+The calendar demo exposes a 14-day facility-local window with one-hour visit slots at 09:00, 10:00, 11:00, 13:00, 14:00, and 15:00. Lunch (12:00–13:00), staff handoff (16:00–17:00), and dinner/quiet time (17:00–18:00) are shown as blocked periods. A proposal expires after five minutes; a confirmed visit dispatches the robot five minutes before its slot.
+
+1. Sign in as `family` at `http://localhost:5174`, choose **Schedule a visit**, select a resident and slot, then send the proposal.
+2. Sign in to the resident kiosk at `http://localhost:5173` with `1234`, open **Schedule a visit**, select the same date, and confirm the proposed time.
+3. Open the staff console at `http://localhost:5175` to see **Upcoming visit** and any robot dispatch failure evidence. The family reservation card opens the visit once the robot is dispatched.
+4. Run `npx playwright test -c e2e/playwright.config.ts --grep "scheduled visit"` for the deterministic family → resident → staff → fake-video story. The test owns its fake video provider and test clock; it does not use production credentials or LiveKit media.
+
+Use the local URLs above for development. For an iPad/Tailscale demo, substitute the machine Tailscale host at runtime; do not commit environment-specific URLs or secrets.
 
 ## Checks and benchmarks
 
 ```bash
 npx vitest run
 npx tsc -b
-pytest -q robot_gateway
+robot_gateway/.venv/Scripts/python -m pytest -q robot_gateway
 npm run demo:check
 npm run bench:visit     # requires a running API and mock gateway; writes real dated evidence only
 npm run e2e              # requires optional @playwright/test + Chromium; see e2e/README.md
@@ -56,4 +68,4 @@ The visit benchmark targets notification median under 3 seconds and at least 95%
 
 ## Safety and scope
 
-The code enforces schema validation before task persistence, approved-item and approved-surface policy, explicit family confirmation and staff approval before dispatch, authenticated gateway/device roles, and staff STOP/safety-stopped transitions. The mock adapter simulates travel and labels every UI with `SIMULATED ROBOT`; it does not exercise motors, perception, grasping, tray sensors, or an arm. Browser speech is optional and deterministic keyword parsing remains the offline fallback. Native iPad signing, production auth, real ROS/arm manipulation, and unattended physical execution are out of scope for this demo build. Follow [the Jetson gateway setup](docs/jetson-gateway-setup.md) before any real-robot run.
+The code enforces schema validation before task persistence, approved-item and approved-surface policy, explicit family confirmation and staff approval before dispatch, authenticated gateway/device roles, and staff STOP/safety-stopped transitions. Demo credentials are seeded only outside `NODE_ENV=production`; set `ONCARE_SEED_DEMO=0` to disable them in another environment. The mock adapter simulates travel and labels every UI with `SIMULATED ROBOT`; it does not exercise motors, perception, grasping, tray sensors, or an arm. Browser speech is optional and deterministic keyword parsing remains the offline fallback. Native iPad signing, production auth, real ROS/arm manipulation, and unattended physical execution are out of scope for this demo build. Follow [the Jetson gateway setup](docs/jetson-gateway-setup.md) before any real-robot run.

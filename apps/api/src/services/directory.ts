@@ -14,7 +14,12 @@ export function createDirectory(db: Db) {
   function familyContacts(residentId: string) {
     return db.select({ userId: t.user.id, displayName: t.user.displayName, label: t.familyRelationship.label, canVideoCall: t.familyRelationship.consentVideo })
       .from(t.familyRelationship).innerJoin(t.user, eq(t.user.id, t.familyRelationship.userId))
-      .where(and(eq(t.familyRelationship.residentId, residentId), eq(t.user.active, true))).all();
+      .where(and(
+        eq(t.familyRelationship.residentId, residentId),
+        eq(t.familyRelationship.consentVideo, true),
+        eq(t.familyRelationship.consentRobotVisit, true),
+        eq(t.user.active, true),
+      )).all();
   }
   return { residentSummaries, familyContacts };
 }

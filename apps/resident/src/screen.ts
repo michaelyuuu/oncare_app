@@ -1,4 +1,4 @@
-export type Screen = "home" | "incoming" | "in_call" | "delivery_arrived" | "caregiver_called" | "settings" | "disconnected";
+export type Screen = "home" | "visit_calendar" | "incoming" | "in_call" | "delivery_arrived" | "caregiver_called" | "settings" | "disconnected";
 export interface DeviceState {
   resident: { id: string; displayName: string };
   screen: "home" | "incoming" | "in_call" | "delivery_arrived";
@@ -8,6 +8,9 @@ export interface DeviceState {
   robot: { adapter: "mock" | "navweb" | null; connected: boolean };
 }
 export interface UiOverrides { caregiverCalledUntil: number | null; settingsOpen: boolean; apiReachable: boolean }
+export function isCommunicationScreen(screen: Screen): boolean {
+  return screen === "home" || screen === "visit_calendar" || screen === "disconnected";
+}
 export function selectScreen(server: DeviceState | null, ui: UiOverrides, now: number): Screen {
   if (ui.settingsOpen) return "settings";
   if (!ui.apiReachable || !server) return "disconnected";

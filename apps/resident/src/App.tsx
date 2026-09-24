@@ -1,6 +1,7 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, connectEvents, createApi, t } from "@oncare/web-common";
-import { selectScreen, type DeviceState, type UiOverrides } from "./screen";
+import { DEMO_VISIT_POLICY } from "@oncare/core/scheduling";
+import { ApiError, connectEvents, createApi, t, type VisitContact, type VisitReservationView } from "@oncare/web-common";
+import { isCommunicationScreen, selectScreen, type DeviceState, type UiOverrides } from "./screen";
 import { useIdleReturn } from "./idle";
 import { speak } from "./speech";
 import { readDeviceToken, writeDeviceToken } from "./storage";
@@ -14,6 +15,7 @@ import { CaregiverCalled } from "./screens/CaregiverCalled";
 import { Settings, type PinGuard } from "./screens/Settings";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { requestStaffHelp } from "./assistant";
+import { VisitCalendar } from "./screens/VisitCalendar";
 
 // This boundary covers screen render/lifecycle errors; async errors use returnHome.
 export class ScreenBoundary extends Component<{ children: ReactNode; fallback: ReactNode; onError: () => void }, { failed: boolean }> {
@@ -38,10 +40,15 @@ export function App({ apiBase }: { apiBase: string }) {
   const [pending, setPending] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [helpStatus, setHelpStatus] = useState<"idle" | "sending" | "recorded" | "error">("idle");
+  const [contacts, setContacts] = useState<VisitContact[]>([]);
+  const [reservations, setReservations] = useState<VisitReservationView[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [local, setLocal] = useState({ camera: false, mic: false });
   const busy = useRef(false);
   const generation = useRef(0);
   const refresh = useRef<() => Promise<void>>(async () => {});
+  const refreshScheduling = useRef<() => Promise<void>>(async () => {});
   const spoken = useRef(new Set<string>());
   const screenShown = useRef(new Set<string>());
   const helpIdempotencyKey = useRef<string | null>(null);
@@ -59,6 +66,7 @@ export function App({ apiBase }: { apiBase: string }) {
     let events: { close(): void } | undefined;
     const current = () => !stopped && generation.current === epoch;
     setJwt(null); setServer(null); busy.current = false; setPending(false);
+    setContacts([]); setReservations([]); setSelectedContactId(null); setCalendarOpen(false);
     const failed = () => {
       setDismissed(keyRef.current);
       setAssistantOpen(false);
@@ -71,12 +79,31 @@ export function App({ apiBase }: { apiBase: string }) {
         if (!auth.token) throw new Error("Missing authentication token");
         setJwt(auth.token);
         const client = createApi(apiBase, () => auth.token);
+        let residentId = "";
+        let scheduleRequest = 0;
+        const fetchScheduling = async (nextResidentId: string) => {
+          const serial = ++scheduleRequest;
+          try {
+            const [contactResult, reservationResult] = await Promise.all([
+              client.get<{ contacts?: VisitContact[] }>("/visit-reservations/contacts"),
+              client.get<{ reservations?: VisitReservationView[] }>("/visit-reservations"),
+            ]);
+            if (!current() || serial !== scheduleRequest) return;
+            residentId = nextResidentId;
+            setContacts(Array.isArray(contactResult.contacts) ? contactResult.contacts : []);
+            setReservations(Array.isArray(reservationResult.reservations) ? reservationResult.reservations : []);
+          } catch {
+            // The communication home remains usable when scheduling is offline.
+          }
+        };
         const fetchState = async () => {
           const serial = ++request;
           try {
             const result = await client.get<DeviceState>("/device/state");
             if (!current() || serial !== request) return;
+            residentId = result.resident.id;
             setServer(result); setUi((value) => ({ ...value, apiReachable: true }));
+            void fetchScheduling(result.resident.id);
           } catch (failure) {
             if (!current() || serial !== request) return;
             failed();
@@ -86,6 +113,7 @@ export function App({ apiBase }: { apiBase: string }) {
           }
         };
         refresh.current = fetchState;
+        refreshScheduling.current = async () => { if (residentId) await fetchScheduling(residentId); };
         void fetchState();
         poll = setInterval(() => void fetchState(), 5000);
         events = connectEvents(apiBase, auth.token, () => void fetchState());
@@ -95,16 +123,25 @@ export function App({ apiBase }: { apiBase: string }) {
       }
     };
     if (deviceToken) void authenticate();
-    return () => { stopped = true; if (generation.current === epoch) generation.current++; clearTimeout(retry); clearInterval(poll); events?.close(); refresh.current = async () => {}; };
+    return () => { stopped = true; if (generation.current === epoch) generation.current++; clearTimeout(retry); clearInterval(poll); events?.close(); refresh.current = async () => {}; refreshScheduling.current = async () => {}; };
   }, [apiBase, deviceToken, boot]);
 
   const returnHome = useCallback((withError = false) => {
     setDismissed(keyRef.current); setError(withError);
     setAssistantOpen(false);
+    setCalendarOpen(false);
     setUi((value) => ({ ...value, settingsOpen: false, caregiverCalledUntil: null }));
   }, []);
+  const returnToCommunicationHome = useCallback(() => {
+    setAssistantOpen(false);
+    setCalendarOpen(false);
+  }, []);
   const selected = selectScreen(server, ui, now);
-  const screen = !ui.settingsOpen && dismissed === key && selected !== "disconnected" ? "home" : selected;
+  const serverScreen = !ui.settingsOpen && dismissed === key && selected !== "disconnected" ? "home" : selected;
+  const screen = calendarOpen && (serverScreen === "home" || serverScreen === "disconnected") ? "visit_calendar" : serverScreen;
+  useEffect(() => {
+    if (serverScreen !== "home" && serverScreen !== "disconnected") setCalendarOpen(false);
+  }, [serverScreen]);
   useIdleReturn(90_000, returnHome, screen !== "home" && screen !== "disconnected" && screen !== "in_call");
   useEffect(() => {
     if (screen === "incoming" && server?.visit && !spoken.current.has(server.visit.id)) {
@@ -121,7 +158,7 @@ export function App({ apiBase }: { apiBase: string }) {
     void api.post("/device/screen-shown", { screen, entityId }).catch(() => { screenShown.current.delete(key); });
   }, [api, jwt, screen, server, ui.apiReachable]);
 
-  const perform = async (path: string, caregiver = false) => {
+  const perform = async (path: string) => {
     if (busy.current || !jwt || !ui.apiReachable) return;
     const epoch = generation.current;
     busy.current = true; setPending(true);
@@ -129,8 +166,7 @@ export function App({ apiBase }: { apiBase: string }) {
       await api.post(path);
       if (epoch !== generation.current) return;
       setError(false); setDismissed(null);
-      if (caregiver) setUi((value) => ({ ...value, caregiverCalledUntil: Date.now() + 8000 }));
-      else void refresh.current();
+       void refresh.current();
     } catch { if (epoch === generation.current) returnHome(true); }
     finally { if (epoch === generation.current) { busy.current = false; setPending(false); } }
   };
@@ -149,6 +185,21 @@ export function App({ apiBase }: { apiBase: string }) {
       setHelpStatus("recorded"); setError(false);
     } catch {
       if (epoch === generation.current) setHelpStatus("error");
+    } finally {
+      if (epoch === generation.current) { busy.current = false; setPending(false); }
+    }
+  };
+  const callNow = async (contactUserId = selectedContactId) => {
+    if (busy.current || !jwt || !ui.apiReachable || !contactUserId) return;
+    const epoch = generation.current;
+    busy.current = true; setPending(true);
+    try {
+      await api.post("/visits/now", { contactUserId });
+      if (epoch !== generation.current) return;
+      setAssistantOpen(false); setCalendarOpen(false); setError(false); setDismissed(null);
+      void refresh.current();
+    } catch {
+      if (epoch === generation.current) returnHome(true);
     } finally {
       if (epoch === generation.current) { busy.current = false; setPending(false); }
     }
@@ -173,16 +224,31 @@ export function App({ apiBase }: { apiBase: string }) {
   const home = <Home
     name={server?.resident.displayName ?? ""}
     now={now}
+    contacts={contacts}
+    selectedContactId={selectedContactId}
+    onSelectContact={setSelectedContactId}
     onOpenAssistant={() => setAssistantOpen(true)}
-    onCallCaregiver={() => void perform("/device/call-caregiver", true)}
+    onScheduleVisit={() => setCalendarOpen(true)}
+    onCallNow={() => void callNow()}
     onHelpStaff={() => void helpStaff()}
     helpStatus={helpStatus}
     disabled={pending || !jwt || !ui.apiReachable}
     offline={!jwt || !ui.apiReachable}
     error={error}
   />;
+  const calendar = <VisitCalendar
+    api={api}
+    residentId={server?.resident.id ?? ""}
+    timeZone={DEMO_VISIT_POLICY.timeZone}
+    contacts={contacts}
+    reservations={reservations}
+    selectedContactId={selectedContactId}
+    onSelectContact={setSelectedContactId}
+    onClose={() => setCalendarOpen(false)}
+    onChanged={() => void refreshScheduling.current()}
+  />;
   const inCall = screen === "in_call";
-  const communicationSurface = screen === "home" || screen === "disconnected";
+  const communicationSurface = isCommunicationScreen(screen);
   useEffect(() => { if (!inCall) setLocal({ camera: false, mic: false }); }, [inCall]);
   const action = (actionName: string) => { if (server?.visit) void perform(`/visits/${encodeURIComponent(server.visit.id)}/${actionName}`); };
   const reportCall = async (visitId: string, actionName: "connected" | "connection_lost") => {
@@ -199,7 +265,19 @@ export function App({ apiBase }: { apiBase: string }) {
       {!communicationSurface && error && <p className="feedback" role="status">{t("resident.error.retry")}</p>}
       <ScreenBoundary key={`${screen}:${server?.visit?.id ?? ""}`} fallback={home} onError={() => returnHome(true)}>
         {(screen === "home" || screen === "disconnected") && !assistantOpen && home}
-        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel api={api} residentName={server?.resident.displayName ?? ""} disabled={pending || !jwt || !ui.apiReachable} onHelpStaff={() => void helpStaff()} helpStatus={helpStatus} onClose={() => setAssistantOpen(false)} />}
+        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel
+          api={api}
+          residentName={server?.resident.displayName ?? ""}
+          disabled={pending || !jwt || !ui.apiReachable}
+          onHelpStaff={() => void helpStaff()}
+          helpStatus={helpStatus}
+          contacts={contacts}
+          selectedContactId={selectedContactId}
+          onSelectContact={setSelectedContactId}
+          onCallNow={(contactUserId) => void callNow(contactUserId)}
+          onClose={() => setAssistantOpen(false)}
+        />}
+        {screen === "visit_calendar" && calendar}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
         {screen === "in_call" && server?.visit && <InCall api={api} visitId={server.visit.id} callerName={callerName} active={server.visit.state === "active"} onConnected={() => void reportCall(server.visit!.id, "connected")} onLost={() => void reportCall(server.visit!.id, "connection_lost")} onEnd={() => action("end")} onLocalState={setLocal} disabled={pending || server.visit.state !== "active"}/>}
         {screen === "delivery_arrived" && server?.task && <DeliveryArrived itemLabel={server.task.item.label} onReceived={() => void perform(`/tasks/${encodeURIComponent(server.task!.id)}/received`)}/>}
@@ -207,6 +285,6 @@ export function App({ apiBase }: { apiBase: string }) {
         {screen === "settings" && <Settings api={api} requirePin={deviceToken !== null} currentToken={deviceToken} pinGuard={pinGuard.current} onSaveToken={(token) => void saveToken(token)} onBack={() => { setDismissed(null); setError(false); setUi((value) => ({ ...value, settingsOpen: false })); }} onError={() => returnHome(true)}/>}
       </ScreenBoundary>
     </main>
-    <HoldToUnlock onUnlock={() => { setError(false); setUi((value) => ({ ...value, settingsOpen: true })); }}/>
+    <HoldToUnlock onHome={returnToCommunicationHome} onUnlock={() => { setError(false); setUi((value) => ({ ...value, settingsOpen: true })); }}/>
   </div>;
 }

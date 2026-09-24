@@ -33,8 +33,15 @@
     {
       "idx": 4,
       "version": "6",
-      "when": 1790041775088,
-      "tag": "0004_rfid_laundry_projection",
+      "when": 1790041775089,
+      "tag": "0004_reserved_visit_calendar",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790143421743,
+      "tag": "0005_rfid_laundry_projection",
       "breakpoints": true
     }
   ]

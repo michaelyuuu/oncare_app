@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { Intent } from "@oncare/contracts";
 import type { TaskProposal } from "@oncare/core";
 
@@ -89,7 +89,43 @@ export const visitSession = sqliteTable("visit_session", {
   requesterId: text("requester_id").notNull().references(() => user.id), robotId: text("robot_id").references(() => robot.id),
   state: text("state").notNull(), livekitRoom: text("livekit_room"),
   requestedAt: text("requested_at").notNull(), connectedAt: text("connected_at"), endedAt: text("ended_at"),
+  scheduledStartAt: text("scheduled_start_at"),
+  initiatorKind: text("initiator_kind", { enum: ["family", "device"] }),
+  initiatorId: text("initiator_id"),
 });
+export const visitReservation = sqliteTable("visit_reservation", {
+  id: text("id").primaryKey(),
+  facilityId: text("facility_id").notNull().references(() => facility.id),
+  residentId: text("resident_id").notNull().references(() => resident.id),
+  familyUserId: text("family_user_id").notNull().references(() => user.id),
+  robotId: text("robot_id").notNull().references(() => robot.id),
+  proposerKind: text("proposer_kind", { enum: ["family", "device"] }).notNull(),
+  proposerId: text("proposer_id").notNull(),
+  status: text("status", { enum: ["pending", "confirmed", "expired", "cancelled"] }).notNull(),
+  startAt: text("start_at").notNull(),
+  endAt: text("end_at").notNull(),
+  timeZone: text("time_zone").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  reminderAt: text("reminder_at"),
+  dispatchAt: text("dispatch_at"),
+  confirmedAt: text("confirmed_at"),
+  confirmedByKind: text("confirmed_by_kind", { enum: ["family", "device"] }),
+  confirmedById: text("confirmed_by_id"),
+  cancelledAt: text("cancelled_at"),
+  cancelledByKind: text("cancelled_by_kind", { enum: ["family", "device", "staff", "admin"] }),
+  cancelledById: text("cancelled_by_id"),
+  cancellationReason: text("cancellation_reason"),
+  supersedesId: text("supersedes_id").references((): AnySQLiteColumn => visitReservation.id),
+  visitId: text("visit_id").references(() => visitSession.id),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("visit_reservation_resident_start_status").on(table.residentId, table.startAt, table.status),
+  index("visit_reservation_family_start_status").on(table.familyUserId, table.startAt, table.status),
+  index("visit_reservation_robot_start_status").on(table.robotId, table.startAt, table.status),
+  index("visit_reservation_status_expires").on(table.status, table.expiresAt),
+  index("visit_reservation_status_dispatch").on(table.status, table.dispatchAt),
+]);
 export const taskRequest = sqliteTable("task_request", {
   id: text("id").primaryKey(), visitId: text("visit_id").references(() => visitSession.id),
   requesterId: text("requester_id").notNull().references(() => user.id), residentId: text("resident_id").notNull().references(() => resident.id),

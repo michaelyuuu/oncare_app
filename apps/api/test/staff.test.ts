@@ -84,6 +84,21 @@ describe("staff operations", () => {
       }),
     ]);
   });
+  test("queue includes upcoming reservations and dispatch failure evidence for staff", async () => {
+    const now = new Date("2026-09-21T00:00:00.000Z");
+    const { app, db, tokens } = await makeTestApp({ now: () => now });
+    const created = await app.inject({ method: "POST", url: "/visit-reservations", headers: auth(tokens.family), payload: { residentId: SEED_IDS.resident, localDate: "2026-09-21", startMinute: 540 } });
+    expect(created.statusCode).toBe(201);
+    const reservationId = created.json().reservation.id as string;
+    expect((await app.inject({ method: "POST", url: `/visit-reservations/${reservationId}/confirm`, headers: auth(tokens.device) })).statusCode).toBe(200);
+    const reservation = (await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) })).json().reservations[0];
+    expect(reservation).toMatchObject({ id: reservationId, status: "confirmed", residentDisplayName: "Demo Resident", familyDisplayName: "Demo Daughter" });
+    db.insert(t.auditEvent).values({ id: "scheduled-failure", at: "2026-09-21T00:56:00.000Z", actorType: "system", actorId: "api", entityType: "visit_reservation", entityId: reservationId, fromState: "confirmed", toState: "cancelled", reason: "reservation_activation_failed", correlationId: reservationId }).run();
+    const withFailure = (await app.inject({ method: "GET", url: "/queue", headers: auth(tokens.staff) })).json();
+    expect(withFailure.dispatchFailures).toEqual([expect.objectContaining({ reservationId, residentId: SEED_IDS.resident, reason: "reservation_activation_failed" })]);
+    const cancel = await app.inject({ method: "POST", url: `/visit-reservations/${reservationId}/cancel`, headers: auth(tokens.staff) });
+    expect(cancel.statusCode).toBe(200);
+  });
   test("queue groups work, includes only recent caregiver calls using the injected clock", async () => {
     const { app, db, tokens } = await makeTestApp({ now: () => new Date("2030-01-01T12:00:00Z") });
     db.update(t.resident).set({ availability: "in_activity" }).run();

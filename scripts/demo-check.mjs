@@ -16,8 +16,8 @@ for (const [name, url] of targets) {
 }
 
 const accounts = [
-  { role: "family", username: "family", password: "family-demo-pass" },
-  { role: "staff", username: "staff", password: "staff-demo-pass" },
+  { role: "family", username: "family", password: "1234" },
+  { role: "staff", username: "staff", password: "1234" },
   { role: "admin", username: "admin", password: "admin-demo-pass" },
 ];
 const laundryTools = ["get_laundry_overview", "find_garments"];

@@ -1069,6 +1069,8 @@ td {
     grid-template-columns:1fr
   }
   .robot-details form button,.activity-view .audit-controls>* {
+.reservation-row { border-left: .35rem solid #6b9d7b; }
+.dispatch-failure-row { border-left: .35rem solid #b54a3b; background: #fff4f1; }
     width:100%
   }
 }

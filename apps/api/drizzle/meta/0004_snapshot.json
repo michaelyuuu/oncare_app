@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3225d206-2c05-4d6c-8637-0db14e844190",
+  "id": "17828236-9825-47c5-b600-dfec7017dc63",
   "prevId": "81e3e576-d07b-48ba-9d48-a3c5f18f6093",
   "tables": {
     "assistance_request": {
@@ -621,156 +621,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "garment_projection": {
-      "name": "garment_projection",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_key": {
-          "name": "source_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "station_id": {
-          "name": "station_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "facility_id": {
-          "name": "facility_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "resident_id": {
-          "name": "resident_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "color": {
-          "name": "color",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "wash_count": {
-          "name": "wash_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_seen": {
-          "name": "last_seen",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_updated_at": {
-          "name": "source_updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "synced_at": {
-          "name": "synced_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "garment_projection_station_source": {
-          "name": "garment_projection_station_source",
-          "columns": [
-            "station_id",
-            "source_key"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "garment_projection_station_id_rfid_station_sync_station_id_fk": {
-          "name": "garment_projection_station_id_rfid_station_sync_station_id_fk",
-          "tableFrom": "garment_projection",
-          "tableTo": "rfid_station_sync",
-          "columnsFrom": [
-            "station_id"
-          ],
-          "columnsTo": [
-            "station_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "garment_projection_facility_id_facility_id_fk": {
-          "name": "garment_projection_facility_id_facility_id_fk",
-          "tableFrom": "garment_projection",
-          "tableTo": "facility",
-          "columnsFrom": [
-            "facility_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "garment_projection_resident_id_resident_id_fk": {
-          "name": "garment_projection_resident_id_resident_id_fk",
-          "tableFrom": "garment_projection",
-          "tableTo": "resident",
-          "columnsFrom": [
-            "resident_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "item": {
       "name": "item",
       "columns": {
@@ -1018,79 +868,6 @@
         "resident_facility_id_facility_id_fk": {
           "name": "resident_facility_id_facility_id_fk",
           "tableFrom": "resident",
-          "tableTo": "facility",
-          "columnsFrom": [
-            "facility_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "rfid_station_sync": {
-      "name": "rfid_station_sync",
-      "columns": {
-        "station_id": {
-          "name": "station_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "facility_id": {
-          "name": "facility_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_version": {
-          "name": "source_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_attempt_at": {
-          "name": "last_attempt_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_success_at": {
-          "name": "last_success_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "warnings": {
-          "name": "warnings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "rfid_station_sync_facility_id_facility_id_fk": {
-          "name": "rfid_station_sync_facility_id_facility_id_fk",
-          "tableFrom": "rfid_station_sync",
           "tableTo": "facility",
           "columnsFrom": [
             "facility_id"
@@ -1636,6 +1413,314 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "visit_reservation": {
+      "name": "visit_reservation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "facility_id": {
+          "name": "facility_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resident_id": {
+          "name": "resident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "family_user_id": {
+          "name": "family_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "robot_id": {
+          "name": "robot_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "proposer_kind": {
+          "name": "proposer_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "proposer_id": {
+          "name": "proposer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "start_at": {
+          "name": "start_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "end_at": {
+          "name": "end_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time_zone": {
+          "name": "time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reminder_at": {
+          "name": "reminder_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dispatch_at": {
+          "name": "dispatch_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirmed_by_kind": {
+          "name": "confirmed_by_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirmed_by_id": {
+          "name": "confirmed_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancelled_by_kind": {
+          "name": "cancelled_by_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancelled_by_id": {
+          "name": "cancelled_by_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancellation_reason": {
+          "name": "cancellation_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "supersedes_id": {
+          "name": "supersedes_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "visit_id": {
+          "name": "visit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "visit_reservation_resident_start_status": {
+          "name": "visit_reservation_resident_start_status",
+          "columns": [
+            "resident_id",
+            "start_at",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "visit_reservation_family_start_status": {
+          "name": "visit_reservation_family_start_status",
+          "columns": [
+            "family_user_id",
+            "start_at",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "visit_reservation_robot_start_status": {
+          "name": "visit_reservation_robot_start_status",
+          "columns": [
+            "robot_id",
+            "start_at",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "visit_reservation_status_expires": {
+          "name": "visit_reservation_status_expires",
+          "columns": [
+            "status",
+            "expires_at"
+          ],
+          "isUnique": false
+        },
+        "visit_reservation_status_dispatch": {
+          "name": "visit_reservation_status_dispatch",
+          "columns": [
+            "status",
+            "dispatch_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "visit_reservation_facility_id_facility_id_fk": {
+          "name": "visit_reservation_facility_id_facility_id_fk",
+          "tableFrom": "visit_reservation",
+          "tableTo": "facility",
+          "columnsFrom": [
+            "facility_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visit_reservation_resident_id_resident_id_fk": {
+          "name": "visit_reservation_resident_id_resident_id_fk",
+          "tableFrom": "visit_reservation",
+          "tableTo": "resident",
+          "columnsFrom": [
+            "resident_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visit_reservation_family_user_id_user_id_fk": {
+          "name": "visit_reservation_family_user_id_user_id_fk",
+          "tableFrom": "visit_reservation",
+          "tableTo": "user",
+          "columnsFrom": [
+            "family_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visit_reservation_robot_id_robot_id_fk": {
+          "name": "visit_reservation_robot_id_robot_id_fk",
+          "tableFrom": "visit_reservation",
+          "tableTo": "robot",
+          "columnsFrom": [
+            "robot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visit_reservation_supersedes_id_visit_reservation_id_fk": {
+          "name": "visit_reservation_supersedes_id_visit_reservation_id_fk",
+          "tableFrom": "visit_reservation",
+          "tableTo": "visit_reservation",
+          "columnsFrom": [
+            "supersedes_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visit_reservation_visit_id_visit_session_id_fk": {
+          "name": "visit_reservation_visit_id_visit_session_id_fk",
+          "tableFrom": "visit_reservation",
+          "tableTo": "visit_session",
+          "columnsFrom": [
+            "visit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "visit_session": {
       "name": "visit_session",
       "columns": {
@@ -1697,6 +1782,27 @@
         },
         "ended_at": {
           "name": "ended_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "scheduled_start_at": {
+          "name": "scheduled_start_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "initiator_kind": {
+          "name": "initiator_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "initiator_id": {
+          "name": "initiator_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

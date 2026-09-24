@@ -104,6 +104,40 @@ describe("videoProviderFromEnv", () => {
 });
 
 describe("POST /visits/:id/token", () => {
+  test("outgoing device may prejoin; family joins only after answer_family and cancellation closes the waiting room", async () => {
+    const f = await visitIn("awaiting_family_consent");
+    f.db.update(t.visitSession).set({ initiatorKind: "device", initiatorId: SEED_IDS.device }).where(eq(t.visitSession.id, f.id)).run();
+    expect((await f.token(f.tokens.device)).statusCode).toBe(200);
+    expect((await f.token(f.tokens.family)).statusCode).toBe(409);
+    expect((await f.token(f.tokens.staff)).statusCode).toBe(409);
+    expect((await f.app.inject({ method: "POST", url: `/visits/${f.id}/answer_family`, headers: auth(f.tokens.family) })).statusCode).toBe(200);
+    expect((await f.token(f.tokens.family)).statusCode).toBe(200);
+    await f.app.close();
+    const waiting = await visitIn("awaiting_family_consent");
+    waiting.db.update(t.visitSession).set({ initiatorKind: "device", initiatorId: SEED_IDS.device }).where(eq(t.visitSession.id, waiting.id)).run();
+    await waiting.token(waiting.tokens.device);
+    expect((await waiting.app.inject({ method: "POST", url: `/visits/${waiting.id}/cancel`, headers: auth(waiting.tokens.device) })).statusCode).toBe(200);
+    expect(waiting.video.closed).toEqual([waiting.id]);
+    expect((await waiting.token(waiting.tokens.device)).statusCode).toBe(409);
+    await waiting.app.close();
+  });
+
+  test("scheduled device tokens cannot prejoin before the reserved start", async () => {
+    let instant = new Date("2026-09-22T00:59:59.999Z");
+    const f = await makeTestApp({ now: () => instant });
+    const response = await f.app.inject({ method: "POST", url: "/visits", headers: auth(f.tokens.family), payload: { residentId: SEED_IDS.resident } });
+    const id = response.json().visit.id as string;
+    f.db.update(t.visitSession).set({ state: "awaiting_resident_consent", scheduledStartAt: "2026-09-22T01:00:00.000Z" }).where(eq(t.visitSession.id, id)).run();
+    const token = () => f.app.inject({ method: "POST", url: `/visits/${id}/token`, headers: auth(f.tokens.device) });
+    expect((await token()).statusCode).toBe(409);
+    expect(f.video.issued).toEqual([]);
+    instant = new Date("2026-09-22T01:00:00.000Z");
+    expect((await token()).statusCode).toBe(200);
+    f.db.update(t.familyRelationship).set({ consentVideo: false }).run();
+    expect((await token()).statusCode).toBe(403);
+    await f.app.close();
+  });
+
   test("missing visits return 404 and unknown devices are rejected without issuing tokens", async () => {
     const { app, video, tokens, token } = await visitIn("connecting");
     expect((await app.inject({ method: "POST", url: "/visits/missing/token", headers: auth(tokens.family) })).statusCode).toBe(404);

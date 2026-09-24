@@ -12,7 +12,7 @@ const VIEWPORTS = [
 async function login(page: Page, role: "staff" | "admin") {
   await page.goto(`${STAFF_BASE}/${role === "admin" ? "?mode=manager" : ""}`);
   await page.getByLabel("Username").fill(role);
-  await page.getByLabel("Password").fill(role === "admin" ? "admin-demo-pass" : "staff-demo-pass");
+  await page.getByLabel("Password").fill(role === "admin" ? "admin-demo-pass" : "1234");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Signed in" })).toBeVisible();
 }

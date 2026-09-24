@@ -14,9 +14,9 @@ const j = async (path, opts = {}, token) => {
   return response.headers.get("content-type")?.includes("json") ? response.json() : response.text();
 };
 const login = async (username, password) => (await j("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) })).token;
-const family = await login("family", "family-demo-pass");
-const staff = await login("staff", "staff-demo-pass");
-const device = (await j("/auth/device", { method: "POST", body: JSON.stringify({ deviceToken: "device-demo-token" }) })).token;
+const family = await login("family", "1234");
+const staff = await login("staff", "1234");
+const device = (await j("/auth/device", { method: "POST", body: JSON.stringify({ deviceToken: "1234" }) })).token;
 const residents = (await j("/me/residents", {}, family)).residents;
 const residentId = residents[0]?.id;
 if (!residentId) throw new Error("family account has no resident");

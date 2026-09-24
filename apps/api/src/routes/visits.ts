@@ -4,6 +4,23 @@ import { requireRole } from "../auth/plugin";
 import { VISIT_ACTIONS, type VisitAction } from "../services/visits";
 
 export async function visitRoutes(app: FastifyInstance) {
+  app.post("/visits/now", { preHandler: requireRole("family", "device") }, async (req, reply) => {
+    const p = req.principal;
+    const body = (p.kind === "device"
+      ? z.object({ contactUserId: z.string().min(1) }).strict()
+      : z.object({ residentId: z.string().min(1) }).strict()).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "bad_request" });
+    const residentId = p.kind === "device" ? p.residentId : (body.data as { residentId: string }).residentId;
+    const familyUserId = p.kind === "device" ? (body.data as { contactUserId: string }).contactUserId : p.id;
+    const error = app.reservations.relationshipError(familyUserId, residentId);
+    if (error) return reply.code(error === "forbidden" ? 403 : 409).send({ error });
+    const result = app.visits.createNow({ residentId, familyUserId, initiator: { kind: p.kind === "device" ? "device" : "family", id: p.id } });
+    if (!result.ok) return reply.code(["no_relationship", "forbidden"].includes(result.error) ? 403 : 409).send({ error: result.error });
+    return reply.code(201).send({ visit: result.visit });
+  });
+
+  app.get("/visits/incoming", { preHandler: requireRole("family") }, async (req) => ({ visits: app.visits.incoming(req.principal) }));
+
   app.post("/visits", { preHandler: requireRole("family") }, async (req, reply) => {
     const body = z.object({ residentId: z.string().min(1) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "bad_request" });

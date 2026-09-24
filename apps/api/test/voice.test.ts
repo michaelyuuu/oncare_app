@@ -9,6 +9,7 @@ import {
   RealtimeProviderError,
   REALTIME_TOOL_DEFINITIONS,
 } from "../src/services/voice";
+import { buildAssistantInstructions, loadAssistantProfile } from "../src/services/assistant-profile";
 
 const auth = (token: string) => ({ authorization: "Bearer " + token });
 
@@ -20,7 +21,37 @@ describe("resident assistant voice adapters", () => {
     expect(adapter.interpret("what is the service status", null)).toMatchObject({ name: "get_service_status" });
     expect(adapter.interpret("what is the status", "help_" + "a".repeat(32))).toMatchObject({ name: "get_my_request_status" });
     expect(adapter.interpret("withdraw my request", "help_" + "a".repeat(32))).toMatchObject({ name: "request_withdrawal" });
+    expect(adapter.interpret("schedule a visit with contact family_demo_01 on 2026-09-22 at 09:00", null)).toEqual({
+      name: "propose_visit_time",
+      arguments: { contactUserId: "family_demo_01", localDate: "2026-09-22", startMinute: 540 },
+    });
+    expect(adapter.interpret("schedule a visit tomorrow", null)).toBeNull();
     expect(adapter.interpret("something else", null)).toBeNull();
+  });
+
+  test("fake scheduling asks one clarification until contact and time are supplied", async () => {
+    const { app, tokens, db } = await makeTestApp({ now: () => new Date("2026-09-21T00:00:00.000Z") });
+    const started = await app.inject({ method: "POST", url: "/assistant/sessions", headers: auth(tokens.device), payload: {} });
+    const sessionId = started.json().session.sessionId as string;
+
+    const incomplete = await app.inject({
+      method: "POST", url: "/assistant/sessions/" + sessionId + "/input", headers: auth(tokens.device),
+      payload: { text: "schedule a visit tomorrow" },
+    });
+    expect(incomplete.json()).toMatchObject({ result: { kind: "clarification", action: "ask_one_question" } });
+
+    const complete = await app.inject({
+      method: "POST", url: "/assistant/sessions/" + sessionId + "/input", headers: auth(tokens.device),
+      payload: { text: "schedule a visit with contact family_demo_01 on 2026-09-22 at 09:00" },
+    });
+    expect(complete.json()).toMatchObject({
+      result: {
+        kind: "tool_result",
+        tool: "propose_visit_time",
+        response: { ok: true, needsConfirmation: true, actionId: expect.any(String) },
+      },
+    });
+    expect(db.select().from(t.visitReservation).all()).toEqual([]);
   });
 
   test("fake session routes authoritative tool results and supports interrupt/close", async () => {
@@ -73,7 +104,7 @@ describe("resident assistant voice adapters", () => {
     expect(input.statusCode).toBe(401);
   });
 
-  test("Realtime provider sends server-owned configuration and only the five tools", async () => {
+  test("Realtime provider sends server-owned configuration and the scheduling function schemas", async () => {
     const requests: Array<{ headers: Record<string, string>; body: string }> = [];
     const provider = new OpenAIRealtimeProvider({
       apiKey: "server-secret",
@@ -91,7 +122,34 @@ describe("resident assistant voice adapters", () => {
     expect(captured.body).toContain("\"instructions\":\"test\"");
     expect(JSON.parse(captured.body.match(/\r\n\r\n({.*})\r\n--/s)![1]!).tools.map((tool: { name: string }) => tool.name))
       .toEqual(REALTIME_TOOL_DEFINITIONS.map((tool) => tool.name));
+    expect(REALTIME_TOOL_DEFINITIONS).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "function", name: "get_visit_schedule" }),
+      expect.objectContaining({
+        type: "function",
+        name: "get_visit_slots",
+        parameters: expect.objectContaining({ required: ["from"] }),
+      }),
+      expect.objectContaining({
+        type: "function",
+        name: "propose_visit_time",
+        parameters: expect.objectContaining({ required: ["contactUserId", "localDate", "startMinute"] }),
+      }),
+    ]));
     expect(answer).not.toContain("server-secret");
+  });
+
+  test("active Realtime instructions keep the ON 0 identity and control limits explicit", () => {
+    const instructions = buildAssistantInstructions(loadAssistantProfile());
+    expect(instructions).toContain("ON 0");
+    expect(instructions).toContain("wheels");
+    expect(instructions).toContain("adjustable-height");
+    expect(instructions).toContain("two arms");
+    expect(instructions).toContain("chest display");
+    expect(instructions).toContain("do not move it");
+    expect(instructions).toContain("use its arms");
+    expect(instructions).toContain("adjust its height");
+    expect(instructions).toContain("access its camera");
+    expect(instructions).toContain("offer to contact staff");
   });
 
   test("Realtime provider classifies unavailable, quota, timeout, and malformed SDP", async () => {

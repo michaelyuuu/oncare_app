@@ -29,6 +29,8 @@ export function Queue({ queue, onAction, pending, errors }: {
     const [filter, setFilter] = useState<WorkFilter>("all");
     const [residentFilter, setResidentFilter] = useState("");
     const assistanceRequests = queue.assistanceRequests ?? [];
+    const reservations = queue.reservations ?? [];
+    const dispatchFailures = queue.dispatchFailures ?? [];
     const taskGroups: Array<{ tasks: QueueData["tasksAwaitingLoad"]; actions: string[] }> = [
         { tasks: queue.tasksAwaitingApproval, actions: ["approve", "deny"] },
         { tasks: queue.tasksAwaitingLoad, actions: ["loaded"] },
@@ -41,10 +43,12 @@ export function Queue({ queue, onAction, pending, errors }: {
     const show = (kind: Exclude<WorkFilter, "all">) => filter === "all" || filter === kind;
     const residentQuery = residentFilter.trim().toLocaleLowerCase();
     const matchesResident = (residentId?: string | null) => !residentQuery || residentId?.toLocaleLowerCase().includes(residentQuery) === true;
-    const hasWork = rows.length + queue.caregiverCalls.length + assistanceRequests.length > 0;
+    const hasWork = rows.length + queue.caregiverCalls.length + assistanceRequests.length + reservations.length + dispatchFailures.length > 0;
     const hasVisibleWork = (show("assistance") && assistanceRequests.some(row => matchesResident(row.residentId)))
         || (show("visits") && rows.some(row => row.kind === "visits" && matchesResident(row.resident)))
         || (show("deliveries") && rows.some(row => row.kind === "deliveries" && matchesResident(row.resident)))
+        || (show("visits") && reservations.some(row => matchesResident(row.residentDisplayName)))
+        || (show("visits") && dispatchFailures.some(row => matchesResident(row.residentDisplayName)))
         || (show("caregiver") && queue.caregiverCalls.some(row => matchesResident(row.residentId)));
 
     return <>
@@ -91,6 +95,23 @@ export function Queue({ queue, onAction, pending, errors }: {
           <div className="actions">{actions.map(action => <button key={action} disabled={pending.includes(rowKey)} onClick={() => void onAction(`${rowKey}/${action}`, { version: row.version })}>{t(`staff.assistance.action_${action}`)}</button>)}</div>
         </li>;
       })}
+      {show("visits") && reservations.filter(row => matchesResident(row.residentDisplayName)).map(row => <li key={"/visit-reservations/" + row.id} className="work-row reservation-row" data-testid={"staff-reservation-" + row.id}>
+        <div className="work-row-heading"><strong>{t("staff.queue.reservation")}</strong><span className="work-status">{t("staff.reservation.status." + row.status)}</span></div>
+        <dl className="work-facts">
+          <div><dt>{t("staff.queue.resident_id")}</dt><dd>{t("staff.reservation.resident", { name: row.residentDisplayName })}</dd></div>
+          <div><dt>{t("staff.reservation.scheduled_for")}</dt><dd><time dateTime={row.startAt}>{new Date(row.startAt).toLocaleString([], { timeZone: row.timeZone })}</time></dd></div>
+        </dl>
+        <p className="work-note">{t("staff.reservation.family", { name: row.familyDisplayName })}</p>
+        <div className="actions"><button disabled={pending.includes("/visit-reservations/" + row.id)} onClick={() => void onAction("/visit-reservations/" + row.id + "/cancel")}>{t("staff.reservation.cancel")}</button></div>
+      </li>)}
+      {show("visits") && dispatchFailures.filter(row => matchesResident(row.residentDisplayName)).map(row => <li key={row.id} className="work-row dispatch-failure-row" data-testid={"staff-dispatch-failure-" + row.id}>
+        <div className="work-row-heading"><strong>{t("staff.queue.dispatch_failure")}</strong></div>
+        <dl className="work-facts">
+          <div><dt>{t("staff.queue.resident_id")}</dt><dd>{t("staff.reservation.resident", { name: row.residentDisplayName })}</dd></div>
+          <div><dt>{t("staff.queue.created")}</dt><dd><time dateTime={row.at}>{displayTime(row.at)}</time></dd></div>
+        </dl>
+        <p className="work-note">{t("staff.reservation.failure_reason", { reason: row.reason })}</p>
+      </li>)}
       {rows.filter(row => show(row.kind) && matchesResident(row.resident)).map(row => <li key={row.key} className="work-row">
         <div className="work-row-heading"><strong>{t(`staff.queue.${row.label}`)}</strong><span className="work-status">{statusLabel(row.state)}</span></div>
         <dl className="work-facts">

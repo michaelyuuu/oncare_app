@@ -18,6 +18,45 @@ export interface FunctionCall {
   arguments: Record<string, unknown>;
 }
 
+export interface AssistantActionProposal {
+  actionId: string;
+  summary: string;
+  expiresAt: string;
+}
+
+export function extractAssistantActionProposal(value: unknown): AssistantActionProposal | null {
+  let current = value;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (typeof current !== "object" || current === null || Array.isArray(current)) return null;
+    const record = current as Record<string, unknown>;
+    if (
+      record.needsConfirmation === true
+      && typeof record.actionId === "string"
+      && record.actionId.length > 0
+      && typeof record.summary === "string"
+      && record.summary.length > 0
+      && typeof record.expiresAt === "string"
+      && record.expiresAt.length > 0
+    ) {
+      return {
+        actionId: record.actionId,
+        summary: record.summary,
+        expiresAt: record.expiresAt,
+      };
+    }
+    if ("response" in record) {
+      current = record.response;
+      continue;
+    }
+    if ("result" in record) {
+      current = record.result;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
 export function normalizeSdp(value: string): string {
   const text = String(value || "").replace(/^\uFEFF/, "").trim();
   if (!text) return "";
@@ -148,6 +187,7 @@ export interface LiveVoiceClientOptions {
   peerConnectionFactory?: typeof RTCPeerConnection;
   mediaDevices?: MediaDevices;
   secureContext?: boolean;
+  signal?: AbortSignal;
 }
 
 type RealtimeCallResponse = { session: { sessionId: string }; sdp: string };
@@ -170,6 +210,21 @@ export class RealtimeVoiceClient {
   }
 
   async connect(): Promise<RealtimeCallResponse> {
+    const signal = this.options.signal;
+    if (signal?.aborted) {
+      await this.close();
+      throw new Error("Live voice was cancelled");
+    }
+    const abort = () => { void this.close(); };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      return await this.connectActive();
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
+  }
+
+  private async connectActive(): Promise<RealtimeCallResponse> {
     const secureOptions = typeof this.options.secureContext === "boolean" ? { secureContext: this.options.secureContext } : {};
     if (!isSecureVoiceOrigin(secureOptions)) throw new Error("Microphone access requires HTTPS.");
     const Peer = this.options.peerConnectionFactory ?? globalThis.RTCPeerConnection;
@@ -191,7 +246,16 @@ export class RealtimeVoiceClient {
         document.body.append(this.remoteAudio);
       }
       const remoteStream = event.streams?.[0];
-      if (remoteStream && this.remoteAudio) this.remoteAudio.srcObject = remoteStream;
+      if (remoteStream && this.remoteAudio) {
+        const audio = this.remoteAudio;
+        audio.srcObject = remoteStream;
+        void audio.play().catch(() => {
+          if (this.remoteAudio !== audio) return;
+          this.options.onState?.({
+            state: "error", detail: "Audio playback is blocked. Allow sound for this site, then reopen Talk.",
+          });
+        });
+      }
     };
     this.peer.onconnectionstatechange = () => {
       const status = this.peer?.connectionState;

@@ -18,7 +18,7 @@ export interface AssistantClient {
   reset(): void;
 }
 
-export type AssistantRealtimeOptions = Pick<LiveVoiceClientOptions, "onState" | "onToolResult" | "onClosed">;
+export type AssistantRealtimeOptions = Pick<LiveVoiceClientOptions, "onState" | "onToolResult" | "onClosed" | "signal">;
 
 export function createAssistantClient(api: Api): AssistantClient {
   let session: AssistantSession | null = null;
@@ -42,6 +42,7 @@ export function createAssistantClient(api: Api): AssistantClient {
     if (options.onState) voiceOptions.onState = options.onState;
     if (options.onToolResult) voiceOptions.onToolResult = options.onToolResult;
     if (options.onClosed) voiceOptions.onClosed = options.onClosed;
+    if (options.signal) voiceOptions.signal = options.signal;
     const voice = new RealtimeVoiceClient(api, voiceOptions);
     realtime = voice;
     try {
