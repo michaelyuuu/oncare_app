@@ -2,7 +2,8 @@ import { describe, expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { openDb } from "../src/db/client";
 import * as t from "../src/db/schema";
-import { SEED_IDS, seed, seedDemo, shouldSeedDemo } from "../src/db/seed";
+import { SEED_IDS, SEED_SECRETS, seed, seedDemo, shouldSeedDemo } from "../src/db/seed";
+import { hashSecret, verifySecret } from "../src/auth/password";
 
 describe("database and seed", () => {
   test("never enables public demo credentials in production", () => {
@@ -40,6 +41,21 @@ describe("database and seed", () => {
     expect(db.select().from(t.resident).all()).toHaveLength(1);
   });
 
+  test("seed refreshes changed demo quick-login secrets in an existing database", async () => {
+    const db = openDb(":memory:");
+    await seed(db);
+    db.update(t.user).set({ passwordHash: await hashSecret("legacy-family") }).where(eq(t.user.id, SEED_IDS.familyUser)).run();
+    db.update(t.user).set({ passwordHash: await hashSecret("legacy-staff") }).where(eq(t.user.id, SEED_IDS.staffUser)).run();
+    db.update(t.device).set({ deviceTokenHash: await hashSecret("legacy-device") }).where(eq(t.device.id, SEED_IDS.device)).run();
+    await seed(db);
+    const family = db.select().from(t.user).where(eq(t.user.id, SEED_IDS.familyUser)).get();
+    const staff = db.select().from(t.user).where(eq(t.user.id, SEED_IDS.staffUser)).get();
+    const device = db.select().from(t.device).where(eq(t.device.id, SEED_IDS.device)).get();
+    expect(await verifySecret(SEED_SECRETS.familyPassword, family!.passwordHash)).toBe(true);
+    expect(await verifySecret(SEED_SECRETS.staffPassword, staff!.passwordHash)).toBe(true);
+    expect(await verifySecret(SEED_SECRETS.deviceToken, device!.deviceTokenHash)).toBe(true);
+  });
+
   test("family user is related to the demo resident with all consents on", async () => {
     const db = openDb(":memory:");
     await seed(db);
@@ -52,7 +68,7 @@ describe("database and seed", () => {
     const db = openDb(":memory:");
     await seed(db);
     const u = db.select().from(t.user).where(eq(t.user.id, SEED_IDS.familyUser)).get();
-    expect(u?.passwordHash).not.toContain("family-demo-pass");
+    expect(u?.passwordHash).not.toContain("1234");
     const r = db.select().from(t.robot).get();
     expect(r?.tokenHash).not.toContain("robot-demo-token");
   });

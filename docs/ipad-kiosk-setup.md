@@ -31,7 +31,7 @@ The preview command reports its port (normally 4173). Use that port with the dev
 
 ## Enter the device token once
 
-On a newly installed kiosk, open Settings; it is editable until a token has been saved. Paste `device-demo-token` and save it. On a configured kiosk, press and hold the bottom-left logo for three seconds, enter the demo staff PIN `2468`, then paste or replace the token. The app validates a new token before saving it locally.
+On a newly installed kiosk, open Settings; it is editable until a token has been saved. Paste `1234` and save it. On a configured kiosk, press and hold the bottom-left logo for three seconds, enter the demo staff PIN `2468`, then paste or replace the token. The app validates a new token before saving it locally.
 
 ## Exit Guided Access
 

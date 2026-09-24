@@ -24,9 +24,9 @@ $env:ROBOT_ADAPTER = "mock"
 
 Arrange four visible screens:
 
-1. Family phone: `http://localhost:5174`, sign in as `family` / `family-demo-pass`.
-2. Resident iPad: `http://localhost:5173`. On first launch, hold the bottom-right corner to open settings, enter device token `device-demo-token`, and save it.
-3. Staff console: `http://localhost:5175`, sign in as `staff` / `staff-demo-pass`.
+1. Family phone: `http://localhost:5174`, sign in as `family` / `1234`.
+2. Resident iPad: `http://localhost:5173`. On first launch, hold the bottom-right corner to open settings, enter device token `1234`, and save it.
+3. Staff console: `http://localhost:5175`, sign in as `staff` / `1234`.
 4. Mock gateway log: keep the Python terminal visible. Confirm it says `SIMULATED ROBOT: adapter=mock` and connects to the API.
 
 The seeded staff release PIN is `2468`. The credentials and PIN are synthetic fixtures, not production secrets.

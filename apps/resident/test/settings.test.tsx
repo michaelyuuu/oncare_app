@@ -53,11 +53,33 @@ test("closing settings before each deferred PIN rejection still locks after thre
   await act(async () => vi.advanceTimersByTimeAsync(1));
   expect(screen.getByRole("button", { name: "1" })).toBeEnabled();
 });
+test("tapping the bottom-left home control returns to the resident home", () => {
+  const onHome = vi.fn();
+  render(<HoldToUnlock onUnlock={vi.fn()} onHome={onHome}/>);
+  fireEvent.click(screen.getByRole("button"));
+  expect(onHome).toHaveBeenCalledTimes(1);
+});
 test("hold requires three seconds; cancel and unmount remove timers", () => {
-  vi.useFakeTimers(); const unlock = vi.fn(); const view = render(<HoldToUnlock onUnlock={unlock}/>);
+  vi.useFakeTimers(); const unlock = vi.fn(); const onHome = vi.fn(); const view = render(<HoldToUnlock onHome={onHome} onUnlock={unlock}/>);
   const logo = screen.getByRole("button"); fireEvent.pointerDown(logo);
   act(() => vi.advanceTimersByTime(2999)); expect(unlock).not.toHaveBeenCalled();
   fireEvent.pointerCancel(logo); act(() => vi.advanceTimersByTime(1)); expect(unlock).not.toHaveBeenCalled();
   fireEvent.pointerDown(logo); act(() => vi.advanceTimersByTime(3000)); expect(unlock).toHaveBeenCalledTimes(1);
+  fireEvent.pointerUp(logo); fireEvent.click(logo); expect(onHome).not.toHaveBeenCalled();
   fireEvent.pointerDown(logo); view.unmount(); expect(vi.getTimerCount()).toBe(0);
+});
+test("holding Home with the keyboard opens staff settings without navigating home", () => {
+  vi.useFakeTimers();
+  const onHome = vi.fn();
+  const onUnlock = vi.fn();
+  render(<HoldToUnlock onHome={onHome} onUnlock={onUnlock}/>);
+  const button = screen.getByRole("button");
+
+  fireEvent.keyDown(button, { key: "Enter" });
+  act(() => vi.advanceTimersByTime(3000));
+  fireEvent.keyUp(button, { key: "Enter" });
+  fireEvent.click(button);
+
+  expect(onUnlock).toHaveBeenCalledTimes(1);
+  expect(onHome).not.toHaveBeenCalled();
 });

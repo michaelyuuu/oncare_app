@@ -74,7 +74,7 @@ test("scheduled visit: family proposal, resident confirmation, dispatch, incomin
 
   try {
     await resident.goto("http://localhost:5173/");
-    await resident.getByLabel("Device token").fill("device-demo-token");
+    await resident.getByLabel("Device token").fill("1234");
     await resident.getByRole("button", { name: "Save" }).click();
     await expect(resident.getByRole("button", { name: "Schedule a visit" })).toBeVisible({ timeout: 30_000 });
     await resident.getByRole("radio", { name: /Demo Daughter/ }).check();
@@ -83,14 +83,14 @@ test("scheduled visit: family proposal, resident confirmation, dispatch, incomin
 
     await staff.goto("http://localhost:5175/");
     await staff.getByLabel("Username").fill("staff");
-    await staff.getByLabel("Password").fill("staff-demo-pass");
+    await staff.getByLabel("Password").fill("1234");
     await staff.getByRole("button", { name: "Sign in" }).click();
-    await expect(staff.getByRole("heading", { name: "Pending" })).toBeVisible({ timeout: 30_000 });
+    await expect(staff.getByRole("heading", { name: "Today" })).toBeVisible({ timeout: 30_000 });
     await expect(staff.getByText("Connected")).toBeVisible({ timeout: 30_000 });
 
     await family.goto("http://localhost:5174/");
     await family.getByLabel("Username").fill("family");
-    await family.getByLabel("Password").fill("family-demo-pass");
+    await family.getByLabel("Password").fill("1234");
     await family.getByRole("button", { name: "Sign in" }).click();
     await family.getByRole("button", { name: "Schedule a visit" }).click();
     await expect(family.getByTestId("family-schedule")).toBeVisible();

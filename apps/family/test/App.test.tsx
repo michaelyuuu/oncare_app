@@ -41,7 +41,7 @@ const resident = { id: "resident_demo_01", displayName: "Mom", availability: "av
 test("login -> residents -> Call now -> remote presence advances the live stepper", async () => {
   let state = "accepted";
   const calls = installFetch((path, init) => {
-    if (path === "/auth/login") return init?.body?.toString().includes("family-demo-pass") ? { status: 200, body: { token: "jwt", principal: { kind: "user", id: "family_demo_01", role: "family", displayName: "Demo Daughter" } } } : { status: 401, body: { error: "invalid_credentials" } };
+    if (path === "/auth/login") return init?.body?.toString().includes("1234") ? { status: 200, body: { token: "jwt", principal: { kind: "user", id: "family_demo_01", role: "family", displayName: "Demo Daughter" } } } : { status: 401, body: { error: "invalid_credentials" } };
     if (path === "/me/residents") return { status: 200, body: { residents: [resident] } };
     if (path === "/visits/now" && init?.method === "POST") return { status: 201, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
     if (path === "/visits/v1") return { status: 200, body: { visit: { id: "v1", state, residentId: resident.id, simulated: true } } };
@@ -55,7 +55,7 @@ test("login -> residents -> Call now -> remote presence advances the live steppe
   await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(await screen.findByText("Wrong username or password")).toBeInTheDocument();
   await userEvent.clear(screen.getByLabelText("Password"));
-  await userEvent.type(screen.getByLabelText("Password"), "family-demo-pass");
+  await userEvent.type(screen.getByLabelText("Password"), "1234");
   await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
   expect(await screen.findByText("Mom")).toBeInTheDocument();
   expect(screen.getByText("Available")).toBeInTheDocument();

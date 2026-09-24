@@ -3,6 +3,16 @@ import { makeTestApp } from "./helpers";
 import { SEED_SECRETS } from "../src/db/seed";
 
 describe("authentication", () => {
+  test("demo quick-login uses 1234 for family, staff, and resident", async () => {
+    const { app } = await makeTestApp();
+    const family = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "family", password: "1234" } });
+    const staff = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "staff", password: "1234" } });
+    const resident = await app.inject({ method: "POST", url: "/auth/device", payload: { deviceToken: "1234" } });
+    expect(family.statusCode).toBe(200);
+    expect(staff.statusCode).toBe(200);
+    expect(resident.statusCode).toBe(200);
+  });
+
   test("family login returns a token and principal", async () => {
     const { app } = await makeTestApp();
     const res = await app.inject({ method: "POST", url: "/auth/login", payload: { username: "family", password: SEED_SECRETS.familyPassword } });

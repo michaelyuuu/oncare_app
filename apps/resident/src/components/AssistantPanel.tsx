@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, type Api, t } from "@oncare/web-common";
+import { ApiError, type Api, type VisitContact, t } from "@oncare/web-common";
 import { createAssistantClient } from "../assistant";
 import { extractAssistantActionProposal, type AssistantActionProposal, type LiveVoiceEventState } from "../realtime";
 import { speak, stopSpeaking } from "../speech";
 import { AssistantActionConfirmation } from "./AssistantActionConfirmation";
+import { VisitContactPicker } from "./VisitContactPicker";
 
 type PanelState = "connecting" | "listening" | "thinking" | "speaking" | "error";
 type HelpStatus = "idle" | "sending" | "recorded" | "error";
@@ -41,6 +42,10 @@ export function AssistantPanel({
   residentName: _residentName,
   onHelpStaff,
   helpStatus = "idle",
+  contacts = [],
+  selectedContactId = null,
+  onSelectContact,
+  onCallNow,
 }: {
   api: Api;
   onClose: () => void;
@@ -48,6 +53,10 @@ export function AssistantPanel({
   residentName: string;
   onHelpStaff?: () => void;
   helpStatus?: HelpStatus;
+  contacts?: VisitContact[];
+  selectedContactId?: string | null;
+  onSelectContact?: (contactUserId: string) => void;
+  onCallNow?: (contactUserId: string) => void;
 }) {
   const client = useMemo(() => createAssistantClient(api), [api]);
   const [state, setState] = useState<PanelState>("connecting");
@@ -56,6 +65,7 @@ export function AssistantPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [action, setAction] = useState<AssistantActionProposal | null>(null);
+  const [callPickerOpen, setCallPickerOpen] = useState(false);
 
   const receiveToolResult = useCallback((result: unknown): boolean => {
     const proposal = extractAssistantActionProposal(result);
@@ -159,6 +169,15 @@ export function AssistantPanel({
     }
   };
 
+  const callSelectedContact = async () => {
+    const contactUserId = selectedContactId;
+    if (!contactUserId || !onCallNow || sending || disabled) return;
+    setSending(true);
+    setCallPickerOpen(false);
+    await close();
+    onCallNow(contactUserId);
+  };
+
   const stop = async () => {
     stopSpeaking();
     try { await client.interrupt(); } catch { /* provider interruption is best effort */ }
@@ -249,6 +268,14 @@ export function AssistantPanel({
   >
     <p className="communication-brand">{t("resident.communication.brand")}</p>
     <div className="communication-zone-corner">
+      {onCallNow && <button
+        type="button"
+        className="communication-ghost"
+        aria-expanded={callPickerOpen}
+        aria-controls={callPickerOpen ? "communication-call-panel" : undefined}
+        onClick={() => setCallPickerOpen((open) => !open)}
+        disabled={disabled || sending}
+      >{t("resident.visit.call_someone")}</button>}
       <button type="button" className="communication-ghost" onClick={() => void stop()} disabled={disabled || sending}>
         {t("resident.communication.stop")}
       </button>
@@ -256,6 +283,19 @@ export function AssistantPanel({
         {t("resident.communication.end_call")}
       </button>
     </div>
+    {callPickerOpen && onCallNow && <div id="communication-call-panel" className="communication-call-panel">
+      <VisitContactPicker
+        contacts={contacts}
+        selectedContactId={selectedContactId}
+        onSelect={onSelectContact ?? (() => {})}
+      />
+      <button
+        type="button"
+        className="communication-solid"
+        onClick={() => void callSelectedContact()}
+        disabled={disabled || sending || !selectedContactId}
+      >{t("resident.visit.call_now")}</button>
+    </div>}
     <div className="communication-orb-button communication-orb-button--static" aria-hidden="true">
       <span className="communication-orb">
         <i /><i /><i /><i />

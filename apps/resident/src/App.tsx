@@ -132,6 +132,10 @@ export function App({ apiBase }: { apiBase: string }) {
     setCalendarOpen(false);
     setUi((value) => ({ ...value, settingsOpen: false, caregiverCalledUntil: null }));
   }, []);
+  const returnToCommunicationHome = useCallback(() => {
+    setAssistantOpen(false);
+    setCalendarOpen(false);
+  }, []);
   const selected = selectScreen(server, ui, now);
   const serverScreen = !ui.settingsOpen && dismissed === key && selected !== "disconnected" ? "home" : selected;
   const screen = calendarOpen && (serverScreen === "home" || serverScreen === "disconnected") ? "visit_calendar" : serverScreen;
@@ -185,14 +189,14 @@ export function App({ apiBase }: { apiBase: string }) {
       if (epoch === generation.current) { busy.current = false; setPending(false); }
     }
   };
-  const callNow = async () => {
-    if (busy.current || !jwt || !ui.apiReachable || !selectedContactId) return;
+  const callNow = async (contactUserId = selectedContactId) => {
+    if (busy.current || !jwt || !ui.apiReachable || !contactUserId) return;
     const epoch = generation.current;
     busy.current = true; setPending(true);
     try {
-      await api.post("/visits/now", { contactUserId: selectedContactId });
+      await api.post("/visits/now", { contactUserId });
       if (epoch !== generation.current) return;
-      setCalendarOpen(false); setError(false); setDismissed(null);
+      setAssistantOpen(false); setCalendarOpen(false); setError(false); setDismissed(null);
       void refresh.current();
     } catch {
       if (epoch === generation.current) returnHome(true);
@@ -261,7 +265,18 @@ export function App({ apiBase }: { apiBase: string }) {
       {!communicationSurface && error && <p className="feedback" role="status">{t("resident.error.retry")}</p>}
       <ScreenBoundary key={`${screen}:${server?.visit?.id ?? ""}`} fallback={home} onError={() => returnHome(true)}>
         {(screen === "home" || screen === "disconnected") && !assistantOpen && home}
-        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel api={api} residentName={server?.resident.displayName ?? ""} disabled={pending || !jwt || !ui.apiReachable} onHelpStaff={() => void helpStaff()} helpStatus={helpStatus} onClose={() => setAssistantOpen(false)} />}
+        {(screen === "home" || screen === "disconnected") && assistantOpen && <AssistantPanel
+          api={api}
+          residentName={server?.resident.displayName ?? ""}
+          disabled={pending || !jwt || !ui.apiReachable}
+          onHelpStaff={() => void helpStaff()}
+          helpStatus={helpStatus}
+          contacts={contacts}
+          selectedContactId={selectedContactId}
+          onSelectContact={setSelectedContactId}
+          onCallNow={(contactUserId) => void callNow(contactUserId)}
+          onClose={() => setAssistantOpen(false)}
+        />}
         {screen === "visit_calendar" && calendar}
         {screen === "incoming" && <Incoming callerName={callerName} onAnswer={() => action("answer")} onDecline={() => action("decline")} disabled={pending}/>}
         {screen === "in_call" && server?.visit && <InCall api={api} visitId={server.visit.id} callerName={callerName} active={server.visit.state === "active"} onConnected={() => void reportCall(server.visit!.id, "connected")} onLost={() => void reportCall(server.visit!.id, "connection_lost")} onEnd={() => action("end")} onLocalState={setLocal} disabled={pending || server.visit.state !== "active"}/>}
@@ -270,6 +285,6 @@ export function App({ apiBase }: { apiBase: string }) {
         {screen === "settings" && <Settings api={api} requirePin={deviceToken !== null} currentToken={deviceToken} pinGuard={pinGuard.current} onSaveToken={(token) => void saveToken(token)} onBack={() => { setDismissed(null); setError(false); setUi((value) => ({ ...value, settingsOpen: false })); }} onError={() => returnHome(true)}/>}
       </ScreenBoundary>
     </main>
-    <HoldToUnlock onUnlock={() => { setError(false); setUi((value) => ({ ...value, settingsOpen: true })); }}/>
+    <HoldToUnlock onHome={returnToCommunicationHome} onUnlock={() => { setError(false); setUi((value) => ({ ...value, settingsOpen: true })); }}/>
   </div>;
 }

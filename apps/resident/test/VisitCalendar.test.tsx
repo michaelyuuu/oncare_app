@@ -2,6 +2,7 @@ import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Api, VisitReservationView, VisitSlot } from "@oncare/web-common";
+import "../src/styles.css";
 import { VisitReservationCard } from "../src/components/VisitReservationCard";
 import { VisitCalendar } from "../src/screens/VisitCalendar";
 
@@ -120,4 +121,27 @@ test("shows the five-minute pending countdown and reservation actions", async ()
   expect(screen.getByRole("status")).toHaveTextContent("05:00");
   fireEvent.click(screen.getByRole("button", { name: "Confirm time" }));
   await waitFor(() => expect(post).toHaveBeenCalledWith("/visit-reservations/reservation-1/confirm", {}));
+});
+
+test("keeps the resident date rail bounded and vertically scrollable", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-22T00:00:00.000Z"));
+  const api = { get: vi.fn().mockResolvedValue({ timeZone: "Asia/Taipei", slots: [] }) } as unknown as Api;
+  const { container } = render(<VisitCalendar
+    api={api}
+    residentId="resident-1"
+    timeZone="Asia/Taipei"
+    contacts={[]}
+    reservations={[]}
+    onClose={vi.fn()}
+    onChanged={vi.fn()}
+  />);
+
+  const dateRail = screen.getByRole("navigation", { name: "Visit dates" });
+  const rail = container.querySelector(".visit-calendar__rail");
+  expect(dateRail.querySelectorAll(".visit-date-rail__day")).toHaveLength(14);
+  expect(rail).not.toBeNull();
+  expect(getComputedStyle(rail!).maxHeight).toBe("calc(100dvh - 150px)");
+  expect(getComputedStyle(dateRail).overflowY).toBe("auto");
+  expect(getComputedStyle(dateRail).flexGrow).toBe("1");
 });

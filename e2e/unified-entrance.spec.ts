@@ -13,7 +13,7 @@ test("manager navigation does not grant facility administration", async ({ page 
   await expect(page.getByRole("heading", { name: /manager/i })).toBeVisible();
 
   await page.getByLabel("Username").fill("staff");
-  await page.getByLabel("Password").fill("staff-demo-pass");
+  await page.getByLabel("Password").fill("1234");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   for (const destination of ["Laundry", "Residents", "Family links", "People", "Devices"])

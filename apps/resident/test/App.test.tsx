@@ -23,7 +23,7 @@ beforeEach(() => {
     callCallbacks = callbacks;
     return { setVolume: vi.fn(), setMic: vi.fn(), setCamera: vi.fn(), localVideoElement: () => null, leave: leaveCall };
   });
-  localStorage.setItem("oncare.deviceToken", "device-demo-token");
+  localStorage.setItem("oncare.deviceToken", "1234");
   vi.stubGlobal("WebSocket", Socket);
   vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak: vi.fn() });
   vi.stubGlobal("SpeechSynthesisUtterance", class { constructor(public text: string) {} });
@@ -109,6 +109,20 @@ test("resident can start a video call after choosing an approved contact", async
   fireEvent.click(screen.getByRole("button", { name: "Call now" }));
   await waitFor(() => expect(calls).toContain("/visits/now"));
 });
+test("bottom-left home control returns from Talk and the visit calendar", async () => {
+  render(<App apiBase="http://api"/>);
+  await screen.findByText("Tap anywhere to talk");
+  fireEvent.click(screen.getByRole("button", { name: "Talk to Ontaru" }));
+  expect(await screen.findByRole("button", { name: "Stop listening" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Home; hold 3 seconds for staff settings" }));
+  expect(await screen.findByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("radio", { name: /Amy/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Schedule a visit" }));
+  expect(await screen.findByTestId("resident-visit-calendar")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Home; hold 3 seconds for staff settings" }));
+  expect(await screen.findByRole("button", { name: "Talk to Ontaru" })).toBeInTheDocument();
+});
+
 test("delivery arrived shows the item and receipt posts before refreshing", async () => {
   state = { ...state, screen: "delivery_arrived", task: { id: "t1", state: "placing", item: { id: "water_bottle", label: "water bottle" } } };
   render(<App apiBase="http://api"/>);
@@ -127,10 +141,10 @@ test("failed delivery receipt uses the kiosk error fallback", async () => {
 });
 test("first setup skips PIN, saving exits settings and boots auth", async () => {
   localStorage.clear(); render(<App apiBase="http://api"/>);
-  fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "device-demo-token" } });
+  fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "1234" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText("Tap anywhere to talk")).toBeInTheDocument();
-  expect(localStorage.getItem("oncare.deviceToken")).toBe("device-demo-token");
+  expect(localStorage.getItem("oncare.deviceToken")).toBe("1234");
 });
 test("failed fetch displays home content and reconnecting feedback", async () => {
   failState = true; render(<App apiBase="http://api"/>);
@@ -160,7 +174,11 @@ test("a mistyped first token is never persisted and setup remains recoverable", 
   fireEvent.change(screen.getByLabelText("Device token"), { target: { value: "typo" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Please try again"); expect(localStorage.getItem("oncare.deviceToken")).toBeNull();
-  fireEvent.keyDown(screen.getByRole("button", { name: "Hold for staff settings" }), { key: "Enter" });
+  vi.useFakeTimers();
+  const settingsButton = screen.getByRole("button", { name: "Home; hold 3 seconds for staff settings" });
+  fireEvent.keyDown(settingsButton, { key: "Enter" });
+  await act(async () => vi.advanceTimersByTimeAsync(3000));
+  fireEvent.keyUp(settingsButton, { key: "Enter" });
   expect(screen.getByLabelText("Device token")).toBeInTheDocument();
 });
 test("events refetch immediately and older state responses cannot overwrite newer ones", async () => {

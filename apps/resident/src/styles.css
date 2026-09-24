@@ -618,6 +618,23 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   background: rgb(255 248 238 / 88%);
   box-shadow: 0 14px 30px rgb(95 65 48 / 10%);
 }
+.communication-call-panel {
+  position: absolute;
+  z-index: 6;
+  top: 72px;
+  right: 24px;
+  width: min(42vw, 430px);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgb(203 183 166 / 78%);
+  border-radius: 20px;
+  background: rgb(255 248 238 / 94%);
+  box-shadow: 0 14px 30px rgb(95 65 48 / 14%);
+}
+.communication-call-panel .visit-contact-picker__options { display: grid; }
+.communication-call-panel .visit-contact { width: 100%; }
+.communication-call-panel .communication-solid { width: 100%; }
 .communication-meeting-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .communication-meeting-actions .communication-ghost { min-height: 52px; padding: 10px 14px; }
 .communication-call-now { color: #8b4e23; border-color: #e0aa63; }
@@ -680,6 +697,8 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
   margin: 0 auto;
 }
 .visit-calendar__rail {
+  min-height: 0;
+  max-height: calc(100dvh - 150px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -691,7 +710,7 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
 .visit-calendar__rail .visit-contact-picker { padding: 0 0 10px; border-bottom: 1px solid #eadacf; }
 .visit-calendar__rail .visit-contact-picker__options { display: grid; }
 .visit-calendar__rail .visit-contact { width: 100%; }
-.visit-date-rail { display: grid; gap: 8px; overflow: auto; align-content: start; }
+.visit-date-rail { flex: 1 1 0; min-height: 0; display: grid; gap: 8px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; align-content: start; }
 .visit-date-rail__day {
   display: flex;
   align-items: center;
@@ -768,6 +787,7 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
 
 @media (max-width: 820px) {
   .communication-zone-meeting { top: 62px; right: 16px; width: min(58vw, 390px); }
+  .communication-call-panel { top: 62px; right: 16px; width: min(58vw, 390px); }
   .visit-calendar { padding: 18px 16px; }
   .visit-calendar__body { grid-template-columns: 210px minmax(0, 1fr); gap: 14px; }
   .visit-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -776,11 +796,12 @@ input { min-width: 0; width: 100%; min-height: 72px; border: 2px solid #728879; 
 }
 @media (max-width: 700px) {
   .communication-zone-meeting { top: 58px; right: 16px; left: 16px; width: auto; }
+  .communication-call-panel { top: 58px; right: 16px; left: 16px; width: auto; }
   .communication-meeting-actions { grid-template-columns: 1fr 1fr; }
   .visit-calendar__header { align-items: flex-start; }
   .visit-calendar__body { grid-template-columns: 1fr; }
-  .visit-calendar__rail { padding: 12px; }
-  .visit-date-rail { display: flex; overflow-x: auto; }
+  .visit-calendar__rail { padding: 12px; max-height: none; }
+  .visit-date-rail { flex: 0 0 auto; display: flex; overflow-x: auto; overflow-y: hidden; }
   .visit-date-rail__day { min-width: 150px; }
   .visit-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
